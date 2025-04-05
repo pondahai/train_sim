@@ -1,6 +1,7 @@
 # train_sim
 
 # 簡易 3D 電車模擬器
+![image](https://github.com/user-attachments/assets/e89506e2-60c3-459b-9e11-f66cd7339f8b)
 
 這是一個使用 OpenGL 和 Pygame 開發的簡易 3D 電車模擬器。您可以控制電車的速度，並觀察其在軌道上的運行。
 
