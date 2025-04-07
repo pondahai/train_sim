@@ -3,7 +3,9 @@
 # 簡易 3D 電車模擬器
 ![image](https://github.com/user-attachments/assets/62961ccb-aef0-4ac3-bd27-bc2bce40b4dc)
 
-這是一個使用 Python、Pygame 和 PyOpenGL 建立的基礎 3D 電車模擬器。使用者可以在一個由 `scene.txt` 文件定義的 3D 環境中駕駛電車。
+這是一個使用 Python、Pygame 和 PyOpenGL 建立的基礎 3D 電車模擬器。  
+使用者可以在一個由 `scene.txt` 文件定義的 3D 環境中駕駛電車。  
+全程用gemini-2.5-pro vibe coding完成  
 
 ## 功能特色
 
