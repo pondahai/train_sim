@@ -15,7 +15,7 @@ from camera import Camera
 from tram import Tram
 
 # --- 設定 ---
-SCREEN_WIDTH = 1280
+SCREEN_WIDTH = 1024
 SCREEN_HEIGHT = 720
 TARGET_FPS = 60
 SCENE_CHECK_INTERVAL = 2.0 # 秒，檢查 scene.txt 更新的頻率
@@ -31,7 +31,7 @@ def main():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), DOUBLEBUF | OPENGL)
     pygame.display.set_caption("簡易 3D 電車模擬器")
     pygame.mouse.set_visible(False) # 隱藏系統滑鼠指標
-    pygame.event.set_grab(True)     # 鎖定滑鼠在視窗內
+    pygame.event.set_grab(False)     # 鎖定滑鼠在視窗內
 
     # --- 載入字體 ---
     try:

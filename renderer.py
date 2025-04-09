@@ -457,29 +457,40 @@ def draw_scene_objects(scene):
     for obj_data in scene.buildings:
         obj_type, x, y, z, rx, ry, rz, w, d, h, tex_id = obj_data
         glPushMatrix()
+        
         glTranslatef(x, y, z)
-        glRotatef(rx, 1, 0, 0)
         glRotatef(ry, 0, 1, 0)
+        glRotatef(rx, 1, 0, 0)
         glRotatef(rz, 0, 0, 1)
+        
+        
+        
         # 根據需要設置顏色
         glColor3f(0.8, 0.8, 0.8)
-        draw_cube(w, d, h, tex_id)
+#         draw_cube_centered(w, d, h, tex_id) # 使用新的繪製函數
+        draw_cube(w, d, h, tex_id) # 使用新的繪製函數
         glPopMatrix()
 
     # 繪製圓柱體
     for obj_data in scene.cylinders:
         obj_type, x, y, z, rx, ry, rz, radius, h, tex_id = obj_data
         glPushMatrix()
+        
+        
         glTranslatef(x, y, z)
          # GLU 圓柱體沿 Z 軸繪製，標準情況下我們需要它豎直 (沿Y)
         glRotatef(-90, 1, 0, 0) # 先旋轉使其沿 Y 軸
         # 然後應用場景檔案中定義的旋轉
-        glRotatef(rx, 1, 0, 0) # 這個 X 軸是旋轉後的
         glRotatef(ry, 0, 1, 0) # 這個 Y 軸是旋轉後的
+        glRotatef(rx, 1, 0, 0) # 這個 X 軸是旋轉後的
         glRotatef(rz, 0, 0, 1) # 這個 Z 軸是旋轉後的
+        
+        
+        
         # 根據需要設置顏色
         glColor3f(0.7, 0.7, 0.7)
-        draw_cylinder(radius, h, tex_id)
+#        draw_cylinder_y_up_centered(radius, h, tex_id) # 使用新的繪製函數
+        draw_cylinder(radius, h, tex_id) # 使用新的繪製函數
         glPopMatrix()
 
 
@@ -553,7 +564,9 @@ def draw_tram_cab(tram, camera):
     glColor3f(0.5, 0.5, 0.5)
     glPushMatrix()
     glTranslatef(0, -platform_height, -platform_length / 2 + cab_depth/2) # 平台中心稍微靠後
+#     draw_cube_centered(platform_width, platform_length, platform_height)
     draw_cube(platform_width, platform_length, platform_height)
+    
     # 修改為居中放置:
 #     glTranslatef(0, -platform_height, 0) # 將平台中心 Z 設為 0 (與駕駛艙中心一致)
 #     draw_cube(platform_width, platform_length, platform_height)
@@ -606,7 +619,9 @@ def draw_tram_cab(tram, camera):
     glTranslatef(0, dash_pos_y, dash_pos_z)
     # 稍微傾斜一點方便觀看
     glRotatef(-15, 1, 0, 0)
+#     draw_cube_centered(cab_width * 0.95, dash_depth, dash_height) # 畫儀表板方塊
     draw_cube(cab_width * 0.95, dash_depth, dash_height) # 畫儀表板方塊
+    
     glPopMatrix() # 恢復儀表板變換
 
     # --- 繪製儀表和操作桿 (在儀表板表面) ---
@@ -1206,3 +1221,99 @@ def draw_coordinates(tram_position, screen_width, screen_height):
     glPopMatrix()
     glMatrixMode(GL_MODELVIEW)
     glPopMatrix()
+    
+def test_draw_cube_centered(width, depth, height, texture_id=None):
+    """繪製一個以原點 (0,0,0) 為中心的立方體"""
+    if texture_id is not None:
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        glEnable(GL_TEXTURE_2D)
+    else:
+        glDisable(GL_TEXTURE_2D)
+
+    w2, d2, h2 = width / 2.0, depth / 2.0, height / 2.0 # 半尺寸
+
+    # glColor3f(0.8, 0.8, 0.8) # 顏色可以在外部設置
+
+    glBegin(GL_QUADS)
+    # Bottom face (Y=-h2)
+    glNormal3f(0, -1, 0)
+    glTexCoord2f(1, 1); glVertex3f( w2, -h2, -d2)
+    glTexCoord2f(0, 1); glVertex3f(-w2, -h2, -d2)
+    glTexCoord2f(0, 0); glVertex3f(-w2, -h2,  d2)
+    glTexCoord2f(1, 0); glVertex3f( w2, -h2,  d2)
+    # Top face (Y=h2)
+    glNormal3f(0, 1, 0)
+    glTexCoord2f(1, 1); glVertex3f( w2, h2,  d2)
+    glTexCoord2f(0, 1); glVertex3f(-w2, h2,  d2)
+    glTexCoord2f(0, 0); glVertex3f(-w2, h2, -d2)
+    glTexCoord2f(1, 0); glVertex3f( w2, h2, -d2)
+    # Front face (Z=d2)
+    glNormal3f(0, 0, 1)
+    glTexCoord2f(1, 1); glVertex3f( w2,  h2, d2)
+    glTexCoord2f(0, 1); glVertex3f(-w2,  h2, d2)
+    glTexCoord2f(0, 0); glVertex3f(-w2, -h2, d2)
+    glTexCoord2f(1, 0); glVertex3f( w2, -h2, d2)
+    # Back face (Z=-d2)
+    glNormal3f(0, 0, -1)
+    glTexCoord2f(1, 1); glVertex3f( w2, -h2, -d2)
+    glTexCoord2f(0, 1); glVertex3f(-w2, -h2, -d2)
+    glTexCoord2f(0, 0); glVertex3f(-w2,  h2, -d2)
+    glTexCoord2f(1, 0); glVertex3f( w2,  h2, -d2)
+    # Left face (X=-w2)
+    glNormal3f(-1, 0, 0)
+    glTexCoord2f(1, 1); glVertex3f(-w2,  h2,  d2)
+    glTexCoord2f(0, 1); glVertex3f(-w2,  h2, -d2)
+    glTexCoord2f(0, 0); glVertex3f(-w2, -h2, -d2)
+    glTexCoord2f(1, 0); glVertex3f(-w2, -h2,  d2)
+    # Right face (X=w2)
+    glNormal3f(1, 0, 0)
+    glTexCoord2f(1, 1); glVertex3f( w2,  h2, -d2)
+    glTexCoord2f(0, 1); glVertex3f( w2,  h2,  d2)
+    glTexCoord2f(0, 0); glVertex3f( w2, -h2,  d2)
+    glTexCoord2f(1, 0); glVertex3f( w2, -h2, -d2)
+    glEnd()
+
+    glBindTexture(GL_TEXTURE_2D, 0)
+    glEnable(GL_TEXTURE_2D) # 恢復默認啟用狀態
+
+def test_draw_cylinder_y_up_centered(radius, height, texture_id=None, slices=CYLINDER_SLICES):
+    """繪製一個以原點(0,0,0)為中心，沿 Y 軸的圓柱體"""
+    if texture_id is not None:
+         glBindTexture(GL_TEXTURE_2D, texture_id)
+         glEnable(GL_TEXTURE_2D)
+    else:
+         glDisable(GL_TEXTURE_2D)
+
+    quadric = gluNewQuadric()
+    gluQuadricTexture(quadric, GL_TRUE)
+    gluQuadricNormals(quadric, GLU_SMOOTH) # 使用平滑法線
+
+    half_height = height / 2.0
+
+    glPushMatrix()
+    # GLU 圓柱體默認沿 Z 軸繪製，我們先將其旋轉使其沿 Y 軸
+    glRotatef(-90, 1, 0, 0)
+    # GLU 圓柱體底部在 z=0，頂部在 z=height。我們需要將其中心移到原點。
+    # 因此，沿其自身 Z 軸（旋轉後的 Y 軸方向）平移 -half_height
+    glTranslatef(0, 0, -half_height)
+
+    # 繪製圓柱體側面 (現在從 z=-h/2 到 z=h/2 in rotated frame)
+    gluCylinder(quadric, radius, radius, height, slices, 1)
+
+    # 繪製底部圓盤 (在 z=-h/2 處)
+    # GLU Disk 在 XY 平面繪製。由於我們繞 X 軸旋轉了 -90 度，
+    # 原來的 XY 平面現在是這個坐標系的 XZ 平面，正好是我們需要的方向。
+    gluDisk(quadric, 0, radius, slices, 1) # 在當前原點 (z=-h/2) 繪製
+
+    # 繪製頂部圓盤 (在 z=+h/2 處)
+    glPushMatrix()
+    glTranslatef(0, 0, height) # 沿圓柱體軸移動到頂部 z=+h/2
+    gluDisk(quadric, 0, radius, slices, 1) # 在頂部繪製
+    glPopMatrix()
+
+    glPopMatrix() # 恢復到應用旋轉和平移之前的狀態
+
+    gluDeleteQuadric(quadric)
+    glBindTexture(GL_TEXTURE_2D, 0)
+    glEnable(GL_TEXTURE_2D) # 恢復    
+    
