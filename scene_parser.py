@@ -52,12 +52,12 @@ def parse_scene_file(filepath):
     # --- State for track building ---
     # current_pos/angle track the END of the last segment, ready for the NEXT segment
     current_pos = np.array([0.0, 0.0, 0.0], dtype=float)
-    current_angle_rad = 0.0 # Default angle is 0 (along +X axis) as per common convention
+    current_angle_rad = 0 # Default angle is 0 (along +X axis) as per common convention
 
     # --- State for relative object placement ---
     # relative_origin_pos/angle track the START of the segment PRECEDING the object
     relative_origin_pos = np.array([0.0, 0.0, 0.0], dtype=float)
-    relative_origin_angle_rad = 0.0 # Default 0 angle
+    relative_origin_angle_rad = 0.5*math.pi # Default 0 angle
 
     start_cmd_found = False # Flag to store if start was explicitly set
 
@@ -199,9 +199,9 @@ def parse_scene_file(filepath):
                         origin_angle = relative_origin_angle_rad
                         cos_a = math.cos(origin_angle)
                         sin_a = math.sin(origin_angle)
-                        world_offset_x = rel_x * cos_a + rel_z * sin_a
+                        world_offset_x = rel_z * cos_a + rel_x * sin_a
                         world_offset_y = rel_y
-                        world_offset_z = rel_x * sin_a - rel_z * cos_a
+                        world_offset_z = rel_z * sin_a - rel_x * cos_a
                         world_x = relative_origin_pos[0] + world_offset_x
                         world_y = relative_origin_pos[1] + world_offset_y
                         world_z = relative_origin_pos[2] + world_offset_z
