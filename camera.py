@@ -4,8 +4,9 @@ import numpy as np
 from OpenGL.GLU import gluLookAt
 
 # 攝影機相對於電車中心的位置 (駕駛艙視角)
-CAMERA_OFFSET_Y = 2.6  # 高度
-CAMERA_OFFSET_Z = 0.5  # 稍微向前一點
+CAMERA_OFFSET_Y = 2.7  # 高度
+CAMERA_OFFSET_Z = -0.5  # 稍微向前一點
+CAMERA_OFFSET_X = 1.0  # <-- 新增：向左偏移的距離 (單位)
 
 class Camera:
     def __init__(self):
@@ -41,15 +42,30 @@ class Camera:
         # tram_forward_xz 是 (forward_x, forward_z)
         # 構建水平朝向的 3D 向量
         forward_3d_horizontal = np.array([tram_forward_xz[0], 0.0, tram_forward_xz[1]])
-        forward_3d_horizontal /= np.linalg.norm(forward_3d_horizontal) # 確保單位化
+        forward_norm = np.linalg.norm(forward_3d_horizontal)
+        if forward_norm > 1e-6:
+            forward_3d_horizontal /= forward_norm # 確保單位化
+        else:
+            forward_3d_horizontal = np.array([0.0, 0.0, 1.0]) # 預設朝向 Z+
 
         # 基礎 up 向量 (仍然是世界 Y 軸，假設相機平台不隨坡度傾斜)
         base_up = np.array([0.0, 1.0, 0.0])
+        # --- 計算左方向向量 ---
+        # "右" = "前" x "上" (叉乘)
+        right_vector = np.cross(forward_3d_horizontal, base_up)
+        # 不需要手動標準化 right_vector，因為 forward 和 up 都是單位向量且正交
+        # "左" = -"右"
+        left_vector = -right_vector
+        
         # 計算基礎位置 (考慮偏移量)
         # tram_pos_3d 是電車在軌道上的 3D 點
         # 垂直偏移應用 base_up
         # 水平偏移應用 forward_3d_horizontal
-        self.base_position = tram_pos_3d + base_up * CAMERA_OFFSET_Y + forward_3d_horizontal * CAMERA_OFFSET_Z
+        # 計算最終基礎位置 (考慮所有偏移量)
+        self.base_position = (tram_pos_3d
+                             + base_up * CAMERA_OFFSET_Y               # 垂直偏移
+                             + forward_3d_horizontal * CAMERA_OFFSET_Z # 前後偏移
+                             + left_vector * CAMERA_OFFSET_X)          # <--- 新增：向左偏移
         
         # 基礎朝向仍然是水平的 (除非你想讓相機隨坡度自動俯仰)
         self.base_forward = forward_3d_horizontal

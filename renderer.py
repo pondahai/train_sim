@@ -507,15 +507,15 @@ def draw_tram_cab(tram, camera):
     # 但它的位置和旋轉由電車決定
 
     # --- 駕駛艙的簡單幾何結構 ---
-    cab_width = 1.8
-    cab_height = 2
-    cab_depth = 4 # 駕駛艙前後深度
+    cab_width = 3
+    cab_height = 1
+    cab_depth = 2 # 駕駛艙前後深度
 
     # --- 儀表板參數 ---
     dash_height = 0.6
     dash_depth = 0.3
-    dash_pos_y = 1.6 # 儀表板離地高度
-    dash_pos_z = -2 # 儀表板在駕駛艙內的前後位置 (相對於駕駛艙中心)
+    dash_pos_y = 1.5 # 儀表板離地高度
+    dash_pos_z = -1 # 儀表板在駕駛艙內的前後位置 (相對於駕駛艙中心)
 
     # --- 儀表 ---
     speedo_radius = 0.15
@@ -587,30 +587,71 @@ def draw_tram_cab(tram, camera):
     glBegin(GL_QUADS)
     # Floor
     glNormal3f(0, 1, 0);
-    glVertex3f(-cab_width/2, 0, -cab_depth/2)
-    glVertex3f( cab_width/2, 0, -cab_depth/2)
-    glVertex3f( cab_width/2, 0,  cab_depth/2)
-    glVertex3f(-cab_width/2, 0,  cab_depth/2)
-    # Back wall
+    glVertex3f(-cab_width/2, 1, -cab_depth/2)
+    glVertex3f( cab_width/2, 1, -cab_depth/2)
+    glVertex3f( cab_width/2, 1,  cab_depth/2)
+    glVertex3f(-cab_width/2, 1,  cab_depth/2)
+    # head wall
     glNormal3f(0, 0, -1);
-    glVertex3f(-cab_width/2, cab_height, -cab_depth/2)
-    glVertex3f( cab_width/2, cab_height, -cab_depth/2)
-    glVertex3f( cab_width/2, 0,          -cab_depth/2)
-    glVertex3f(-cab_width/2, 0,          -cab_depth/2)
+    glVertex3f(-cab_width/2, 1 + cab_height, -cab_depth/2)
+    glVertex3f( cab_width/2, 1 + cab_height, -cab_depth/2)
+    glVertex3f( cab_width/2, 1,          -cab_depth/2)
+    glVertex3f(-cab_width/2, 1,          -cab_depth/2)
     # Left wall
     glNormal3f(-1, 0, 0);
-    glVertex3f(-cab_width/2, cab_height,  cab_depth/2)
-    glVertex3f(-cab_width/2, cab_height, -cab_depth/2)
-    glVertex3f(-cab_width/2, 0,          -cab_depth/2)
-    glVertex3f(-cab_width/2, 0,           cab_depth/2)
+    glVertex3f(-cab_width/2, 1 + cab_height,  cab_depth/2)
+    glVertex3f(-cab_width/2, 1 + cab_height, -cab_depth/2)
+    glVertex3f(-cab_width/2, 1,          -cab_depth/2)
+    glVertex3f(-cab_width/2, 1,           cab_depth/2)
     # Right wall
     glNormal3f(1, 0, 0);
-    glVertex3f( cab_width/2, cab_height, -cab_depth/2)
-    glVertex3f( cab_width/2, cab_height,  cab_depth/2)
-    glVertex3f( cab_width/2, 0,           cab_depth/2)
-    glVertex3f( cab_width/2, 0,          -cab_depth/2)
-    glEnd()
+    glVertex3f( cab_width/2, 1 + cab_height, -cab_depth/2)
+    glVertex3f( cab_width/2, 1 + cab_height,  cab_depth/2)
+    glVertex3f( cab_width/2, 1,           cab_depth/2)
+    glVertex3f( cab_width/2, 1,          -cab_depth/2)
+    # back wall
+    glNormal3f(0, 0, 1);
+    glVertex3f(-cab_width/2, 1 + cab_height + 1, cab_depth/2)
+    glVertex3f( cab_width/2, 1 + cab_height + 1, cab_depth/2)
+    glVertex3f( cab_width/2, 1,          cab_depth/2)
+    glVertex3f(-cab_width/2, 1,          cab_depth/2)
+    # top 
+    glNormal3f(0, 1, 0);
+    glVertex3f(-cab_width/2, 1 + cab_height + 1, -cab_depth/2)
+    glVertex3f( cab_width/2, 1 + cab_height + 1, -cab_depth/2)
+    glVertex3f( cab_width/2, 1 + cab_height + 1,  cab_depth/2)
+    glVertex3f(-cab_width/2, 1 + cab_height + 1,  cab_depth/2)
+    # middle front wall
+    glNormal3f(0, 0, -1);
+    glVertex3f(-cab_width/5, 1 + cab_height + 1, -cab_depth/2)
+    glVertex3f( cab_width/5, 1 + cab_height + 1, -cab_depth/2)
+    glVertex3f( cab_width/5, 1 + cab_height,          -cab_depth/2)
+    glVertex3f(-cab_width/5, 1 + cab_height,          -cab_depth/2)
+    # left A-pillar
+    glNormal3f(0, 0, -1);
+    glVertex3f(-cab_width/2, 1 + cab_height + 1, -cab_depth/2)
+    glVertex3f(-cab_width/2 + 0.1, 1 + cab_height + 1, -cab_depth/2)
+    glVertex3f(-cab_width/2 + 0.1, 1 + cab_height, -cab_depth/2)
+    glVertex3f(-cab_width/2, 1 + cab_height, -cab_depth/2)
+    glNormal3f(-1, 0, 0);
+    glVertex3f(-cab_width/2, 1 + cab_height + 1,  -cab_depth/2 + 0.5)
+    glVertex3f(-cab_width/2, 1 + cab_height + 1, -cab_depth/2)
+    glVertex3f(-cab_width/2, 1 + cab_height, -cab_depth/2)
+    glVertex3f(-cab_width/2, 1 + cab_height, -cab_depth/2 + 0.5)
+    
+    # right B-pillar
+    glNormal3f(0, 0, -1);
+    glVertex3f(cab_width/2, 1 + cab_height + 1, -cab_depth/2)
+    glVertex3f(cab_width/2 - 0.1, 1 + cab_height + 1, -cab_depth/2)
+    glVertex3f(cab_width/2 - 0.1, 1 + cab_height, -cab_depth/2)
+    glVertex3f(cab_width/2, 1 + cab_height, -cab_depth/2)    
+    glNormal3f(1, 0, 0);
+    glVertex3f( cab_width/2, 1 + cab_height + 1, -cab_depth/2 + 0.5)
+    glVertex3f( cab_width/2, 1 + cab_height + 1,  -cab_depth/2)
+    glVertex3f( cab_width/2, 1 + cab_height,           -cab_depth/2)
+    glVertex3f( cab_width/2, 1 + cab_height,          -cab_depth/2 + 0.5)
 
+    glEnd()
 
     # 繪製儀表板
     glColor3fv(DASHBOARD_COLOR)
