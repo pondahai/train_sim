@@ -13,7 +13,7 @@ class Camera:
         self.yaw = 0.0   # 水平角度 (繞 Y 軸)
         self.pitch = 0.0 # 垂直角度 (繞 X 軸)
         self.mouse_sensitivity = 0.1
-        self.mouse_locked = True
+        self.mouse_locked = False
         self.max_pitch = 89.0
         self.min_pitch = -89.0
 
@@ -24,7 +24,7 @@ class Camera:
 
     def update_angles(self, dx, dy):
         """根據滑鼠移動更新視角角度"""
-        if not self.mouse_locked:
+        if self.mouse_locked:
             self.yaw -= dx * self.mouse_sensitivity
             self.pitch -= dy * self.mouse_sensitivity # Y 軸反轉
 

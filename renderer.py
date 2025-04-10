@@ -28,8 +28,9 @@ DEFAULT_MINIMAP_RANGE = 300.0 # 小地圖預設顯示的世界單位範圍
 MINIMAP_MIN_RANGE = 50.0      # <-- 新增：最小縮放範圍 (放大極限)
 MINIMAP_MAX_RANGE = 1000.0    # <-- 新增：最大縮放範圍 (縮小極限)
 MINIMAP_ZOOM_FACTOR = 1.1     # <-- 新增：每次縮放的比例因子
+MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Use if no map image specified or fails to load
 MINIMAP_BG_COLOR = (0.2, 0.2, 0.2, 0.7) # 背景顏色 (RGBA)
-MINIMAP_TRACK_COLOR = (0.0, 0.0, 0.0) # 軌道顏色 (黑色)
+MINIMAP_TRACK_COLOR = (1.0, 0.0, 0.0) # 軌道顏色 ()
 MINIMAP_BUILDING_COLOR = (0.6, 0.4, 0.2) # 建築顏色 (棕色)
 MINIMAP_CYLINDER_COLOR = (0.6, 0.4, 0.2) # Use same color for cylinders for now
 MINIMAP_TILTED_CYLINDER_BOX_SIZE_FACTOR = 1.0 # Factor to scale the tilted box size (relative to max(radius, height/2))
@@ -42,40 +43,24 @@ MINIMAP_GRID_COLOR = (1.0, 1.0, 1.0, 0.3) # 網格線顏色 (淡白色)
 MINIMAP_GRID_LABEL_COLOR = (255, 255, 255, 180) # 網格標籤顏色 (稍亮的白色)
 MINIMAP_GRID_LABEL_FONT_SIZE = 12 # 網格標籤字體大小
 MINIMAP_GRID_LABEL_OFFSET = 2 # 標籤離地圖邊緣的像素距離
-# --- 新增：Minimap 背景圖相關 ---
-MINIMAP_BACKGROUND_IMAGE_FILE = "map.png"
-MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Use if image fails to load
+
+# --- REMOVED Hardcoded map file and world coordinate constants ---
+# MINIMAP_BACKGROUND_IMAGE_FILE = "map.png"
+# MAP_IMAGE_WORLD_X_MIN = -500.0
+# ... and others ...
+
+# --- NEW: Globals for managing the current map texture ---
+current_map_filename_rendered = None # Keep track of the filename associated with the texture ID
 minimap_bg_texture_id = None # Store the loaded texture ID
-minimap_bg_aspect_ratio = 1.0 # Store aspect ratio for correct tex coords
-minimap_bg_image_width_px = 0 # Store image pixel width
-minimap_bg_image_height_px = 0 # Store image pixel height
-# --- Minimap 背景圖 與 世界座標 的映射關係 (由圖片解析度決定) ---
-# 將由 _load_minimap_texture 計算並填充
-map_image_world_x_min = 0.0
-map_image_world_z_min = 0.0
-map_image_world_x_max = 0.0
-map_image_world_z_max = 0.0
-map_image_world_width = 0.0  # 世界單位寬度 (等於圖片像素寬度)
-map_image_world_height = 0.0 # 世界單位高度 (等於圖片像素高度)
+minimap_bg_image_width_px = 0 # Store loaded image pixel width
+minimap_bg_image_height_px = 0 # Store loaded image pixel height
 
-# --- 新增：Minimap 背景圖 與 世界座標 的映射關係 ---
-# 這些值需要根據你的 map.png 實際代表的世界範圍來設定
-# 假設 map.png 的左下角對應世界座標 (X_MIN, Z_MIN)
-# 假設 map.png 的右上角對應世界座標 (X_MAX, Z_MAX)
-MAP_IMAGE_WORLD_X_MIN = -500.0
-MAP_IMAGE_WORLD_Z_MIN = -500.0
-MAP_IMAGE_WORLD_X_MAX = 500.0
-MAP_IMAGE_WORLD_Z_MAX = 500.0
-# 從邊界計算寬度和高度 (避免除以零)
-MAP_IMAGE_WORLD_WIDTH = MAP_IMAGE_WORLD_X_MAX - MAP_IMAGE_WORLD_X_MIN if MAP_IMAGE_WORLD_X_MAX > MAP_IMAGE_WORLD_X_MIN else 1.0
-MAP_IMAGE_WORLD_HEIGHT = MAP_IMAGE_WORLD_Z_MAX - MAP_IMAGE_WORLD_Z_MIN if MAP_IMAGE_WORLD_Z_MAX > MAP_IMAGE_WORLD_Z_MIN else 1.0
-
-# --- 全域 HUD 字體 --- <-- 新增
+# --- 全域 HUD 字體 ---
 hud_display_font = None
 # --- 新增：網格標籤字體 ---
 grid_label_font = None
 
-# --- 坐標顯示參數 --- <-- 新增
+# --- 坐標顯示參數 ---
 COORD_PADDING_X = 10 # 左邊距
 COORD_PADDING_Y = 10 # 上邊距 (從頂部算)
 COORD_TEXT_COLOR = (255, 255, 255, 255) # 文字顏色 (RGBA - 白色)
@@ -127,18 +112,20 @@ def set_hud_font(font):
 def _load_minimap_texture(filename):
     """載入 Minimap 背景紋理，並根據其解析度計算世界座標範圍"""
     global minimap_bg_texture_id, minimap_bg_image_width_px, minimap_bg_image_height_px
-    global map_image_world_x_min, map_image_world_z_min
-    global map_image_world_x_max, map_image_world_z_max
-    global map_image_world_width, map_image_world_height
+
+    # Clear previous texture info first
+    if minimap_bg_texture_id is not None and glIsTexture(minimap_bg_texture_id):
+        glDeleteTextures(1, [minimap_bg_texture_id])
+    minimap_bg_texture_id = None
+    minimap_bg_image_width_px = 0
+    minimap_bg_image_height_px = 0
+
+    if filename is None:
+        return None # No filename provided
 
     filepath = os.path.join("textures", filename)
     if not os.path.exists(filepath):
-        print(f"警告: Minimap 背景圖檔案 '{filepath}' 不存在。將使用純色背景。")
-        # Reset world bounds if image removed after initial load? Or keep old ones?
-        # Let's reset them to indicate no valid map image bounds.
-        map_image_world_width = 0.0
-        map_image_world_height = 0.0
-        minimap_bg_texture_id = None # Ensure texture ID is None
+        print(f"警告: Minimap 背景圖檔案 '{filepath}' 不存在。")
         return None
 
     try:
@@ -146,64 +133,85 @@ def _load_minimap_texture(filename):
         texture_data = pygame.image.tostring(surface, "RGBA", True)
         width_px, height_px = surface.get_width(), surface.get_height()
 
-        # --- 計算世界座標範圍 (假設圖片中心對應世界 0,0) ---
+        if width_px <= 0 or height_px <= 0:
+             print(f"警告: Minimap 背景圖 '{filepath}' 寬度或高度無效 ({width_px}x{height_px})。")
+             return None
+
+        # Store dimensions
         minimap_bg_image_width_px = width_px
         minimap_bg_image_height_px = height_px
-
-        # 1 pixel = 1 world unit
-        map_image_world_width = float(width_px)
-        map_image_world_height = float(height_px)
-
-        if map_image_world_width > 0 and map_image_world_height > 0:
-            # 中心點 (0,0)
-            map_image_world_x_min = -map_image_world_width / 2.0
-            map_image_world_x_max = map_image_world_width / 2.0
-            map_image_world_z_min = -map_image_world_height / 2.0 # 圖片 Y 軸對應世界 Z 軸
-            map_image_world_z_max = map_image_world_height / 2.0
-            print(f"Minimap 背景圖世界範圍已計算 (基於中心點 0,0):")
-            print(f"  X: {map_image_world_x_min:.1f} to {map_image_world_x_max:.1f} (寬: {map_image_world_width:.1f})")
-            print(f"  Z: {map_image_world_z_min:.1f} to {map_image_world_z_max:.1f} (高: {map_image_world_height:.1f})")
-        else:
-            print("警告: Minimap 背景圖寬度或高度為 0，無法計算世界範圍。")
-            map_image_world_width = 0.0 # Mark as invalid
-            map_image_world_height = 0.0
-            minimap_bg_texture_id = None # Don't use texture if bounds are invalid
-            return None
-        # -----------------------------------------------------
 
         # --- 載入紋理到 OpenGL ---
         tex_id = glGenTextures(1)
         glBindTexture(GL_TEXTURE_2D, tex_id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE) # Clamp prevents repeating edge pixels
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR) # Linear filtering for zoom
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR) # Linear filtering for shrink
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width_px, height_px, 0,
                      GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
-        glBindTexture(GL_TEXTURE_2D, 0)
+        glBindTexture(GL_TEXTURE_2D, 0) # Unbind
 
         minimap_bg_texture_id = tex_id # Store the valid texture ID
-        print(f"Minimap 背景圖已載入: {filename} (ID: {tex_id})")
+        print(f"Minimap 背景圖已載入: {filename} (ID: {tex_id}, {width_px}x{height_px}px)")
         return tex_id
 
     except Exception as e:
         print(f"載入 Minimap 背景圖 '{filepath}' 時發生錯誤: {e}")
-        map_image_world_width = 0.0 # Mark as invalid on error
-        map_image_world_height = 0.0
-        minimap_bg_texture_id = None
+        minimap_bg_texture_id = None # Ensure ID is None on error
+        minimap_bg_image_width_px = 0
+        minimap_bg_image_height_px = 0
         return None
-    
+
+# --- NEW: Functions to manage map texture based on scene changes ---
+def clear_cached_map_texture():
+    """Called by scene_parser before reloading to reset state."""
+    global current_map_filename_rendered, minimap_bg_texture_id
+    global minimap_bg_image_width_px, minimap_bg_image_height_px
+
+    if minimap_bg_texture_id is not None and glIsTexture(minimap_bg_texture_id):
+         # This deletion might be redundant if texture_loader.clear_texture_cache covers it,
+         # but explicit cleanup here is safer.
+         # glDeleteTextures(1, [minimap_bg_texture_id]) # Let texture_loader handle deletion via cache
+         pass # Assume texture_loader cache clear handles GL deletion
+
+    minimap_bg_texture_id = None
+    current_map_filename_rendered = None
+    minimap_bg_image_width_px = 0
+    minimap_bg_image_height_px = 0
+    print("已清除快取的小地圖紋理狀態。")
+
+
+def update_map_texture(scene):
+    """Loads/unloads the minimap texture based on the current scene's map settings."""
+    global current_map_filename_rendered, minimap_bg_texture_id
+    global minimap_bg_image_width_px, minimap_bg_image_height_px
+
+    target_filename = scene.map_filename # Get filename from the scene object
+
+    if target_filename != current_map_filename_rendered:
+        print(f"偵測到小地圖檔案變更: 從 '{current_map_filename_rendered}' 到 '{target_filename}'")
+        # Load the new texture (or unload if target is None)
+        _load_minimap_texture(target_filename) # This function now handles cleanup and loading
+
+        # Update the cached filename *after* attempting to load
+        current_map_filename_rendered = target_filename
+    #else:
+        #print(f"Minimap file unchanged ('{target_filename}'), skipping texture load.")
+        #pass # No change needed
+
+
 def init_renderer():
     """初始化渲染器，載入常用紋理"""
     global grass_tex, tree_bark_tex, tree_leaves_tex, cab_metal_tex
+    # Load common non-map textures
     grass_tex = texture_loader.load_texture("grass.png")
     tree_bark_tex = texture_loader.load_texture("tree_bark.png")
     tree_leaves_tex = texture_loader.load_texture("tree_leaves.png")
-    cab_metal_tex = texture_loader.load_texture("metal.png") # 假設駕駛艙用金屬紋理
+    cab_metal_tex = texture_loader.load_texture("metal.png") # Assuming cab uses metal texture
 
-    # --- 載入 Minimap 背景紋理 ---
-    _load_minimap_texture(MINIMAP_BACKGROUND_IMAGE_FILE)
-    # -----------------------------
+    # --- REMOVED: Hardcoded loading of minimap background ---
+    # _load_minimap_texture(MINIMAP_BACKGROUND_IMAGE_FILE) # Now handled by update_map_texture
 
     # 設置一些 OpenGL 狀態
     glEnable(GL_DEPTH_TEST)
@@ -221,6 +229,8 @@ def init_renderer():
 
     glEnable(GL_NORMALIZE) # 自動標準化法線
 
+# --- draw_ground, draw_track, draw_cube, draw_cylinder, draw_tree remain the same ---
+# ... (Keep existing drawing functions for ground, track, cube, cylinder, tree) ...
 def draw_ground(show_ground):
     """繪製地面"""
     if not show_ground:
@@ -263,7 +273,7 @@ def draw_track(track_obj):
             pos = segment.points[i]
             orient_xz = segment.orientations[i]
             # 計算垂直於軌道的向量 (right vector)
-            right_vec_xz = np.array([-orient_xz[1], 0, orient_xz[0]])
+            right_vec_xz = np.array([-orient_xz[1], 0, orient_xz[0]]) # Assumes orient_xz is normalized
 
             # 在點 pos 處計算左右道碴點 (高度基於 pos[1])
             p_ballast_left = pos + right_vec_xz * half_ballast_width
@@ -306,224 +316,232 @@ def draw_track(track_obj):
 
 def draw_cube(width, depth, height, texture_id=None):
     """繪製一個立方體，可選紋理"""
-    if texture_id is not None:
+    if texture_id is not None and glIsTexture(texture_id): # Check if texture ID is valid
         glBindTexture(GL_TEXTURE_2D, texture_id)
         glEnable(GL_TEXTURE_2D)
     else:
         glDisable(GL_TEXTURE_2D)
 
-    w, d, h = width / 2.0, depth / 2.0, height # 中心在底部
+    w, d, h = width / 2.0, depth / 2.0, height # 中心在底部 (0, 0, 0), 頂部在 Y=h
 
-    # 為了簡化，這裡只給一個基本顏色，紋理會覆蓋它
-    # glColor3f(0.8, 0.8, 0.8)
+    # glColor3f(0.8, 0.8, 0.8) # Set color outside if needed
 
     glBegin(GL_QUADS)
     # Bottom face (Y=0)
     glNormal3f(0, -1, 0)
-    glTexCoord2f(1, 1); glVertex3f( w, 0, -d)
-    glTexCoord2f(0, 1); glVertex3f(-w, 0, -d)
+    glTexCoord2f(1, 0); glVertex3f( w, 0,  d) # Texture coords might need adjustment depending on image
     glTexCoord2f(0, 0); glVertex3f(-w, 0,  d)
-    glTexCoord2f(1, 0); glVertex3f( w, 0,  d)
+    glTexCoord2f(0, 1); glVertex3f(-w, 0, -d)
+    glTexCoord2f(1, 1); glVertex3f( w, 0, -d)
+
     # Top face (Y=h)
     glNormal3f(0, 1, 0)
-    glTexCoord2f(1, 1); glVertex3f( w, h,  d)
-    glTexCoord2f(0, 1); glVertex3f(-w, h,  d)
-    glTexCoord2f(0, 0); glVertex3f(-w, h, -d)
-    glTexCoord2f(1, 0); glVertex3f( w, h, -d)
+    glTexCoord2f(1, 1); glVertex3f( w, h, -d)
+    glTexCoord2f(0, 1); glVertex3f(-w, h, -d)
+    glTexCoord2f(0, 0); glVertex3f(-w, h,  d)
+    glTexCoord2f(1, 0); glVertex3f( w, h,  d)
+
     # Front face  (Z=d)
     glNormal3f(0, 0, 1)
-    glTexCoord2f(1, 1); glVertex3f( w, h, d)
-    glTexCoord2f(0, 1); glVertex3f(-w, h, d)
-    glTexCoord2f(0, 0); glVertex3f(-w, 0, d)
     glTexCoord2f(1, 0); glVertex3f( w, 0, d)
+    glTexCoord2f(0, 0); glVertex3f(-w, 0, d)
+    glTexCoord2f(0, 1); glVertex3f(-w, h, d)
+    glTexCoord2f(1, 1); glVertex3f( w, h, d)
+
     # Back face (Z=-d)
     glNormal3f(0, 0, -1)
-    glTexCoord2f(1, 1); glVertex3f( w, 0, -d)
-    glTexCoord2f(0, 1); glVertex3f(-w, 0, -d)
-    glTexCoord2f(0, 0); glVertex3f(-w, h, -d)
     glTexCoord2f(1, 0); glVertex3f( w, h, -d)
+    glTexCoord2f(0, 0); glVertex3f(-w, h, -d)
+    glTexCoord2f(0, 1); glVertex3f(-w, 0, -d)
+    glTexCoord2f(1, 1); glVertex3f( w, 0, -d)
+
     # Left face (X=-w)
     glNormal3f(-1, 0, 0)
-    glTexCoord2f(1, 1); glVertex3f(-w, h, d)
-    glTexCoord2f(0, 1); glVertex3f(-w, h, -d)
-    glTexCoord2f(0, 0); glVertex3f(-w, 0, -d)
-    glTexCoord2f(1, 0); glVertex3f(-w, 0, d)
+    glTexCoord2f(1, 0); glVertex3f(-w, 0, -d)
+    glTexCoord2f(0, 0); glVertex3f(-w, 0,  d)
+    glTexCoord2f(0, 1); glVertex3f(-w, h,  d)
+    glTexCoord2f(1, 1); glVertex3f(-w, h, -d)
+
     # Right face (X=w)
     glNormal3f(1, 0, 0)
-    glTexCoord2f(1, 1); glVertex3f( w, h, -d)
-    glTexCoord2f(0, 1); glVertex3f( w, h,  d)
-    glTexCoord2f(0, 0); glVertex3f( w, 0,  d)
-    glTexCoord2f(1, 0); glVertex3f( w, 0, -d)
+    glTexCoord2f(1, 0); glVertex3f( w, 0,  d)
+    glTexCoord2f(0, 0); glVertex3f( w, 0, -d)
+    glTexCoord2f(0, 1); glVertex3f( w, h, -d)
+    glTexCoord2f(1, 1); glVertex3f( w, h,  d)
     glEnd()
 
-    glBindTexture(GL_TEXTURE_2D, 0) # 解除綁定
-    glEnable(GL_TEXTURE_2D)
+    glBindTexture(GL_TEXTURE_2D, 0) # Unbind
+    glEnable(GL_TEXTURE_2D) # Ensure it's enabled afterwards
+
 
 def draw_cylinder(radius, height, texture_id=None):
-    """繪製圓柱體，可選紋理"""
-    if texture_id is not None:
+    """繪製圓柱體，可選紋理. Assumes it's drawn along Z-axis, needs external rotation for Y-up."""
+    if texture_id is not None and glIsTexture(texture_id):
         glBindTexture(GL_TEXTURE_2D, texture_id)
         glEnable(GL_TEXTURE_2D)
     else:
         glDisable(GL_TEXTURE_2D)
 
     quadric = gluNewQuadric()
-    gluQuadricTexture(quadric, GL_TRUE) # 啟用紋理坐標生成
-    gluQuadricNormals(quadric, GLU_SMOOTH) # 平滑法線
+    if quadric: # Check if quadric creation succeeded
+        gluQuadricTexture(quadric, GL_TRUE) # Enable texture coordinates
+        gluQuadricNormals(quadric, GLU_SMOOTH) # Smooth normals
 
-    # 繪製側面
-    gluCylinder(quadric, radius, radius, height, CYLINDER_SLICES, 1)
-    # 繪製底部圓盤
-    glPushMatrix()
-    glRotatef(180, 1, 0, 0) # 翻轉到底部
-    gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1)
-    glPopMatrix()
-    # 繪製頂部圓盤
-    glPushMatrix()
-    glTranslatef(0, 0, height) # 注意：GLU 圓柱體沿 Z 軸繪製，需調整
-    # 但我們通常假設圓柱體沿 Y 軸，所以在外部做旋轉
-    # 這裡假設已在外部旋轉好，繪製在 XY 平面的圓盤
-    # 如果外部沒有做旋轉，這裡需要調整 glTranslatef(0, height, 0)
-    # 並且需要調整外部的 glRotatef 使其豎直
-    gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1)
-    glPopMatrix()
+        # Draw cylinder body (along Z from 0 to height)
+        gluCylinder(quadric, radius, radius, height, CYLINDER_SLICES, 1)
 
-    gluDeleteQuadric(quadric)
-    glBindTexture(GL_TEXTURE_2D, 0)
-    glEnable(GL_TEXTURE_2D)
+        # Draw bottom cap (at Z=0)
+        glPushMatrix()
+        glRotatef(180, 1, 0, 0) # Flip to face inwards for standard culling
+        gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1)
+        glPopMatrix()
+
+        # Draw top cap (at Z=height)
+        glPushMatrix()
+        glTranslatef(0, 0, height)
+        gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1)
+        glPopMatrix()
+
+        gluDeleteQuadric(quadric)
+    else:
+        print("Error creating GLU quadric object for cylinder.")
+
+
+    glBindTexture(GL_TEXTURE_2D, 0) # Unbind
+    glEnable(GL_TEXTURE_2D) # Re-enable
 
 
 def draw_tree(x, y, z, height):
-    """繪製一棵簡單的樹 (圓柱體+球體/圓錐體)"""
+    """繪製一棵簡單的樹 (圓柱體+圓錐體)"""
     trunk_height = height * 0.6
     leaves_height = height * 0.4
-    leaves_y = y + trunk_height
+    # leaves_y = y + trunk_height # Base of leaves
 
     glPushMatrix()
-    glTranslatef(x, y, z)
+    glTranslatef(x, y, z) # Move to tree base position
 
-    # 繪製樹幹 (棕色圓柱體)
-    glColor3f(0.5, 0.35, 0.05) # 樹幹顏色
-    if tree_bark_tex:
+    # --- Draw Trunk ---
+    # glColor3f(0.5, 0.35, 0.05) # Trunk color
+    if tree_bark_tex and glIsTexture(tree_bark_tex):
         glBindTexture(GL_TEXTURE_2D, tree_bark_tex)
         glEnable(GL_TEXTURE_2D)
+        glColor3f(1.0, 1.0, 1.0) # Use white color when texturing
     else:
         glDisable(GL_TEXTURE_2D)
+        glColor3f(0.5, 0.35, 0.05) # Fallback color
 
     quadric = gluNewQuadric()
-    gluQuadricTexture(quadric, GL_TRUE)
-    gluQuadricNormals(quadric, GLU_SMOOTH)
-    # GLU 圓柱體預設沿 Z 軸，我們需要它沿 Y 軸
-    glPushMatrix()
-    glRotatef(-90, 1, 0, 0) # 旋轉使其豎直
-    gluCylinder(quadric, TREE_TRUNK_RADIUS, TREE_TRUNK_RADIUS * 0.8, trunk_height, CYLINDER_SLICES, 1)
-    glPopMatrix()
-    gluDeleteQuadric(quadric)
+    if quadric:
+        gluQuadricTexture(quadric, GL_TRUE)
+        gluQuadricNormals(quadric, GLU_SMOOTH)
+        glPushMatrix()
+        glRotatef(-90, 1, 0, 0) # Rotate cylinder to be Y-up
+        # Draw trunk from y=0 to y=trunk_height
+        gluCylinder(quadric, TREE_TRUNK_RADIUS, TREE_TRUNK_RADIUS * 0.8, trunk_height, CYLINDER_SLICES//2, 1) # Fewer slices for trunk
+        glPopMatrix()
+        gluDeleteQuadric(quadric)
+    else: print("Error creating quadric for tree trunk.")
 
-
-    # 繪製樹葉 (綠色球體 或 圓錐)
-    glColor3f(0.1, 0.5, 0.1) # 樹葉顏色
-    if tree_leaves_tex:
+    # --- Draw Leaves ---
+    # glColor3f(0.1, 0.5, 0.1) # Leaves color
+    if tree_leaves_tex and glIsTexture(tree_leaves_tex):
         glBindTexture(GL_TEXTURE_2D, tree_leaves_tex)
         glEnable(GL_TEXTURE_2D)
+        glColor3f(1.0, 1.0, 1.0) # Use white color when texturing
     else:
         glDisable(GL_TEXTURE_2D)
+        glColor3f(0.1, 0.5, 0.1) # Fallback color
 
     glPushMatrix()
-    #glTranslatef(0, trunk_height + leaves_height / 2 , 0) # 球心位置
-    glTranslatef(0, trunk_height , 0) # 圓錐底部位置
+    glTranslatef(0, trunk_height, 0) # Move to the base of the leaves
 
     # 使用圓錐體代替球體可能更像樹
     quadric = gluNewQuadric()
-    gluQuadricTexture(quadric, GL_TRUE)
-    gluQuadricNormals(quadric, GLU_SMOOTH)
-    glPushMatrix()
-    glRotatef(-90, 1, 0, 0) # 旋轉使其豎直
-    # gluSphere(quadric, TREE_LEAVES_RADIUS, 16, 16) # 球體
-    gluCylinder(quadric, TREE_LEAVES_RADIUS, 0, leaves_height * 1.5, CYLINDER_SLICES, 5) # 圓錐
-    glPopMatrix()
+    if quadric:
+        gluQuadricTexture(quadric, GL_TRUE)
+        gluQuadricNormals(quadric, GLU_SMOOTH)
+        glPushMatrix()
+        glRotatef(-90, 1, 0, 0) # Rotate cone to be Y-up
+        # Draw cone from current position (base) upwards
+        gluCylinder(quadric, TREE_LEAVES_RADIUS, 0, leaves_height * 1.5, CYLINDER_SLICES, 5) # Cone
+        glPopMatrix()
+        gluDeleteQuadric(quadric)
+    else: print("Error creating quadric for tree leaves.")
 
-    gluDeleteQuadric(quadric)
-    glPopMatrix() # 恢復樹葉位置變換
+    glPopMatrix() # Restore from leaves translation
+    glPopMatrix() # Restore from tree base translation
 
-    glPopMatrix() # 恢復樹的位置變換
-    glBindTexture(GL_TEXTURE_2D, 0)
-    glEnable(GL_TEXTURE_2D)
+    glBindTexture(GL_TEXTURE_2D, 0) # Unbind texture
+    glEnable(GL_TEXTURE_2D) # Ensure texture is enabled
+    glColor3f(1.0, 1.0, 1.0) # Reset color to white
 
 
 def draw_scene_objects(scene):
     """繪製場景中的所有物件"""
+    glColor3f(1.0, 1.0, 1.0) # Default to white, let textures/colors override
+
     # 繪製建築物
     for obj_data in scene.buildings:
         obj_type, x, y, z, rx, ry, rz, w, d, h, tex_id = obj_data
         glPushMatrix()
-        
-        glTranslatef(x, y, z)
+        glTranslatef(x, y, z) # Move to position
+        # Apply rotations: Y (yaw), then X (pitch), then Z (roll) - common order
         glRotatef(ry, 0, 1, 0)
         glRotatef(rx, 1, 0, 0)
         glRotatef(rz, 0, 0, 1)
-        
-        
-        
-        # 根據需要設置顏色
-        glColor3f(0.8, 0.8, 0.8)
-#         draw_cube_centered(w, d, h, tex_id) # 使用新的繪製函數
-        draw_cube(w, d, h, tex_id) # 使用新的繪製函數
+        draw_cube(w, d, h, tex_id) # Draws cube with base at current origin
         glPopMatrix()
 
     # 繪製圓柱體
     for obj_data in scene.cylinders:
-        obj_type, x, y, z, rx, ry, rz, radius, h, tex_id = obj_data
+        # Order from parser: type, x, y, z, rx, rz, ry, radius, h, tex_id
+        obj_type, x, y, z, rx, rz, ry, radius, h, tex_id = obj_data
         glPushMatrix()
-        
-        
-        glTranslatef(x, y, z)
-         # GLU 圓柱體沿 Z 軸繪製，標準情況下我們需要它豎直 (沿Y)
-        glRotatef(-90, 1, 0, 0) # 先旋轉使其沿 Y 軸
-        # 然後應用場景檔案中定義的旋轉
-        glRotatef(ry, 0, 1, 0) # 這個 Y 軸是旋轉後的
-        glRotatef(rx, 1, 0, 0) # 這個 X 軸是旋轉後的
-        glRotatef(rz, 0, 0, 1) # 這個 Z 軸是旋轉後的
-        
-        
-        
-        # 根據需要設置顏色
-        glColor3f(0.7, 0.7, 0.7)
-#        draw_cylinder_y_up_centered(radius, h, tex_id) # 使用新的繪製函數
-        draw_cylinder(radius, h, tex_id) # 使用新的繪製函數
-        glPopMatrix()
+        glTranslatef(x, y, z) # Move to position
+        # Apply rotations specified in the file (rx, ry, rz order matters)
+        # Typically, Y (yaw), X (pitch), Z (roll) is intuitive
+        glRotatef(ry, 0, 1, 0) # Apply Yaw first
+        glRotatef(rx, 1, 0, 0) # Then Pitch
+        glRotatef(rz, 0, 0, 1) # Then Roll
+
+        # Now, rotate the standard Z-aligned GLU cylinder to be Y-up *before* drawing
+        glPushMatrix()
+        glRotatef(-90, 1, 0, 0) # Rotate coordinate system so Z becomes Y
+        draw_cylinder(radius, h, tex_id) # Draw the cylinder along the (now rotated) Z-axis
+        glPopMatrix() # Restore orientation before rotations
+
+        glPopMatrix() # Restore position
 
 
     # 繪製樹木
+    glColor3f(1.0, 1.0, 1.0) # Reset color for trees
     for tree_data in scene.trees:
         x, y, z, height = tree_data
         draw_tree(x, y, z, height)
 
+
 def draw_tram_cab(tram, camera):
     """繪製駕駛艙和儀表板 (固定在電車上)"""
-    # 駕駛艙本身是跟隨電車移動和旋轉的
-    # 我們需要在應用視圖變換後，再進行一次模型變換來繪製駕駛艙
-    # 這裡的繪製是在世界坐標系中，就像繪製其他建築物一樣
-    # 但它的位置和旋轉由電車決定
-
-    # --- 駕駛艙的簡單幾何結構 ---
+    # ... (Cab drawing code remains largely the same, ensure correct transforms) ...
+    # --- Cab Geometry ---
     cab_width = 3
-    cab_height = 1
-    cab_depth = 2 # 駕駛艙前後深度
+    cab_height = 1 # Height above floor
+    cab_depth = 2
+    cab_floor_y = 1.5 # Floor level of the cab relative to tram's position.y
 
-    # --- 儀表板參數 ---
+    # --- Dashboard ---
     dash_height = 0.6
     dash_depth = 0.3
     dash_pos_y = 1.5 # 儀表板離地高度
     dash_pos_z = -1 # 儀表板在駕駛艙內的前後位置 (相對於駕駛艙中心)
 
-    # --- 儀表 ---
+    # --- Speedo ---
     speedo_radius = 0.15
     speedo_center_x = -cab_width * 0.25
     speedo_center_y = dash_pos_y + dash_height * 0.6
     speedo_center_z = dash_pos_z - dash_depth * 0.5 + 0.51 # 稍微突出
 
-    # --- 操作桿 ---
+    # --- Lever ---
     lever_base_x = cab_width * 0.25
     lever_base_y = dash_pos_y + dash_height * 0.2
     lever_base_z = dash_pos_z - dash_depth * 0.4 + 0.5
@@ -616,7 +634,7 @@ def draw_tram_cab(tram, camera):
     glVertex3f( cab_width/2, 1,          cab_depth/2)
     glVertex3f(-cab_width/2, 1,          cab_depth/2)
     # top 
-    glNormal3f(0, 1, 0);
+    glNormal3f(0, -1, 0);
     glVertex3f(-cab_width/2, 1 + cab_height + 1, -cab_depth/2)
     glVertex3f( cab_width/2, 1 + cab_height + 1, -cab_depth/2)
     glVertex3f( cab_width/2, 1 + cab_height + 1,  cab_depth/2)
@@ -803,21 +821,22 @@ def _rotate_point_3d(point, rx_deg, rz_deg, ry_deg):
     return np.array([x3, y3, z3])
 
 
+# --- Modified draw_minimap ---
 def draw_minimap(scene, tram, screen_width, screen_height):
-    """繪製 HUD 小地圖 (使用背景圖)"""
-    global grid_label_font, current_minimap_range, minimap_bg_texture_id # 引用網格字體
-    # --- 計算小地圖在螢幕上的位置和變換 ---
-    # 使用計算出的世界範圍
-    global map_image_world_x_min, map_image_world_z_min
-    global map_image_world_width, map_image_world_height
-    
+    """繪製 HUD 小地圖 (使用場景定義的背景圖或純色)"""
+    global grid_label_font, current_minimap_range
+    # Use cached texture ID and dimensions
+    global minimap_bg_texture_id, minimap_bg_image_width_px, minimap_bg_image_height_px
+
+    # --- Calculate Map Position on Screen ---
     map_left = screen_width - MINIMAP_SIZE - MINIMAP_PADDING
     map_right = screen_width - MINIMAP_PADDING
-    map_bottom = screen_height - MINIMAP_SIZE - MINIMAP_PADDING
+    map_bottom = screen_height - MINIMAP_SIZE - MINIMAP_PADDING # Y=0 is bottom in ortho
     map_top = screen_height - MINIMAP_PADDING
     map_center_x = map_left + MINIMAP_SIZE / 2
     map_center_y = map_bottom + MINIMAP_SIZE / 2
 
+    # --- Player and Viewport Info ---
     player_x = tram.position[0]
     player_z = tram.position[2] # 使用 Z 坐標
 
@@ -825,14 +844,11 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     if current_minimap_range <= 0: current_minimap_range = MINIMAP_MIN_RANGE # 防止除零
     scale = MINIMAP_SIZE / current_minimap_range
     world_half_range = current_minimap_range / 2.0
-    # 當前地圖視口中心對應的世界座標
-    view_center_x = -player_x
-    view_center_z = player_z
-    # 當前地圖視口邊界對應的世界座標
-    world_view_left = view_center_x - world_half_range
-    world_view_right = view_center_x + world_half_range
-    world_view_bottom_z = view_center_z - world_half_range
-    world_view_top_z = view_center_z + world_half_range
+    #
+    world_view_left = player_x - world_half_range
+    world_view_right = player_x + world_half_range
+    world_view_bottom_z = player_z - world_half_range # Bottom of map = smaller Z
+    world_view_top_z = player_z + world_half_range   # Top of map = larger Z
 
     # --- 切換到 2D 正交投影 ---
     glMatrixMode(GL_PROJECTION)
@@ -848,36 +864,65 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT | GL_LINE_BIT | GL_POINT_BIT) # 保存狀態
     glDisable(GL_DEPTH_TEST)
     glDisable(GL_LIGHTING)
-    glDisable(GL_TEXTURE_2D)
-    glEnable(GL_BLEND) # 啟用混合以支持背景透明度
+    glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    glDisable(GL_TEXTURE_2D) # Default to disabled
 
-    # --- 繪製小地圖背景 ---
-    if minimap_bg_texture_id is not None and map_image_world_width > 0 and map_image_world_height > 0:
+    # --- Draw Minimap Background ---
+    use_texture = (minimap_bg_texture_id is not None and
+                   minimap_bg_image_width_px > 0 and
+                   minimap_bg_image_height_px > 0 and
+                   scene.map_filename is not None and # Ensure scene specified a map
+                   abs(scene.map_world_scale) > 1e-6) # Ensure valid scale
+
+    if use_texture:
         glEnable(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, minimap_bg_texture_id)
         glColor4f(1.0, 1.0, 1.0, 1.0)
 
-        # --- 計算紋理坐標 (使用計算出的世界範圍) ---
-        # u = (world_x - map_image_world_x_min) / map_image_world_width
-        # v = (world_z - map_image_world_z_min) / map_image_world_height
-        u_min = (world_view_left - map_image_world_x_min) / map_image_world_width
-        u_max = (world_view_right - map_image_world_x_min) / map_image_world_width
-        v_min = (world_view_bottom_z - map_image_world_z_min) / map_image_world_height
-        v_max = (world_view_top_z - map_image_world_z_min) / map_image_world_height
+        # --- Calculate World Extent of the Loaded Image ---
+        # Scale is world units per pixel
+        image_world_width = minimap_bg_image_width_px * scene.map_world_scale
+        image_world_height = minimap_bg_image_height_px * scene.map_world_scale
 
-        # --- 繪製帶紋理的四邊形 ---
+        img_world_x_min = scene.map_world_center_x - image_world_width / 2.0
+        img_world_x_max = scene.map_world_center_x + image_world_width / 2.0
+        # Assuming image (0,0) is top-left, and world Z increases upwards on map (map_y increases upwards)
+        # Texture V=0 is bottom (due to pygame flip), V=1 is top.
+        # World Z corresponding to image bottom (V=0)
+        img_world_z_min = scene.map_world_center_z - image_world_height / 2.0
+        # World Z corresponding to image top (V=1)
+        img_world_z_max = scene.map_world_center_z + image_world_height / 2.0
+
+        # --- Calculate Texture Coordinates for the Visible Viewport ---
+        # Avoid division by zero if width/height are somehow zero
+        if abs(image_world_width) < 1e-6 or abs(image_world_height) < 1e-6:
+            u_min, u_max, v_min, v_max = 0.0, 1.0, 0.0, 1.0 # Fallback UVs
+            print("Warning: Calculated image world width/height is near zero.")
+        else:
+            # 以下兩行是修改過的  因為要讓圖片跟著同方向移動
+            u_min = (-world_view_left + img_world_x_max) / image_world_width
+            u_max = (-world_view_right + img_world_x_max) / image_world_width
+            v_min = (world_view_bottom_z - img_world_z_min) / image_world_height # Z_min corresponds to V=0 (bottom)
+            v_max = (world_view_top_z - img_world_z_min) / image_world_height    # Z_max corresponds to V=1 (top)
+
+        # Clamp texture coordinates to [0, 1] if using CLAMP_TO_EDGE wasn't enough
+        # u_min, u_max = max(0.0, u_min), min(1.0, u_max)
+        # v_min, v_max = max(0.0, v_min), min(1.0, v_max)
+
+        # --- Draw Textured Quad ---
         glBegin(GL_QUADS)
-        glTexCoord2f(u_min, v_min); glVertex2f(map_left, map_bottom)   # 左下
-        glTexCoord2f(u_max, v_min); glVertex2f(map_right, map_bottom)  # 右下
-        glTexCoord2f(u_max, v_max); glVertex2f(map_right, map_top)     # 右上
-        glTexCoord2f(u_min, v_max); glVertex2f(map_left, map_top)      # 左上
+        # 以下 glTexCoord2f 內的u_max u_min  因為要把圖片左右相反
+        glTexCoord2f(u_max, v_min); glVertex2f(map_left, map_bottom)   # Bottom Left
+        glTexCoord2f(u_min, v_min); glVertex2f(map_right, map_bottom)  # Bottom Right
+        glTexCoord2f(u_min, v_max); glVertex2f(map_right, map_top)     # Top Right
+        glTexCoord2f(u_max, v_max); glVertex2f(map_left, map_top)      # Top Left
         glEnd()
 
         glBindTexture(GL_TEXTURE_2D, 0)
-        glDisable(GL_TEXTURE_2D) # Disable after use
+        glDisable(GL_TEXTURE_2D)
     else:
-        # --- Fallback: 繪製純色背景 ---
+        # --- Fallback: Draw Solid Color Background ---
         glDisable(GL_TEXTURE_2D)
         glColor4fv(MINIMAP_BG_FALLBACK_COLOR)
         glBegin(GL_QUADS)
@@ -890,17 +935,9 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     glEnable(GL_SCISSOR_TEST)
     glScissor(int(map_left), int(map_bottom), int(MINIMAP_SIZE), int(MINIMAP_SIZE))
 
-    # --- 計算可見的世界坐標範圍 ---
-    # 地圖中心對應 player_x, player_z
-    # 地圖半徑對應 MINIMAP_RANGE / 2 的世界單位 (因為 MINIMAP_RANGE 是直徑)
-#     world_half_range = current_minimap_range / 2.0
-    world_left = player_x - world_half_range
-    world_right = player_x + world_half_range
-    world_bottom_z = player_z - world_half_range # 地圖底部對應 Z 減小
-    world_top_z = player_z + world_half_range   # 地圖頂部對應 Z 增大
-
-    # --- 繪製網格線 (在背景之上) ---
-    draw_grid = current_minimap_range < DEFAULT_MINIMAP_RANGE * 1.5
+    # --- Draw Grid Lines ---
+    # (Grid drawing code - check world_view boundaries vs grid scale)
+    draw_grid = current_minimap_range < DEFAULT_MINIMAP_RANGE * 1.5 # Show grid when zoomed in
     if draw_grid:
         glColor4fv(MINIMAP_GRID_COLOR)
         glLineWidth(1.0)
@@ -909,34 +946,49 @@ def draw_minimap(scene, tram, screen_width, screen_height):
         # ... (垂直線繪製) ...
         current_grid_x = start_grid_x
         while current_grid_x <= world_view_right:
-            map_x, _ = _world_to_map_coords(current_grid_x, view_center_z, player_x, player_z, map_center_x, map_center_y, scale)
-            if map_left <= map_x <= map_right:
+            map_x, _ = _world_to_map_coords(current_grid_x, player_z, player_x, player_z, map_center_x, map_center_y, scale)
+            # Draw line only if it's potentially visible within the map bounds
+            if map_left - 1 <= map_x <= map_right + 1:
                 glBegin(GL_LINES); glVertex2f(map_x, map_bottom); glVertex2f(map_x, map_top); glEnd()
             current_grid_x += MINIMAP_GRID_SCALE
         # ... (水平線繪製) ...
         current_grid_z = start_grid_z
         while current_grid_z <= world_view_top_z:
-             _, map_y = _world_to_map_coords(view_center_x, current_grid_z, player_x, player_z, map_center_x, map_center_y, scale)
-             if map_bottom <= map_y <= map_top:
+             _, map_y = _world_to_map_coords(player_x, current_grid_z, player_x, player_z, map_center_x, map_center_y, scale)
+             if map_bottom - 1 <= map_y <= map_top + 1:
                  glBegin(GL_LINES); glVertex2f(map_left, map_y); glVertex2f(map_right, map_y); glEnd()
              current_grid_z += MINIMAP_GRID_SCALE
 
 
     # --- 繪製軌道 ---
     glColor3fv(MINIMAP_TRACK_COLOR)
-    glLineWidth(1.0)
+    glLineWidth(2.0)
     for segment in scene.track.segments:
         if not segment.points or len(segment.points) < 2:
             continue
+        
+        map_x, map_y = _world_to_map_coords(segment.points[0][0], segment.points[0][2],
+                                            player_x, player_z,
+                                            map_center_x, map_center_y, scale)
+        glPointSize(8)
+        glBegin(GL_POINTS)
+        glColor3fv(MINIMAP_TRACK_COLOR)
+        glVertex2f(map_x, map_y)  # 
+        glEnd()
+        
+        
         glBegin(GL_LINE_STRIP)
+        
         for point_world in segment.points:
             # 將世界坐標轉換為地圖坐標
             map_x, map_y = _world_to_map_coords(point_world[0], point_world[2],
                                                 player_x, player_z,
                                                 map_center_x, map_center_y, scale)
+            
             # 在此處進行簡單的邊界檢查 (可選，glScissor 已做裁剪)
             # if map_left <= map_x <= map_right and map_bottom <= map_y <= map_top:
             glVertex2f(map_x, map_y)
+            
         glEnd()
 
     # --- 繪製建築物 (簡單方塊) ---
@@ -1070,7 +1122,7 @@ def draw_minimap(scene, tram, screen_width, screen_height):
 
     # --- 繪製樹木 (簡單點) ---
     glColor3fv(MINIMAP_TREE_COLOR)
-    glPointSize(max(1.0, point_size))
+    glPointSize(max(3.0, point_size))
     glBegin(GL_POINTS)
     for tree in scene.trees:
         tx, ty, tz, th = tree
@@ -1114,7 +1166,7 @@ def draw_minimap(scene, tram, screen_width, screen_height):
 
         # 繪製 X 坐標標籤 (在地圖底部)
         current_grid_x = start_grid_x
-        while current_grid_x <= world_right:
+        while current_grid_x <= world_view_right:
             map_x, _ = _world_to_map_coords(current_grid_x, player_z, player_x, player_z, map_center_x, map_center_y, scale)
             if map_left <= map_x <= map_right:
                 label_text = f"{current_grid_x:.0f}"
@@ -1131,7 +1183,7 @@ def draw_minimap(scene, tram, screen_width, screen_height):
 
         # 繪製 Z 坐標標籤 (在地圖左側)
         current_grid_z = start_grid_z
-        while current_grid_z <= world_top_z:
+        while current_grid_z <= world_view_top_z:
              _, map_y = _world_to_map_coords(player_x, current_grid_z, player_x, player_z, map_center_x, map_center_y, scale)
              if map_bottom <= map_y <= map_top:
                 label_text = f"{current_grid_z:.0f}"

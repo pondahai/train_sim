@@ -6,6 +6,8 @@ from OpenGL.GLU import *
 import time
 import sys
 import os # 用於檢查檔案修改時間
+import numpy as np
+import math
 
 # --- 專案模組 ---
 import scene_parser
@@ -15,8 +17,8 @@ from camera import Camera
 from tram import Tram
 
 # --- 設定 ---
-SCREEN_WIDTH = 1024
-SCREEN_HEIGHT = 720
+SCREEN_WIDTH = 1400
+SCREEN_HEIGHT = 400
 TARGET_FPS = 60
 SCENE_CHECK_INTERVAL = 2.0 # 秒，檢查 scene.txt 更新的頻率
 
@@ -37,6 +39,7 @@ def main():
     try:
         # 嘗試使用系統預設字體，大小為 24
         hud_font = pygame.font.SysFont(None, 24)
+        print("HUD 字體已載入。")
     except Exception as e:
         print(f"警告：無法載入系統預設字體，HUD 將無法顯示文字: {e}")
         # 可以選擇載入一個後備的 .ttf 檔案
@@ -46,23 +49,43 @@ def main():
         #      hud_font = None # 確保 hud_font 有定義
 
     # --- 初始化依賴 ---
-    scene_parser.set_texture_loader(texture_loader) # 將 texture_loader 傳遞給 scene_parser
-    renderer.init_renderer() # 初始化渲染器 (載入基本紋理等)
+    scene_parser.set_texture_loader(texture_loader) # Pass texture_loader
+    scene_parser.set_renderer_module(renderer)      # <<<--- NEW: Pass renderer module
+    renderer.init_renderer() # Initialize renderer (loads common textures, sets GL state)
 
      # *** 將字體傳遞給渲染器 ***
     if hud_font:
-        renderer.set_hud_font(hud_font)
+        renderer.set_hud_font(hud_font) # This also tries to create grid font
     else:
-        print("警告: HUD 字體未載入，坐標顯示將不可用。")
+        print("警告: HUD 字體未載入，坐標和網格標籤顯示將不可用。")
 
     # --- 載入場景 ---
-    if not scene_parser.load_scene(force_reload=True):
-        print("初始場景載入失敗，請檢查 scene.txt")
-        # 即使失敗也繼續，但場景會是空的
-    scene = scene_parser.get_current_scene()
+    # Initial load, force it.
+    if scene_parser.load_scene(force_reload=True):
+        scene = scene_parser.get_current_scene()
+        # Initial map texture load is now handled within load_scene calling renderer.update_map_texture
+        print("初始場景載入成功。")
+    else:
+        print("初始場景載入失敗，請檢查 scene.txt。場景將為空。")
+        scene = scene_parser.get_current_scene() # Get the (likely empty) scene
 
     # --- 創建物件 ---
-    tram_instance = Tram(scene.track) # 將解析出的軌道傳給電車
+    tram_instance = Tram(scene.track) # Pass the initial track (might be empty)
+    # Set tram start position based on scene file or default
+#     tram_instance.position = np.copy(scene.start_position)
+#     tram_instance.distance_on_track = 0.0 # Assume start pos corresponds to distance 0
+    # Set initial tram orientation based on start angle
+#     start_angle_rad = math.radians(scene.start_angle_deg)
+    # Correct forward vector calculation: Y rotation -> XZ plane
+#     tram_instance.forward_vector_xz = (math.sin(start_angle_rad), math.cos(start_angle_rad)) # sin for X, cos for Z if angle is rotation from +Z
+    # If angle is rotation from +X: (cos(angle), sin(angle))
+    # Let's assume angle in scene.txt is from +Z axis (like atan2(x,z)) for consistency?
+    # Or maybe angle from +X axis (like atan2(z,x))? Check scene_parser...
+    # scene_parser uses 0 angle = +X axis. So forward vector is (cos, sin).
+#     tram_instance.forward_vector_xz = (math.cos(start_angle_rad), math.sin(start_angle_rad))
+#     print(f"Tram initial pos: {tram_instance.position}, angle: {scene.start_angle_deg} deg, forward: {tram_instance.forward_vector_xz}")
+
+
     camera_instance = Camera()
 
     # --- 遊戲狀態 ---
@@ -76,6 +99,8 @@ def main():
     # --- 主迴圈 ---
     while running:
         dt = clock.tick(TARGET_FPS) / 1000.0 # 每幀時間 (秒)
+        # Avoid huge dt if lagging or paused
+        dt = min(dt, 0.1)
 
         # --- 事件處理 ---
         for event in pygame.event.get():
@@ -83,52 +108,82 @@ def main():
                 running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    running = False
+                    # Toggle mouse lock first, then quit if already unlocked
+                    if camera_instance.mouse_locked:
+                        camera_instance.set_mouse_lock(False)
+                        pygame.mouse.set_visible(True)
+                        pygame.event.set_grab(False)
+                    else:
+                        running = False
                 elif event.key == pygame.K_g:
                     show_ground_flag = not show_ground_flag
                 elif event.key == pygame.K_l:
                     tram_instance.toggle_looping()
-                elif event.key == pygame.K_TAB:
+                elif event.key == pygame.K_TAB: # Explicitly toggle mouse lock
                     lock_state = not camera_instance.mouse_locked
+                    print(f"lock_state: {lock_state}")
                     camera_instance.set_mouse_lock(lock_state)
-                    pygame.mouse.set_visible(lock_state)
-                    pygame.event.set_grab(not lock_state)
+                    pygame.mouse.set_visible(not lock_state)
+                    pygame.event.set_grab(lock_state)
                 elif event.key == pygame.K_r:
                      print("手動觸發場景重新載入...")
+                     # scene_parser.load_scene now handles texture cache clear and map update call
                      if scene_parser.load_scene(force_reload=True):
                          scene = scene_parser.get_current_scene()
-                         # 重設電車和攝影機到新軌道起點 (可選)
-                         tram_instance.track = scene.track # 更新電車引用的軌道
-                         tram_instance.distance_on_track = 0.0
-                         # camera_instance.reset() # 如果有重設方法
-                         print("場景已手動重新載入.")
+                         # Reset tram to new start position/track
+                         tram_instance.track = scene.track
+                         # tram_instance.distance_on_track = 0.0
+                         # tram_instance.current_speed = 0.0
+                         tram_instance.position = np.copy(scene.start_position)
+                         start_angle_rad = math.radians(scene.start_angle_deg)
+                         tram_instance.forward_vector_xz = (math.cos(start_angle_rad), math.sin(start_angle_rad))
+                         # camera_instance might need reset if desired
+                         print("場景已手動重新載入並重設電車。")
                      else:
-                         print("手動重新載入失敗.")
-                elif event.key == pygame.K_m: # <-- 新增：處理 M 鍵
+                         print("手動重新載入失敗。")
+                         # scene might be empty now if load failed
+                         scene = scene_parser.get_current_scene()
+                         tram_instance.track = scene.track # Update track reference even if empty
+                elif event.key == pygame.K_m:
                     show_minimap = not show_minimap
                     print(f"小地圖: {'開啟' if show_minimap else '關閉'}")
-                elif event.key == pygame.K_i: # <-- 新增：處理 I 鍵
+                elif event.key == pygame.K_i:
                     show_coordinates = not show_coordinates
                     print(f"坐標顯示: {'開啟' if show_coordinates else '關閉'}")
                 elif event.key == pygame.K_PAGEUP:
-                    renderer.zoom_minimap(1 / renderer.MINIMAP_ZOOM_FACTOR) # 放大 (範圍變小)
+                    renderer.zoom_minimap(1 / renderer.MINIMAP_ZOOM_FACTOR) # Zoom In
                 elif event.key == pygame.K_PAGEDOWN:
-                    renderer.zoom_minimap(renderer.MINIMAP_ZOOM_FACTOR)    # 縮小 (範圍變大)
-                    
+                    renderer.zoom_minimap(renderer.MINIMAP_ZOOM_FACTOR)    # Zoom Out
+
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                 # If mouse is not locked, lock it on click
+                 if not camera_instance.mouse_locked and event.button == 1: # Left click
+                     print("mouse")
+                     camera_instance.set_mouse_lock(True)
+                     pygame.mouse.set_visible(False)
+                     pygame.event.set_grab(True)
+
             elif event.type == pygame.MOUSEWHEEL:
-                tram_instance.adjust_speed(event.y) # event.y 是滾動方向和幅度
+                tram_instance.adjust_speed(event.y) # event.y is scroll amount
 
             elif event.type == pygame.MOUSEMOTION:
-                if not camera_instance.mouse_locked:
+                # Only update camera angles if mouse is locked
+                if camera_instance.mouse_locked:
                     dx, dy = event.rel
                     camera_instance.update_angles(dx, dy)
 
         # --- 鍵盤持續按下處理 ---
         keys = pygame.key.get_pressed()
-        if keys[K_w] or keys[K_UP]:
-            tram_instance.accelerate()
-        if keys[K_s] or keys[K_DOWN]:
-            tram_instance.brake()
+        # Only control tram if mouse is locked (or define alternative controls)
+        if camera_instance.mouse_locked:
+            if keys[K_w] or keys[K_UP]:
+                tram_instance.accelerate()
+            if keys[K_s] or keys[K_DOWN]:
+                tram_instance.brake()
+        # else: # Maybe allow keyboard control even if mouse unlocked?
+        #     if keys[K_w] or keys[K_UP]: tram_instance.accelerate()
+        #     if keys[K_s] or keys[K_DOWN]: tram_instance.brake()
+
 
         # --- 遊戲邏輯更新 ---
         tram_instance.update(dt)
@@ -143,12 +198,13 @@ def main():
                 tram_instance.track = scene.track
                 # 可以選擇是否重置電車位置
                 # tram_instance.distance_on_track = 0.0
+                print("場景自動重新載入完成。")
             last_scene_check_time = current_time
 
 
         # --- OpenGL 渲染 ---
-        # 清除緩衝區
-        glClearColor(0.5, 0.7, 1.0, 1.0) # 天空藍背景
+        # Clear buffers
+        glClearColor(0.5, 0.7, 1.0, 1.0) # Sky blue background
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
         # 設定投影矩陣
@@ -176,8 +232,7 @@ def main():
         if show_minimap:
             renderer.draw_minimap(scene, tram_instance, SCREEN_WIDTH, SCREEN_HEIGHT)
 
-        # 坐標顯示 <-- 新增
-        if show_coordinates and hud_font: # 確保字體已載入
+        if show_coordinates and hud_font: # Check font loaded
              renderer.draw_coordinates(tram_instance.position, SCREEN_WIDTH, SCREEN_HEIGHT)
 
 
@@ -185,11 +240,21 @@ def main():
         pygame.display.flip()
 
     # --- 清理 ---
-    pygame.font.quit() # <-- 新增：清理字體模組
+    print("正在退出...")
+    # Explicitly clear texture cache including map texture?
+    # texture_loader.clear_texture_cache() # scene_parser calls this on load/reload
+    if renderer:
+        renderer.clear_cached_map_texture() # Clean up map texture specifically
+
+    pygame.font.quit() # Cleanup font module
     pygame.quit()
     sys.exit()
 
 if __name__ == '__main__':
-    # 確保在主程式執行目錄下尋找資源
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    # Ensure running from script's directory for relative paths
+    try:
+        os.chdir(os.path.dirname(os.path.abspath(__file__)))
+        print(f"工作目錄設定為: {os.getcwd()}")
+    except Exception as e:
+        print(f"無法更改工作目錄: {e}")
     main()

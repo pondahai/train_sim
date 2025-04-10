@@ -16,6 +16,12 @@ class Scene:
         self.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
         self.start_angle_deg = 0.0 # Store in degrees for potential reference
 
+        # --- Minimap Background Info ---
+        self.map_filename = None          # Filename of the map image
+        self.map_world_center_x = 0.0     # World X coordinate corresponding to the image center
+        self.map_world_center_z = 0.0     # World Z coordinate corresponding to the image center
+        self.map_world_scale = 1.0        # World units per pixel of the map image
+
     def clear(self):
         self.track.clear()
         self.buildings = []
@@ -23,6 +29,11 @@ class Scene:
         self.cylinders = []
         self.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
         self.start_angle_deg = 0.0
+        # --- Reset Minimap Info ---
+        self.map_filename = None
+        self.map_world_center_x = 0.0
+        self.map_world_center_z = 0.0
+        self.map_world_scale = 1.0
 
 # --- Global state for scene parsing ---
 scene_file_path = "scene.txt"
@@ -30,10 +41,15 @@ last_modified_time = 0
 current_scene = Scene()
 # --- Texture loading dependency ---
 texture_loader = None # Will be set by main.py
+renderer_module = None # Will be set by main.py
 
 def set_texture_loader(loader):
     global texture_loader
     texture_loader = loader
+
+def set_renderer_module(renderer):
+    global renderer_module
+    renderer_module = renderer
 
 def parse_scene_file(filepath):
     """
@@ -42,10 +58,14 @@ def parse_scene_file(filepath):
     - 物件 (building, cylinder) 的 ry 是相對於其前面軌道段起始角度的相對旋轉。
     - 若物件定義在任何軌道段之前，則相對於世界原點 (0,0,0) 和 0 度角。
     """
-    global current_scene, texture_loader
+    global current_scene, texture_loader, renderer_module # Add renderer_module
     if texture_loader is None:
         print("錯誤：Texture Loader 尚未設定！")
         return None
+    # Renderer module is optional during parsing, but needed later
+    # if renderer_module is None:
+    #     print("錯誤：Renderer Module 尚未設定！")
+    #     return None
 
     new_scene = Scene()
 
@@ -60,6 +80,7 @@ def parse_scene_file(filepath):
     relative_origin_angle_rad = 0.5*math.pi # Default 0 angle
 
     start_cmd_found = False # Flag to store if start was explicitly set
+    map_cmd_found = False # Flag to track if map command was parsed
 
     try:
         with open(filepath, 'r', encoding="utf8") as f:
@@ -72,8 +93,30 @@ def parse_scene_file(filepath):
                 command = parts[0].lower()
 
                 try:
+                    # --- Map Command ---
+                    if command == "map":
+                        # map <filename> <center_world_x> <center_world_z> <scale>
+                        if len(parts) < 5:
+                             print(f"警告: 第 {line_num} 行 'map' 指令參數不足。格式: map filename center_x center_z scale")
+                             continue
+                        filename = parts[1]
+                        center_x = float(parts[2])
+                        center_z = float(parts[3])
+                        scale_val = float(parts[4])
+
+                        if scale_val <= 0:
+                            print(f"警告: 第 {line_num} 行 'map' 指令的縮放比例必須為正數。")
+                            scale_val = 1.0 # Use default scale
+
+                        new_scene.map_filename = filename
+                        new_scene.map_world_center_x = center_x
+                        new_scene.map_world_center_z = center_z
+                        new_scene.map_world_scale = scale_val
+                        map_cmd_found = True
+                        print(f"小地圖背景設定: 檔案='{filename}', 中心=({center_x:.1f}, {center_z:.1f}), 比例={scale_val:.2f} 世界單位/像素")
+
                     # --- Track and Start Commands (Update BOTH current state and relative origin) ---
-                    if command == "start":
+                    elif command == "start":
                         if len(parts) < 5:
                              print(f"警告: 第 {line_num} 行 'start' 指令參數不足。格式: start x y z angle_deg")
                              continue
@@ -182,7 +225,7 @@ def parse_scene_file(filepath):
                         
                         # Calculate absolute world Y rotation
                         absolute_ry_deg = math.degrees(-relative_origin_angle_rad) + rel_ry_deg - 90
-#                         absolute_rz_deg = math.degrees(-relative_origin_angle_rad) + rel_rz_deg
+#                       # absolute_rz_deg = math.degrees(-relative_origin_angle_rad) + rel_rz_deg
 
                         new_scene.cylinders.append(
                             ("cylinder", world_x, world_y, world_z,
@@ -233,32 +276,50 @@ def parse_scene_file(filepath):
 
 def load_scene(force_reload=False):
     """載入或重新載入場景檔案"""
-    global last_modified_time, current_scene, scene_file_path
+    global last_modified_time, current_scene, scene_file_path, renderer_module
     try:
         current_mod_time = os.path.getmtime(scene_file_path)
-        if force_reload or current_mod_time != last_modified_time:
+        needs_reload = force_reload or current_mod_time != last_modified_time
+
+        if needs_reload:
             print(f"偵測到場景檔案變更或強制重新載入 '{scene_file_path}'...")
             # 清除舊資源 (尤其是紋理)
             if texture_loader:
                 texture_loader.clear_texture_cache()
+            # Also clear the renderer's cached map texture ID if the renderer is set
+            if renderer_module:
+                 renderer_module.clear_cached_map_texture() # Need to add this function to renderer
 
             new_scene_data = parse_scene_file(scene_file_path)
             if new_scene_data:
                 current_scene = new_scene_data # 替換場景
                 last_modified_time = current_mod_time
+                # --- Trigger map texture update in renderer ---
+                if renderer_module:
+                    renderer_module.update_map_texture(current_scene) # Pass the newly loaded scene
+                # ---------------------------------------------
                 print("場景已成功載入/重新載入.")
                 return True # 表示已重新載入
             else:
-                print("場景載入失敗，保留舊場景.")
-                # 如果解析失敗，保留舊場景，但不更新時間戳，以便下次嘗試
-                return False
-        return False # 表示未重新載入
+                print("場景載入失敗，保留舊場景 (或變為空場景).")
+                # If parsing failed, clear current scene? Or keep old? Let's clear.
+                current_scene.clear() # Clear to avoid using stale data
+                # Reset map texture in renderer too if parsing failed
+                if renderer_module:
+                    renderer_module.update_map_texture(current_scene) # Pass the (now empty) scene
+                # Don't update timestamp, try again next time
+                return False # Indicate failure, but state might have changed (cleared)
+        return False # No reload needed
     except FileNotFoundError:
         print(f"錯誤: 場景檔案 '{scene_file_path}' 在檢查更新時未找到。")
-        if not current_scene.track.segments: # 如果連初始場景都沒有，則清空
-             current_scene.clear()
-        last_modified_time = 0 # 重置時間戳
-        return True # 表示需要處理變化（場景消失）
+        if current_scene.track.segments or current_scene.map_filename: # If there was a scene before
+            current_scene.clear()
+            if renderer_module:
+                renderer_module.clear_cached_map_texture()
+                renderer_module.update_map_texture(current_scene) # Update with empty scene
+            print("當前場景已清除。")
+        last_modified_time = 0 # Reset timestamp
+        return True # Scene changed (disappeared)
     except Exception as e:
         print(f"檢查場景檔案更新時發生錯誤: {e}")
         return False
