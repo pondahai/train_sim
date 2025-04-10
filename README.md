@@ -93,14 +93,23 @@ pip install pygame PyOpenGL numpy
 *   座標系統：通常 X 和 Z 構成水平面，Y 軸代表垂直高度。
 *   角度單位：度 (degrees)。
 
+### 地圖指令
+
+1. **`map <file name> <width offset> <height offset> <scale>`**
+    * 設定小地圖的底圖，一像素等於一個世界單位
+    * `<file name>` 圖檔名稱
+    * `<width offset>` 起點在地圖上的橫向偏移值
+    * `<height offset>` 起點在地圖上的縱向偏移值
+    * `<scale>` 圖檔顯示比例
+  
 ### 軌道指令 (依序定義路線)
 
 軌道指令會基於上一段軌道的結束位置和角度繼續建立。
 
 1.  **`straight <length> [gradient_permille]`**
-    *   建立一段直線軌道。
-    *   `length`: 直線軌道的水平長度。
-    *   `gradient_permille` (可選): 軌道的坡度，單位是千分比 (‰)。正值表示上坡，負值表示下坡。預設為 0。
+    *   建立一段直線軌道。*   建立一段直線軌道。*   建立一段直線軌道。*   建立一段直線軌道。
+    *   `length`: 直線軌道的水平長度。*   `length`: 直線軌道的水平長度。*   `length`: 直線軌道的水平長度。*   `length`: 直線軌道的水平長度。
+    *   `gradient_permille` (可選): 軌道的坡度，單位是千分比 (‰)。正值表示上坡，負值表示下坡。預設為 0。*   `gradient_permille` (可選): 軌道的坡度，單位是千分比 (‰)。正值表示上坡，負值表示下坡。預設為 0。
 
 2.  **`curve <radius> <angle_deg> [gradient_permille]`**
     *   建立一段彎曲軌道。
@@ -134,6 +143,9 @@ pip install pygame PyOpenGL numpy
 
 ```
 # 這是一個範例場景檔案
+
+# 地圖視窗底圖
+map map.png 0 0 1 # 以圖檔中心點為起點，縮放比例1:1
 
 # 軌道定義
 straight 50 5     # 前進 50 單位，上坡 5‰
