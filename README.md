@@ -106,12 +106,19 @@ pip install pygame PyOpenGL numpy
 
 軌道指令會基於上一段軌道的結束位置和角度繼續建立。
 
-1.  **`straight <length> [gradient_permille]`**
+1.  **`start <x> <y> <z> <angle_deg>`**
+    *   (可選) 設定軌道的起始點和初始方向。
+    *   `x, y, z`: 起始點的世界座標。
+    *   `angle_deg`: 起始方向角度 (繞 Y 軸旋轉，0 度沿 +X)。
+    *   如果未提供，則預設從 (0, 0, 0) 開始，角度為 0。
+    *   這個指令同時也設定了後續未指定軌道段的物件的相對原點。
+	
+3.  **`straight <length> [gradient_permille]`**
     *   建立一段直線軌道。*   建立一段直線軌道。*   建立一段直線軌道。*   建立一段直線軌道。
     *   `length`: 直線軌道的水平長度。*   `length`: 直線軌道的水平長度。*   `length`: 直線軌道的水平長度。*   `length`: 直線軌道的水平長度。
     *   `gradient_permille` (可選): 軌道的坡度，單位是千分比 (‰)。正值表示上坡，負值表示下坡。預設為 0。*   `gradient_permille` (可選): 軌道的坡度，單位是千分比 (‰)。正值表示上坡，負值表示下坡。預設為 0。
 
-2.  **`curve <radius> <angle_deg> [gradient_permille]`**
+4.  **`curve <radius> <angle_deg> [gradient_permille]`**
     *   建立一段彎曲軌道。
     *   `radius`: 彎道的半徑。
     *   `angle_deg`: 彎道的角度（度）。正角度通常表示向左轉，負角度向右轉（相對於當前前進方向）。
