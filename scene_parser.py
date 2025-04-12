@@ -1,7 +1,8 @@
 # scene_parser.py
 import os
 import numpy as np
-import math # <-- Add math import for radians conversion and degrees
+# import math # <-- Add math import for radians conversion and degrees
+import numpy as math
 from track import StraightTrack, CurveTrack, Track
 
 class Scene:
@@ -9,8 +10,14 @@ class Scene:
     def __init__(self):
         self.track = Track()
         # Store ABSOLUTE world coordinates and rotations
+        # Updated tuple structure for buildings:
+        # (type, world_x, world_y, world_z, rx, abs_ry, rz, w, d, h, tex_id,
+        #  u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)
         self.buildings = [] # [ (type, world_x, world_y, world_z, rx, abs_ry, rz, w, d, h, tex_id), ... ]
         self.trees = []     # [ (world_x, world_y, world_z, height), ... ]
+        # Updated tuple structure for cylinders:
+        # (type, world_x, world_y, world_z, rx, abs_ry, rz, radius, h, tex_id,
+        #  u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)  <-- Added new params
         self.cylinders = [] # [ (type, world_x, world_y, world_z, rx, abs_ry, rz, radius, h, tex_id), ... ]
         # Store the explicit start position/angle if provided
         self.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
@@ -169,11 +176,44 @@ def parse_scene_file(filepath):
 
                     # --- Object Placement Commands (Use relative origin) ---
                     elif command == "building":
-                        # building <rel_x> <rel_y> <rel_z> <rx> <rel_ry> <rz> <w> <d> <h> [texture]
-                        rel_x, rel_y, rel_z = map(float, parts[1:4])
-                        rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7])
-                        w, d, h = map(float, parts[7:10])
-                        tex_file = parts[10] if len(parts) > 10 else "building.png"
+                        # building <rx> <ry> <rz> <rx> <ry> <rz> <w> <d> <h> [tex] [uoff] [voff] [tang] [umode] [usca] [vsca]
+                        # Base params = 9. Tex params min = 5 (tex, uoff, voff, tang, umode). Total min = 1+9+5 = 15
+                        # If umode=0, need 2 more: usca, vsca. Total = 17
+                        base_param_count = 9
+                        tex_param_base_count = 5
+                        tex_param_scale_count = 2
+                        min_parts_stretch = 1 + base_param_count + tex_param_base_count # 15
+                        min_parts_tile = min_parts_stretch + tex_param_scale_count # 17
+
+                        # Check minimum parts based on potential uv_mode
+                        if len(parts) < 1 + base_param_count: print(f"警告: 第 {line_num} 行 'building' 指令參數不足 (基本參數缺失)。"); continue
+#                         if len(parts) < min_parts_stretch:
+#                             print(f"警告: 第 {line_num} 行 'building' 指令參數不足 (基礎紋理參數缺失)。")
+                            
+
+                        rel_x, rel_y, rel_z = map(float, parts[1:4]); rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7]); w, d, h = map(float, parts[7:10])
+                        tex_file = parts[10] if len(parts) > (base_param_count+1) else "building.png"
+                        u_offset = float(parts[11]) if len(parts) > (base_param_count+2) else 0.0
+                        v_offset = float(parts[12]) if len(parts) > (base_param_count+3) else 0.0
+                        tex_angle_deg = float(parts[13]) if len(parts) > (base_param_count+4) else 0.0
+                        uv_mode = int(parts[14]) if len(parts) > (base_param_count+5) else 1
+                        
+                        uscale = 1.0 # Default scale
+                        vscale = 1.0 # Default scale
+                        if uv_mode == 0:
+                            if len(parts) >= min_parts_tile:
+                                uscale = float(parts[15])
+                                vscale = float(parts[16])
+                                if uscale <= 0 or vscale <= 0:
+                                    print(f"警告: 第 {line_num} 行 'building' uv_mode=0 的 uscale/vscale ({uscale}, {vscale}) 必須為正數。使用預設值 1.0。")
+                                    uscale = 1.0
+                                    vscale = 1.0
+                            else:
+                                print(f"警告: 第 {line_num} 行 'building' 指定了 uv_mode=0 但未提供 uscale 和 vscale。使用預設值 1.0。")
+                        elif uv_mode != 1:
+                            print(f"警告: 第 {line_num} 行 'building' 的 uv_mode ({uv_mode}) 無效。使用預設模式 1 (拉伸)。")
+                            uv_mode = 1
+
                         tex_id = texture_loader.load_texture(tex_file)
 
                         # --- *** 核心修改：計算旋轉後的偏移量 *** ---
@@ -199,16 +239,46 @@ def parse_scene_file(filepath):
                         new_scene.buildings.append(
                             ("building", world_x, world_y, world_z,
                              rx_deg, absolute_ry_deg, rz_deg, # Use absolute ry
-                             w, d, h, tex_id)
+                             w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale) # Append scales
                         )
 
                     elif command == "cylinder":
-                        # cylinder <rel_x> <rel_y> <rel_z> <rx> <rel_ry> <rz> <radius> <height> [texture]
-                        rel_x, rel_y, rel_z = map(float, parts[1:4])
-                        rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7])
-                        radius = float(parts[7])
-                        height = float(parts[8])
-                        tex_file = parts[9] if len(parts) > 9 else "metal.png"
+                        # cylinder <rx> <ry> <rz> <rx> <ry> <rz> <rad> <h> [tex] [uoff] [voff] [tang] [umode] [usca] [vsca]
+                        base_param_count = 8
+                        tex_param_base_count = 5
+                        tex_param_scale_count = 2
+                        min_parts_stretch = 1 + base_param_count + tex_param_base_count # 14
+                        min_parts_tile = min_parts_stretch + tex_param_scale_count # 16
+
+                        if len(parts) < 1 + base_param_count: print(f"警告: 第 {line_num} 行 'cylinder' 指令參數不足 (基本參數缺失)。"); continue
+#                         if len(parts) < min_parts_stretch:
+#                             print(f"警告: 第 {line_num} 行 'cylinder' 指令參數不足 (基礎紋理參數缺失)。")
+                            
+
+                        rel_x, rel_y, rel_z = map(float, parts[1:4]); rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7])
+                        radius = float(parts[7]); height = float(parts[8])
+                        tex_file = parts[9] if len(parts) > (base_param_count+1) else "metal.png"
+                        u_offset = float(parts[10]) if len(parts) > (base_param_count+2) else 0.0
+                        v_offset = float(parts[11]) if len(parts) > (base_param_count+3) else 0.0
+                        tex_angle_deg = float(parts[12]) if len(parts) > (base_param_count+4) else 0.0
+                        uv_mode = int(parts[13]) if len(parts) > (base_param_count+5) else 1 # Default to stretch/fill mode
+
+                        uscale = 1.0 # Default scale
+                        vscale = 1.0 # Default scale
+                        if uv_mode == 0:
+                            if len(parts) >= min_parts_tile:
+                                uscale = float(parts[14])
+                                vscale = float(parts[15])
+                                if uscale <= 0 or vscale <= 0:
+                                    print(f"警告: 第 {line_num} 行 'cylinder' uv_mode=0 的 uscale/vscale ({uscale}, {vscale}) 必須為正數。使用預設值 1.0。")
+                                    uscale = 1.0
+                                    vscale = 1.0
+                            else:
+                                print(f"警告: 第 {line_num} 行 'cylinder' 指定了 uv_mode=0 但未提供 uscale 和 vscale。使用預設值 1.0。")
+                        elif uv_mode != 1:
+                            print(f"警告: 第 {line_num} 行 'cylinder' 的 uv_mode ({uv_mode}) 無效。使用預設模式 1 (拉伸)。")
+                            uv_mode = 1
+                            
                         tex_id = texture_loader.load_texture(tex_file)
 
                         # --- *** 核心修改：計算旋轉後的偏移量 *** ---
@@ -230,7 +300,7 @@ def parse_scene_file(filepath):
                         new_scene.cylinders.append(
                             ("cylinder", world_x, world_y, world_z,
                              rx_deg, rz_deg, absolute_ry_deg, # Use absolute ry
-                             radius, height, tex_id)
+                             radius, height, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale) # Append scales
                         )
 
                     elif command == "tree":

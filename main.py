@@ -7,7 +7,8 @@ import time
 import sys
 import os # 用於檢查檔案修改時間
 import numpy as np
-import math
+import numpy as math
+# import math
 
 # --- 專案模組 ---
 import scene_parser

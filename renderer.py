@@ -2,7 +2,8 @@
 from OpenGL.GL import *
 from OpenGL.GLU import *
 import numpy as np
-import math
+import numpy as math
+# import math
 from track import TRACK_WIDTH, BALLAST_WIDTH, BALLAST_HEIGHT # 引入軌道寬度等常數
 import texture_loader # 假設紋理載入器可用
 import pygame # <-- 新增：導入 Pygame
@@ -25,7 +26,7 @@ MINIMAP_SIZE = 200  # 小地圖的像素大小 (正方形)
 MINIMAP_PADDING = 10 # 離螢幕邊緣的距離
 # MINIMAP_RANGE = 300.0 # 小地圖顯示的世界單位範圍 (以此距離為半徑的正方形區域)
 DEFAULT_MINIMAP_RANGE = 300.0 # 小地圖預設顯示的世界單位範圍
-MINIMAP_MIN_RANGE = 50.0      # <-- 新增：最小縮放範圍 (放大極限)
+MINIMAP_MIN_RANGE = 10.0      # <-- 新增：最小縮放範圍 (放大極限)
 MINIMAP_MAX_RANGE = 1000.0    # <-- 新增：最大縮放範圍 (縮小極限)
 MINIMAP_ZOOM_FACTOR = 1.1     # <-- 新增：每次縮放的比例因子
 MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Use if no map image specified or fails to load
@@ -36,7 +37,7 @@ MINIMAP_CYLINDER_COLOR = (0.6, 0.4, 0.2) # Use same color for cylinders for now
 MINIMAP_TILTED_CYLINDER_BOX_SIZE_FACTOR = 1.0 # Factor to scale the tilted box size (relative to max(radius, height/2))
 MINIMAP_TREE_COLOR = (0.1, 0.8, 0.1) # 樹木顏色 (綠色)
 MINIMAP_PLAYER_COLOR = (1.0, 0.0, 0.0) # 玩家顏色 (紅色)
-MINIMAP_PLAYER_SIZE = 5 # 玩家標記的大小 (像素)
+MINIMAP_PLAYER_SIZE = 6 # 玩家標記的大小 (像素)
 # --- 新增：網格線參數 ---
 MINIMAP_GRID_SCALE = 50.0 # 世界單位中每格的大小
 MINIMAP_GRID_COLOR = (1.0, 1.0, 1.0, 0.3) # 網格線顏色 (淡白色)
@@ -314,71 +315,207 @@ def draw_track(track_obj):
 
     glEnable(GL_TEXTURE_2D) # 恢復紋理狀態
 
-def draw_cube(width, depth, height, texture_id=None):
-    """繪製一個立方體，可選紋理"""
+def _calculate_uv(u_base, v_base, center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, uscale=1.0, vscale=1.0):
+    """Helper function to calculate final UV coordinates for a vertex."""
+    # Apply scaling *before* rotation if uv_mode is 0 (Tile)
+    if uv_mode == 0:
+        # Scale relative to the base coordinates (which are 0 to size)
+        # Scaling should probably happen around the center? Or just scale the final range?
+        # Let's scale the raw size-based coords first.
+        # Example: if base is (width, 0), scale to (width/uscale, 0)
+        # Check for zero scale to prevent division errors
+        if uscale == 0: uscale = 1e-6
+        if vscale == 0: vscale = 1e-6
+        u_scaled = u_base / uscale
+        v_scaled = v_base / vscale
+        # Recalculate center based on scaled range if needed? No, center is geometric.
+        # The range is now [0, face_w/uscale] and [0, face_h/vscale]
+        # Let's keep the base coords and apply scale *after* rotation/offset?
+        # Or apply scale to the *result* of rotation?
+        # Let's try scaling the *base* coordinates before doing anything else.
+        u_base = u_scaled
+        v_base = v_scaled
+        # Adjust center for rotation if scaling is done first? Center remains geometric center.
+        center_u_scaled = center_u / uscale
+        center_v_scaled = center_v / vscale
+        center_u = center_u_scaled # Use scaled center for rotation origin? Makes sense.
+        center_v = center_v_scaled
+
+
+    cos_t = math.cos(angle_rad)
+    sin_t = math.sin(angle_rad)
+
+    # Translate to origin (using potentially scaled center if mode is 0)
+    u_trans = u_base - center_u
+    v_trans = v_base - center_v
+
+    # Rotate
+    u_rot = u_trans * cos_t - v_trans * sin_t
+    v_rot = u_trans * sin_t + v_trans * cos_t
+
+    # Translate back and apply offset
+    final_u = u_rot + center_u + u_offset
+    final_v = v_rot + center_v + v_offset
+
+    # --- Alternative scaling approach: Scale *after* rotation ---
+    # if uv_mode == 0:
+    #     if uscale == 0: uscale = 1e-6
+    #     if vscale == 0: vscale = 1e-6
+    #     # Scale the final coordinate relative to the offset origin
+    #     final_u = (final_u - u_offset) / uscale + u_offset
+    #     final_v = (final_v - v_offset) / vscale + v_offset
+    # This might be simpler but could interact weirdly with rotation center.
+    # Let's stick with scaling the base first.
+
+    return final_u, final_v
+
+def draw_cube(width, depth, height, texture_id=None,
+              u_offset=0.0, v_offset=0.0, tex_angle_deg=0.0, uv_mode=1,
+              uscale=1.0, vscale=1.0):
+    """
+    繪製一個立方體，可選紋理，支援紋理偏移、旋轉和平鋪/拉伸模式。
+    基於底部中心 (0,0,0)，頂部在 Y=height。
+    uv_mode=1: 拉伸填滿 (0-1 範圍) (忽略 pixels_per_unit)
+    uv_mode=0: 單位平鋪 (範圍 0-尺寸) ，使用 uscale, vscale
+    """
     if texture_id is not None and glIsTexture(texture_id): # Check if texture ID is valid
         glBindTexture(GL_TEXTURE_2D, texture_id)
         glEnable(GL_TEXTURE_2D)
+        # Set texture wrap mode based on uv_mode
+        if uv_mode == 0: # Tile mode needs GL_REPEAT
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+        else: # Stretch mode might use GL_CLAMP_TO_EDGE or GL_REPEAT, REPEAT is often fine
+             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT) # Or GL_CLAMP_TO_EDGE
+             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT) # Or GL_CLAMP_TO_EDGE
     else:
         glDisable(GL_TEXTURE_2D)
 
     w, d, h = width / 2.0, depth / 2.0, height # 中心在底部 (0, 0, 0), 頂部在 Y=h
+    angle_rad = math.radians(tex_angle_deg)
 
     # glColor3f(0.8, 0.8, 0.8) # Set color outside if needed
 
     glBegin(GL_QUADS)
-    # Bottom face (Y=0)
+    
+    # --- Bottom face (Y=0) ---
+    # Dimensions: width (X) maps to U, depth (Z) maps to V
+    face_w, face_h = width, depth
+    current_uscale, current_vscale = uscale, vscale # Use specific scales for this face
+    if uv_mode == 1:
+        base_coords = [(1, 0), (0, 0), (0, 1), (1, 1)]
+        center_u, center_v = 0.5, 0.5
+    else:
+        base_coords = [(width, 0), (0, 0), (0, depth), (width, depth)] # U=[0,w], V=[0,d]
+        center_u, center_v = width / 2.0, depth / 2.0
     glNormal3f(0, -1, 0)
-    glTexCoord2f(1, 0); glVertex3f( w, 0,  d) # Texture coords might need adjustment depending on image
-    glTexCoord2f(0, 0); glVertex3f(-w, 0,  d)
-    glTexCoord2f(0, 1); glVertex3f(-w, 0, -d)
-    glTexCoord2f(1, 1); glVertex3f( w, 0, -d)
+    uv = _calculate_uv(*base_coords[0], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, 0,  d)
+    uv = _calculate_uv(*base_coords[1], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, 0,  d)
+    uv = _calculate_uv(*base_coords[2], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, 0, -d)
+    uv = _calculate_uv(*base_coords[3], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, 0, -d)
 
-    # Top face (Y=h)
+    # --- Top face (Y=h) ---
+    # Dimensions: width (X) -> U, depth (Z) -> V
+    face_w, face_h = width, depth
+    current_uscale, current_vscale = uscale, vscale
+    if uv_mode == 1:
+        base_coords = [(1, 1), (0, 1), (0, 0), (1, 0)]
+        center_u, center_v = 0.5, 0.5
+    else:
+        base_coords = [(width, depth), (0, depth), (0, 0), (width, 0)] # U=[0,w], V=[0,d]
+        center_u, center_v = width / 2.0, depth / 2.0
     glNormal3f(0, 1, 0)
-    glTexCoord2f(1, 1); glVertex3f( w, h, -d)
-    glTexCoord2f(0, 1); glVertex3f(-w, h, -d)
-    glTexCoord2f(0, 0); glVertex3f(-w, h,  d)
-    glTexCoord2f(1, 0); glVertex3f( w, h,  d)
+    uv = _calculate_uv(*base_coords[0], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, h, -d)
+    uv = _calculate_uv(*base_coords[1], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, h, -d)
+    uv = _calculate_uv(*base_coords[2], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, h,  d)
+    uv = _calculate_uv(*base_coords[3], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, h,  d)
 
-    # Front face  (Z=d)
+    # --- Front face (Z=d) ---
+    # Dimensions: width (X) -> U, height (Y) -> V
+    face_w, face_h = width, height
+    current_uscale, current_vscale = uscale, vscale # Or maybe specific scales for vertical faces?
+    if uv_mode == 1:
+        base_coords = [(1, 0), (0, 0), (0, 1), (1, 1)]
+        center_u, center_v = 0.5, 0.5
+    else:
+        base_coords = [(width, 0), (0, 0), (0, height), (width, height)] # U=[0,w], V=[0,h]
+        center_u, center_v = width / 2.0, height / 2.0
     glNormal3f(0, 0, 1)
-    glTexCoord2f(1, 0); glVertex3f( w, 0, d)
-    glTexCoord2f(0, 0); glVertex3f(-w, 0, d)
-    glTexCoord2f(0, 1); glVertex3f(-w, h, d)
-    glTexCoord2f(1, 1); glVertex3f( w, h, d)
+    uv = _calculate_uv(*base_coords[0], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, 0, d)
+    uv = _calculate_uv(*base_coords[1], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, 0, d)
+    uv = _calculate_uv(*base_coords[2], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, h, d)
+    uv = _calculate_uv(*base_coords[3], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, h, d)
 
-    # Back face (Z=-d)
+    # --- Back face (Z=-d) ---
+    # Dimensions: width (X) -> U, height (Y) -> V
+    face_w, face_h = width, height
+    current_uscale, current_vscale = uscale, vscale
+    if uv_mode == 1:
+        base_coords = [(0, 1), (1, 1), (1, 0), (0, 0)] # Flipped U
+        center_u, center_v = 0.5, 0.5
+    else:
+        base_coords = [(width, height), (0, height), (0, 0), (width, 0)] # U=[0,w], V=[0,h]
+        center_u, center_v = width / 2.0, height / 2.0
     glNormal3f(0, 0, -1)
-    glTexCoord2f(1, 0); glVertex3f( w, h, -d)
-    glTexCoord2f(0, 0); glVertex3f(-w, h, -d)
-    glTexCoord2f(0, 1); glVertex3f(-w, 0, -d)
-    glTexCoord2f(1, 1); glVertex3f( w, 0, -d)
+    uv = _calculate_uv(*base_coords[0], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, h, -d)
+    uv = _calculate_uv(*base_coords[1], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, h, -d)
+    uv = _calculate_uv(*base_coords[2], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, 0, -d)
+    uv = _calculate_uv(*base_coords[3], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, 0, -d)
 
-    # Left face (X=-w)
+    # --- Left face (X=-w) ---
+    # Dimensions: depth (Z) -> U, height (Y) -> V
+    face_w, face_h = depth, height
+    current_uscale, current_vscale = uscale, vscale # Use the main scales? Or allow different scales for sides? Assuming main scales for now.
+    if uv_mode == 1:
+        base_coords = [(1, 0), (0, 0), (0, 1), (1, 1)]
+        center_u, center_v = 0.5, 0.5
+    else:
+        base_coords = [(depth, 0), (0, 0), (0, height), (depth, height)] # U=[0,d], V=[0,h]
+        center_u, center_v = depth / 2.0, height / 2.0
     glNormal3f(-1, 0, 0)
-    glTexCoord2f(1, 0); glVertex3f(-w, 0, -d)
-    glTexCoord2f(0, 0); glVertex3f(-w, 0,  d)
-    glTexCoord2f(0, 1); glVertex3f(-w, h,  d)
-    glTexCoord2f(1, 1); glVertex3f(-w, h, -d)
+    uv = _calculate_uv(*base_coords[0], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, 0, -d)
+    uv = _calculate_uv(*base_coords[1], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, 0,  d)
+    uv = _calculate_uv(*base_coords[2], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, h,  d)
+    uv = _calculate_uv(*base_coords[3], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f(-w, h, -d)
 
-    # Right face (X=w)
+    # --- Right face (X=w) ---
+    # Dimensions: depth (Z) -> U, height (Y) -> V
+    face_w, face_h = depth, height
+    current_uscale, current_vscale = uscale, vscale
+    if uv_mode == 1:
+        base_coords = [(0, 0), (1, 0), (1, 1), (0, 1)] # Flipped U
+        center_u, center_v = 0.5, 0.5
+    else:
+        base_coords = [(0, 0), (depth, 0), (depth, height), (0, height)] # U=[0,d], V=[0,h]
+        center_u, center_v = depth / 2.0, height / 2.0
     glNormal3f(1, 0, 0)
-    glTexCoord2f(1, 0); glVertex3f( w, 0,  d)
-    glTexCoord2f(0, 0); glVertex3f( w, 0, -d)
-    glTexCoord2f(0, 1); glVertex3f( w, h, -d)
-    glTexCoord2f(1, 1); glVertex3f( w, h,  d)
+    uv = _calculate_uv(*base_coords[0], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, 0,  d)
+    uv = _calculate_uv(*base_coords[1], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, 0, -d)
+    uv = _calculate_uv(*base_coords[2], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, h, -d)
+    uv = _calculate_uv(*base_coords[3], center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, current_uscale, current_vscale); glTexCoord2f(*uv); glVertex3f( w, h,  d)
+
+
     glEnd()
 
     glBindTexture(GL_TEXTURE_2D, 0) # Unbind
     glEnable(GL_TEXTURE_2D) # Ensure it's enabled afterwards
 
 
-def draw_cylinder(radius, height, texture_id=None):
-    """繪製圓柱體，可選紋理. Assumes it's drawn along Z-axis, needs external rotation for Y-up."""
+def draw_cylinder(radius, height, texture_id=None,
+                  u_offset=0.0, v_offset=0.0, tex_angle_deg=0.0, uv_mode=1,
+                  uscale=1.0, vscale=1.0):
+    """
+    繪製圓柱體，可選紋理.
+    uv_mode=0: 和 tex_angle_deg 在此基礎實現中可能效果不佳。
+    
+    
+    """
     if texture_id is not None and glIsTexture(texture_id):
         glBindTexture(GL_TEXTURE_2D, texture_id)
         glEnable(GL_TEXTURE_2D)
+        # Set wrap mode (REPEAT is usually desired for cylinders)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
     else:
         glDisable(GL_TEXTURE_2D)
 
@@ -387,22 +524,65 @@ def draw_cylinder(radius, height, texture_id=None):
         gluQuadricTexture(quadric, GL_TRUE) # Enable texture coordinates
         gluQuadricNormals(quadric, GLU_SMOOTH) # Smooth normals
 
-        # Draw cylinder body (along Z from 0 to height)
+        # --- Apply Texture Matrix Transformation (for offset) ---
+        glMatrixMode(GL_TEXTURE)
+        glPushMatrix() # Save current texture matrix
+        glLoadIdentity() # Reset texture matrix
+        # 1. Apply Offset (Translate texture lookup)
+        glTranslatef(u_offset, v_offset, 0)
+
+        # 2. Apply Rotation (around texture origin 0,0? Or center?) - Tricky!
+        # Rotating here might not produce intuitive results with cylindrical mapping.
+        # Let's skip rotation via matrix for GLU cylinder for now.
+        # if tex_angle_deg != 0.0:
+        #     # Translate to rotation center (e.g., 0.5, 0.5 if mode 1, or scaled center if mode 0?)
+        #     # Rotate
+        #     # Translate back
+        #     pass # Complex to get right
+
+        # 3. Apply Scaling (if mode is 0 - Tile/Scale)
+        if uv_mode == 0:
+            # Ensure scales are positive
+            safe_uscale = uscale if uscale > 1e-6 else 1e-6
+            safe_vscale = vscale if vscale > 1e-6 else 1e-6
+            # Scale the texture coordinate system.
+            # Dividing by scale makes texture appear larger (fewer repetitions).
+            glScalef(1.0 / safe_uscale, 1.0 / safe_vscale, 1.0)
+            # Note: This scales around the texture origin (0,0) after the translate.
+
+        # --- Switch back to ModelView matrix ---
+        glMatrixMode(GL_MODELVIEW)
+
+        # --- Draw Cylinder using GLU ---
+        # Body
         gluCylinder(quadric, radius, radius, height, CYLINDER_SLICES, 1)
 
-        # Draw bottom cap (at Z=0)
+        # --- Draw Caps (Reset Texture Matrix for Caps) ---
+        # We reset the matrix for caps because their mapping is planar and likely
+        # shouldn't inherit the scaling/offset applied for the cylindrical body.
+        glMatrixMode(GL_TEXTURE)
+        glLoadIdentity() # Reset texture matrix for caps
+        glMatrixMode(GL_MODELVIEW)
+
+        # Bottom cap
         glPushMatrix()
-        glRotatef(180, 1, 0, 0) # Flip to face inwards for standard culling
+        glRotatef(180, 1, 0, 0)
         gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1)
         glPopMatrix()
 
-        # Draw top cap (at Z=height)
+        # Top cap
         glPushMatrix()
         glTranslatef(0, 0, height)
         gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1)
         glPopMatrix()
 
         gluDeleteQuadric(quadric)
+
+        # --- Restore Texture Matrix ---
+        glMatrixMode(GL_TEXTURE)
+        glPopMatrix() # Restore previous texture matrix (before translate/scale)
+        glMatrixMode(GL_MODELVIEW)
+
     else:
         print("Error creating GLU quadric object for cylinder.")
 
@@ -482,20 +662,24 @@ def draw_scene_objects(scene):
 
     # 繪製建築物
     for obj_data in scene.buildings:
-        obj_type, x, y, z, rx, ry, rz, w, d, h, tex_id = obj_data
+        (obj_type, x, y, z, rx, ry, rz, w, d, h, tex_id,
+         u_offset, v_offset, tex_angle_deg, uv_mode,
+         uscale, vscale) = obj_data
         glPushMatrix()
         glTranslatef(x, y, z) # Move to position
         # Apply rotations: Y (yaw), then X (pitch), then Z (roll) - common order
         glRotatef(ry, 0, 1, 0)
         glRotatef(rx, 1, 0, 0)
         glRotatef(rz, 0, 0, 1)
-        draw_cube(w, d, h, tex_id) # Draws cube with base at current origin
+        draw_cube(w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale) # Draws cube with base at current origin
         glPopMatrix()
 
     # 繪製圓柱體
     for obj_data in scene.cylinders:
         # Order from parser: type, x, y, z, rx, rz, ry, radius, h, tex_id
-        obj_type, x, y, z, rx, rz, ry, radius, h, tex_id = obj_data
+        (obj_type, x, y, z, rx, rz, ry, radius, h, tex_id,
+         u_offset, v_offset, tex_angle_deg, uv_mode,
+         uscale, vscale) = obj_data
         glPushMatrix()
         glTranslatef(x, y, z) # Move to position
         # Apply rotations specified in the file (rx, ry, rz order matters)
@@ -507,7 +691,7 @@ def draw_scene_objects(scene):
         # Now, rotate the standard Z-aligned GLU cylinder to be Y-up *before* drawing
         glPushMatrix()
         glRotatef(-90, 1, 0, 0) # Rotate coordinate system so Z becomes Y
-        draw_cylinder(radius, h, tex_id) # Draw the cylinder along the (now rotated) Z-axis
+        draw_cylinder(radius, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale) # Draw the cylinder along the (now rotated) Z-axis
         glPopMatrix() # Restore orientation before rotations
 
         glPopMatrix() # Restore position
@@ -542,11 +726,11 @@ def draw_tram_cab(tram, camera):
     speedo_center_z = dash_pos_z - dash_depth * 0.5 + 0.51 # 稍微突出
 
     # --- Lever ---
-    lever_base_x = cab_width * 0.25
+    lever_base_x = cab_width * 0
     lever_base_y = dash_pos_y + dash_height * 0.2
     lever_base_z = dash_pos_z - dash_depth * 0.4 + 0.5
     lever_length = 0.4
-    lever_max_angle = 40.0 # 向前或向後的最大角度
+    lever_max_angle = -40.0 # 向前或向後的最大角度
 
     # ----------------------------------------
     #  核心：應用電車的變換
@@ -569,7 +753,7 @@ def draw_tram_cab(tram, camera):
     #    glRotatef 的 Y 軸旋轉：正角度是逆時針（從上往下看）
     #    我們需要從 Z+ (0,0,1) 旋轉到 (forward_x, 0, forward_z)
     #    角度應該是 atan2(forward_x, forward_z) -> 這是繞 Y 軸的正確角度
-    render_angle_y = math.degrees(math.atan2(tram.forward_vector_xz[0], tram.forward_vector_xz[1]))
+    render_angle_y = math.degrees(math.arctan2(tram.forward_vector_xz[0], tram.forward_vector_xz[1]))
     glRotatef(180.0, 0, 1, 0)
     glRotatef(render_angle_y, 0, 1, 0)
 
@@ -995,7 +1179,7 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     glColor3fv(MINIMAP_BUILDING_COLOR)
     glLineWidth(1.0) # 使用線條繪製輪廓
     for bldg in scene.buildings:
-        b_type, wx, wy, wz, rx, ry, rz, ww, wd, wh, tid = bldg
+        b_type, wx, wy, wz, rx, ry, rz, ww, wd, wh, tid, uoffset, voffset, tangle, uvmode, uscale, vscale = bldg
         # 獲取建築物在世界坐標系中的四個底角 (忽略高度 wy)
         half_w = ww / 2.0
         half_d = wd / 2.0
@@ -1043,7 +1227,7 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     # 圓柱體也用相同顏色
     num_circle_segments = 128 # 用幾條線段近似圓形
     for cyl in scene.cylinders:
-        c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid = cyl # cr=radius, ch=height
+        c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, uoffset, voffset, tangle, uvmode, uscale, vscale = cyl # cr=radius, ch=height
 
         # 檢查是否有 X 或 Y 軸的傾斜
         is_tilted = abs(rx) > 0.1 or abs(ry) > 0.1
@@ -1135,7 +1319,7 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     glColor3fv(MINIMAP_PLAYER_COLOR)
     # 計算玩家朝向角度 (從 X 軸正方向算，逆時針為正)
     # tram.forward_vector_xz 是 (x, z)
-    player_angle_rad = -math.atan2(tram.forward_vector_xz[1], tram.forward_vector_xz[0]) # atan2(y, x) -> atan2(z, x)
+    player_angle_rad = -math.arctan2(tram.forward_vector_xz[1], tram.forward_vector_xz[0]) # atan2(y, x) -> atan2(z, x)
 
     # 計算三角形的三個頂點 (相對於地圖中心)
     # 頂點 (指向前方)

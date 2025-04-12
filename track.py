@@ -1,5 +1,6 @@
 # track.py
-import math
+# import math
+import numpy as math
 import numpy as np
 
 INTERPOLATION_STEPS = 10 # 每單位角度或長度的內插步數 (影響平滑度和效能)
