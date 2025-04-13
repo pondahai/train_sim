@@ -353,6 +353,10 @@ def load_scene(force_reload=False):
 
         if needs_reload:
             print(f"偵測到場景檔案變更或強制重新載入 '{scene_file_path}'...")
+            # 在解析新場景之前，清理舊場景的資源
+            if current_scene and current_scene.track:
+                 current_scene.track.clear() # <-- 清理舊軌道的 VBO/VAO
+            # ... (清除紋理緩存等) ...
             # 清除舊資源 (尤其是紋理)
             if texture_loader:
                 texture_loader.clear_texture_cache()
@@ -378,6 +382,8 @@ def load_scene(force_reload=False):
                 if renderer_module:
                     renderer_module.update_map_texture(current_scene) # Pass the (now empty) scene
                 # Don't update timestamp, try again next time
+                # 解析失敗，確保 current_scene 是空的或有效的
+                if current_scene: current_scene.clear() # 清理以防萬一
                 return False # Indicate failure, but state might have changed (cleared)
         return False # No reload needed
     except FileNotFoundError:

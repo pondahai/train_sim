@@ -1,8 +1,9 @@
 # camera.py
-import math
+# import math
+import numpy as math
 import numpy as np
 from OpenGL.GLU import gluLookAt
-
+from numba import jit, njit 
 # 攝影機相對於電車中心的位置 (駕駛艙視角)
 CAMERA_OFFSET_Y = 2.7  # 高度
 CAMERA_OFFSET_Z = -0.5  # 稍微向前一點
@@ -72,7 +73,7 @@ class Camera:
         # 假設電車始終是水平的，基礎 up 向量總是 (0, 1, 0)
         # 如果需要支援軌道傾斜，這裡需要更複雜的計算
         self.base_up = base_up
-
+    
     def apply_view(self):
         """計算最終的 LookAt 參數並應用到 OpenGL"""
         # --- 基礎向量 ---
@@ -137,7 +138,7 @@ class Camera:
         # --- 近似 look_at 點計算 ---
         # 1. 基礎 look_at (沿電車方向)
 #         base_look_target = self.base_position + self.base_forward
-        base_angle_y_rad = math.atan2(tram_forward[0], tram_forward[2]) # 繞 Y 軸從 +Z 到 tram_forward 的角度
+        base_angle_y_rad = math.arctan2(tram_forward[0], tram_forward[2]) # 繞 Y 軸從 +Z 到 tram_forward 的角度
         final_yaw_rad = base_angle_y_rad + yaw_rad # 疊加滑鼠 yaw
         
         # 2. 計算滑鼠控制的旋轉後的方向向量 (相對於世界坐標系，近似)

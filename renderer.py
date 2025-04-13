@@ -4,10 +4,12 @@ from OpenGL.GLU import *
 import numpy as np
 import numpy as math
 # import math
-from track import TRACK_WIDTH, BALLAST_WIDTH, BALLAST_HEIGHT # 引入軌道寬度等常數
+from track import TRACK_WIDTH, BALLAST_WIDTH, BALLAST_HEIGHT  # 引入軌道寬度等常數
 import texture_loader # 假設紋理載入器可用
 import pygame # <-- 新增：導入 Pygame
 import os
+
+from numba import jit, njit
 
 # --- 一些繪圖參數 ---
 GROUND_SIZE = 200.0
@@ -257,64 +259,100 @@ def draw_ground(show_ground):
     glBindTexture(GL_TEXTURE_2D, 0) # 解除綁定
 
 def draw_track(track_obj):
+    """使用 VBO/VAO 繪製軌道和道碴"""
+    if not track_obj or not track_obj.segments:
+        return
+    
     """繪製軌道和道碴"""
     glDisable(GL_TEXTURE_2D) # 軌道和道碴不用紋理
+    glEnableClientState(GL_VERTEX_ARRAY) # (如果你沒有使用 location=0 的 VAO，可能需要這個，但 VAO 是推薦方式)
 
     half_track_width = TRACK_WIDTH / 2.0
     half_ballast_width = BALLAST_WIDTH / 2.0
 
     for segment in track_obj.segments:
-        if not segment.points or len(segment.points) < 2:
-            continue
+        # --- 繪製道碴 (使用 VAO) ---
+        if segment.ballast_vao and segment.ballast_vertices:
+            glColor3fv(BALLAST_COLOR)
+            glBindVertexArray(segment.ballast_vao)
+            # 頂點數量 = 列表長度 / 3 (因為每個頂點有 x,y,z 三個浮點數)
+            vertex_count = len(segment.ballast_vertices) // 3
+            glDrawArrays(GL_TRIANGLES, 0, vertex_count) # 使用 GL_TRIANGLES
+            glBindVertexArray(0) # 解綁
 
-        # 繪製道碴 (使用 Triangle Strip 提高效率)
-        glColor3fv(BALLAST_COLOR)
-        glBegin(GL_TRIANGLE_STRIP)
-        for i in range(len(segment.points)):
-            pos = segment.points[i]
-            orient_xz = segment.orientations[i]
-            # 計算垂直於軌道的向量 (right vector)
-            right_vec_xz = np.array([-orient_xz[1], 0, orient_xz[0]]) # Assumes orient_xz is normalized
-
-            # 在點 pos 處計算左右道碴點 (高度基於 pos[1])
-            p_ballast_left = pos + right_vec_xz * half_ballast_width
-            p_ballast_right = pos - right_vec_xz * half_ballast_width
-
-            glNormal3f(0, 1, 0) # 道碴頂面法線向上
-            glVertex3f(p_ballast_left[0], pos[1] + BALLAST_HEIGHT, p_ballast_left[2])
-            glVertex3f(p_ballast_right[0], pos[1] + BALLAST_HEIGHT, p_ballast_right[2])
-        glEnd()
-        # 可以選擇性繪製道碴側面
-
-        # 繪製兩條軌道 (使用 Line Strip)
-        glColor3fv(RAIL_COLOR)
+        # --- 繪製軌道 (使用 VAO) ---
         glLineWidth(2.0) # 設定線寬
-        rail_height_offset = BALLAST_HEIGHT + 0.05 # 軌道在道碴之上
+        glColor3fv(RAIL_COLOR)
 
         # 左軌道
-        glBegin(GL_LINE_STRIP)
-        for i in range(len(segment.points)):
-            pos = segment.points[i]
-            orient_xz = segment.orientations[i]
-            right_vec_xz = np.array([-orient_xz[1], 0, orient_xz[0]])
-            p_rail_left = pos + right_vec_xz * half_track_width
-            # *** 使用點的 Y 坐標加上軌道偏移 ***
-            glVertex3f(p_rail_left[0], pos[1] + rail_height_offset, p_rail_left[2])
-        glEnd()
+        if segment.rail_left_vao and segment.rail_left_vertices:
+            glBindVertexArray(segment.rail_left_vao)
+            vertex_count = len(segment.rail_left_vertices) // 3
+            glDrawArrays(GL_LINE_STRIP, 0, vertex_count)
+            glBindVertexArray(0)
 
         # 右軌道
-        glBegin(GL_LINE_STRIP)
-        for i in range(len(segment.points)):
-            pos = segment.points[i]
-            orient_xz = segment.orientations[i]
-            right_vec_xz = np.array([-orient_xz[1], 0, orient_xz[0]])
-            p_rail_right = pos - right_vec_xz * half_track_width
-             # *** 使用點的 Y 坐標加上軌道偏移 ***
-            glVertex3f(p_rail_right[0], pos[1] + rail_height_offset, p_rail_right[2])
-        glEnd()
+        if segment.rail_right_vao and segment.rail_right_vertices:
+            glBindVertexArray(segment.rail_right_vao)
+            vertex_count = len(segment.rail_right_vertices) // 3
+            glDrawArrays(GL_LINE_STRIP, 0, vertex_count)
+            glBindVertexArray(0)
 
+    glDisableClientState(GL_VERTEX_ARRAY) # (如果之前啟用了)
     glEnable(GL_TEXTURE_2D) # 恢復紋理狀態
+#     for segment in track_obj.segments:
+#         if not segment.points or len(segment.points) < 2:
+#             continue
+# 
+#         # 繪製道碴 (使用 Triangle Strip 提高效率)
+#         glColor3fv(BALLAST_COLOR)
+#         glBegin(GL_TRIANGLE_STRIP)
+#         for i in range(len(segment.points)):
+#             pos = segment.points[i]
+#             orient_xz = segment.orientations[i]
+#             # 計算垂直於軌道的向量 (right vector)
+#             right_vec_xz = np.array([-orient_xz[1], 0, orient_xz[0]]) # Assumes orient_xz is normalized
+# 
+#             # 在點 pos 處計算左右道碴點 (高度基於 pos[1])
+#             p_ballast_left = pos + right_vec_xz * half_ballast_width
+#             p_ballast_right = pos - right_vec_xz * half_ballast_width
+# 
+#             glNormal3f(0, 1, 0) # 道碴頂面法線向上
+#             glVertex3f(p_ballast_left[0], pos[1] + BALLAST_HEIGHT, p_ballast_left[2])
+#             glVertex3f(p_ballast_right[0], pos[1] + BALLAST_HEIGHT, p_ballast_right[2])
+#         glEnd()
+#         # 可以選擇性繪製道碴側面
+# 
+#         # 繪製兩條軌道 (使用 Line Strip)
+#         glColor3fv(RAIL_COLOR)
+#         glLineWidth(2.0) # 設定線寬
+#         rail_height_offset = BALLAST_HEIGHT + 0.05 # 軌道在道碴之上
+# 
+#         # 左軌道
+#         glBegin(GL_LINE_STRIP)
+#         for i in range(len(segment.points)):
+#             pos = segment.points[i]
+#             orient_xz = segment.orientations[i]
+#             right_vec_xz = np.array([-orient_xz[1], 0, orient_xz[0]])
+#             p_rail_left = pos + right_vec_xz * half_track_width
+#             # *** 使用點的 Y 坐標加上軌道偏移 ***
+#             glVertex3f(p_rail_left[0], pos[1] + rail_height_offset, p_rail_left[2])
+#         glEnd()
+# 
+#         # 右軌道
+#         glBegin(GL_LINE_STRIP)
+#         for i in range(len(segment.points)):
+#             pos = segment.points[i]
+#             orient_xz = segment.orientations[i]
+#             right_vec_xz = np.array([-orient_xz[1], 0, orient_xz[0]])
+#             p_rail_right = pos - right_vec_xz * half_track_width
+#              # *** 使用點的 Y 坐標加上軌道偏移 ***
+#             glVertex3f(p_rail_right[0], pos[1] + rail_height_offset, p_rail_right[2])
+#         glEnd()
+# 
+#     glEnable(GL_TEXTURE_2D) # 恢復紋理狀態
 
+@njit
 def _calculate_uv(u_base, v_base, center_u, center_v, u_offset, v_offset, angle_rad, uv_mode, uscale=1.0, vscale=1.0):
     """Helper function to calculate final UV coordinates for a vertex."""
     # Apply scaling *before* rotation if uv_mode is 0 (Tile)
@@ -368,6 +406,7 @@ def _calculate_uv(u_base, v_base, center_u, center_v, u_offset, v_offset, angle_
     # Let's stick with scaling the base first.
 
     return final_u, final_v
+
 
 def draw_cube(width, depth, height, texture_id=None,
               u_offset=0.0, v_offset=0.0, tex_angle_deg=0.0, uv_mode=1,
@@ -960,7 +999,7 @@ def draw_tram_cab(tram, camera):
     glEnable(GL_TEXTURE_2D) # 恢復紋理
     glPopMatrix() # 恢復電車世界變換
     
-    
+@njit    
 def _world_to_map_coords(world_x, world_z, player_x, player_z, map_center_x, map_center_y, scale):
     """內部輔助函數：將世界XZ坐標轉換為小地圖2D屏幕坐標"""
     # 計算相對於玩家的偏移量
@@ -976,6 +1015,7 @@ def _world_to_map_coords(world_x, world_z, player_x, player_z, map_center_x, map
     return map_x, map_y
 
 # 這裡引數必須排列成rx_deg, rz_deg, ry_deg 才可以讓旋轉正確
+@njit
 def _rotate_point_3d(point, rx_deg, rz_deg, ry_deg):
     """Applies rotations (in degrees) to a 3D point."""
     rad_x = math.radians(rx_deg)

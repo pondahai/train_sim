@@ -17,9 +17,16 @@ import renderer
 from camera import Camera
 from tram import Tram
 
+import cProfile
+import pstats
+
+# profilier enable
+profiler = cProfile.Profile()
+profiler.enable()
+
 # --- 設定 ---
-SCREEN_WIDTH = 1400
-SCREEN_HEIGHT = 400
+SCREEN_WIDTH = 1200
+SCREEN_HEIGHT = 600
 TARGET_FPS = 60
 SCENE_CHECK_INTERVAL = 2.0 # 秒，檢查 scene.txt 更新的頻率
 
@@ -242,10 +249,19 @@ def main():
 
     # --- 清理 ---
     print("正在退出...")
+    if 'scene' in locals() and scene and scene.track: # 確保 scene 和 track 存在
+         scene.track.clear() # 清理最後加載的軌道資源
     # Explicitly clear texture cache including map texture?
     # texture_loader.clear_texture_cache() # scene_parser calls this on load/reload
     if renderer:
         renderer.clear_cached_map_texture() # Clean up map texture specifically
+        
+# profiler disable
+    print("profiler,disable()")
+    profiler.disable()
+    stats = pstats.Stats(profiler).sort_stats('cumulative') # 按累積時間排序
+    stats.print_stats(20) # 打印最耗時的 20 個函數
+    # stats.dump_stats('profile_results.prof') # 保存結果供其他工具分析
 
     pygame.font.quit() # Cleanup font module
     pygame.quit()
@@ -259,3 +275,4 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"無法更改工作目錄: {e}")
     main()
+
