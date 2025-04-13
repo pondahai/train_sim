@@ -7,209 +7,189 @@
 使用者可以在一個由 `scene.txt` 文件定義的 3D 環境中駕駛電車。  
 全程用gemini-2.5-pro vibe coding完成  
 
-## 功能特色
+## 主要功能
 
-*   **3D 環境渲染:** 使用 PyOpenGL 進行基本的 3D 場景渲染。
-*   **電車物理模擬:**
-    *   包含加速度、煞車、自然摩擦力。
-    *   最高速度限制。
-    *   可沿預定軌道行駛。
-*   **自訂軌道與場景:**
-    *   透過 `scene.txt` 文件定義軌道（直線、彎道）和場景物件。
-    *   支援軌道坡度。
-    *   可放置建築物（立方體）、圓柱體和樹木等靜態物件。
-    *   支援物件紋理貼圖（需放置於 `textures` 資料夾）。
-*   **駕駛艙視角:**
-    *   提供第一人稱駕駛視角。
-    *   包含基本的儀表板顯示（速度表、操作桿）。
-*   **視角控制:** 使用滑鼠自由調整視角（可鎖定/解鎖）。
-*   **HUD 顯示:**
-    *   可選的小地圖（顯示軌道、物件和電車位置/方向）。
-	*   小地圖可套圖(預設檔名map.png，一個像素等於模擬世界一個單位(公尺))
-    *   可選的座標顯示（顯示電車在世界中的 X, Y, Z 座標）。
-*   **動態場景載入:**
-    *   可手動觸發（按 `R`）重新載入 `scene.txt`。
-    *   自動偵測 `scene.txt` 的變更並重新載入。
-*   **其他控制:**
-    *   可切換地面網格的顯示。
-    *   可切換軌道是否循環。
+*   **3D 環境渲染:** 使用 PyOpenGL 進行基本的 3D 場景繪製。
+*   **電車物理模擬:** 包含加速度、煞車、自然摩擦力和最高速度限制。
+*   **可自訂軌道:** 透過 `scene.txt` 定義直線、彎道，並支援坡度設定。
+*   **可自訂場景:** 在 `scene.txt` 中定義建築、圓柱體、樹木等物件，支援紋理、相對位置、旋轉和縮放。
+*   **紋理映射:** 支援為物體（建築、圓柱體、地面、樹木等）應用紋理，並可進行 UV 偏移、旋轉、平鋪/拉伸模式設定。
+*   **第一人稱視角:** 提供基於滑鼠控制的自由視角（Mouse Look）。
+*   **駕駛艙儀表:** 顯示速度表和模擬的操作桿狀態。
+*   **小地圖 (Minimap):**
+    *   顯示軌道、場景物件和玩家位置/方向。
+    *   可縮放 (PageUp/PageDown)。
+    *   可選網格線和坐標標籤。
+    *   可載入場景定義的背景圖片。
+*   **HUD 資訊:** 可選顯示電車在世界中的即時坐標。
+*   **動態場景重載:** 自動檢測 `scene.txt` 檔案的變更並重新載入場景，或透過 'R' 鍵手動觸發。
+*   **軌道循環:** 可切換電車到達軌道終點時是否循環回到起點。
+*   **性能優化:** 軌道繪製採用 VBO (Vertex Buffer Objects) 以提高效率。部分計算函數使用 Numba (`@jit`) 加速。
 
-## 系統需求
+## 需求 / Dependencies
 
-*   Python 3.x
-*   Pygame
-*   PyOpenGL
-*   NumPy
+*   Python 3.8 或更高版本
+*   Pygame (`pip install pygame`)
+*   PyOpenGL (`pip install PyOpenGL PyOpenGL_accelerate`)
+*   NumPy (`pip install numpy`)
+*   Numba (`pip install numba`)
 
-## 安裝依賴
-
-建議在虛擬環境中安裝：
-
-```bash
-# 建立虛擬環境 (可選)
-python -m venv venv
-# 啟用虛擬環境 (Windows)
-.\venv\Scripts\activate
-# 啟用虛擬環境 (macOS/Linux)
-source venv/bin/activate
-
-# 安裝必要的函式庫
-pip install pygame PyOpenGL numpy
+建議將依賴項放入 `requirements.txt` 文件中：
 ```
+pygame
+PyOpenGL
+PyOpenGL_accelerate
+numpy
+numba
+```
+然後使用 `pip install -r requirements.txt` 安裝。
 
-## 如何執行
+## 安裝
 
-1.  確保 `scene.txt` 檔案和 `textures` 資料夾（包含所需的 `.png` 紋理檔）與 `main.py` 在同一目錄下。
-2.  開啟終端機或命令提示字元，進入專案目錄。
-3.  執行主程式：
+1.  確保已安裝 Python 和 pip。
+2.  克隆此儲存庫：
+    ```bash
+    git clone <your-repository-url>
+    cd <repository-directory>
+    ```
+3.  安裝所需的依賴項：
+    ```bash
+    pip install -r requirements.txt
+    ```
 
+## 使用方法
+
+1.  直接運行主程式：
     ```bash
     python main.py
     ```
+2.  **控制:**
+    *   **滑鼠移動:** 控制視角方向 (需要點擊視窗鎖定滑鼠)。
+    *   **W / ↑ (上箭頭):** 加速電車。
+    *   **S / ↓ (下箭頭):** 煞車。
+    *   **滑鼠滾輪:** 微調電車速度。
+    *   **ESC:** 解鎖滑鼠 / 再次按下退出程式。
+    *   **TAB:** 手動切換滑鼠鎖定狀態。
+    *   **G:** 切換地面網格的顯示。
+    *   **L:** 切換軌道循環模式。
+    *   **R:** 手動重新載入 `scene.txt`。
+    *   **M:** 切換小地圖的顯示。
+    *   **I:** 切換坐標顯示。
+    *   **PageUp:** 放大地圖。
+    *   **PageDown:** 縮小地圖。
 
-## 操作控制
+## 場景文件格式 (`scene.txt`)
 
-*   **`W` / `↑` (向上箭頭):** 加速電車
-*   **`S` / `↓` (向下箭頭):** 煞車
-*   **`滑鼠滾輪向上/下`:** 微調增加/減少當前速度
-*   **`滑鼠移動`:** (當滑鼠解鎖時) 調整視角方向
-*   **`Tab`:** 切換滑鼠鎖定/解鎖狀態 (影響視角控制和滑鼠指標可見性)
-*   **`Esc`:** 退出模擬器
-*   **`G`:** 切換地面網格的顯示/隱藏
-*   **`L`:** 切換軌道循環模式 (到達終點後是否回到起點)
-*   **`R`:** 手動重新載入 `scene.txt` 檔案
-*   **`M`:** 切換小地圖的顯示/隱藏
-*   **`I`:** 切換左上角座標資訊的顯示/隱藏
-*   **`Page Up`:** 放大 (Zoom In) 小地圖
-*   **`Page Down`:** 縮小 (Zoom Out) 小地圖
-
-## `scene.txt` 檔案格式說明
-
-`scene.txt` 用於定義軌道路線和場景中的靜態物件。
+`scene.txt` 文件定義了軌道的佈局和場景中的物件。
 
 *   以 `#` 開頭的行是註解，會被忽略。
-*   空白行會被忽略。
-*   指令不分大小寫。
-*   座標系統：通常 X 和 Z 構成水平面，Y 軸代表垂直高度。
-*   角度單位：度 (degrees)。
+*   命令不區分大小寫。
+*   物件（building, cylinder, tree）的位置 (`rel_x`, `rel_y`, `rel_z`) 和 Y 軸旋轉 (`rel_ry_deg`) 是 **相對於其前方最近的軌道段起點和起始方向** 的。
+    *   `rel_x`: 沿軌道段起始方向的右側 (+X) 或左側 (-X) 的距離。
+    *   `rel_y`: 相對於軌道段起點的高度偏移。
+    *   `rel_z`: 沿軌道段起始方向的前方 (+Z) 或後方 (-Z) 的距離。
+    *   `rel_ry_deg`: 相對於軌道段起始方向的額外 Y 軸旋轉角度（度）。
+*   如果在任何軌道段之前定義物件，則其坐標和旋轉相對於世界原點 (0,0,0) 和 X 軸正方向 (0 度)。
 
-### 地圖指令
+**可用命令:**
 
-1. **`map <file name> <width offset> <height offset> <scale>`**
-    * 設定小地圖的底圖，一像素等於一個世界單位
-    * `<file name>` 圖檔名稱
-    * `<width offset>` 起點在地圖上的橫向偏移值
-    * `<height offset>` 起點在地圖上的縱向偏移值
-    * `<scale>` 圖檔顯示比例
-  
-### 軌道指令 (依序定義路線)
-
-軌道指令會基於上一段軌道的結束位置和角度繼續建立。
-
-1.  **`start <x> <y> <z> <angle_deg>`**
-    *   (可選) 設定軌道的起始點和初始方向。
-    *   `x, y, z`: 起始點的世界座標。
-    *   `angle_deg`: 起始方向角度 (繞 Y 軸旋轉，0 度沿 +X)。
-    *   如果未提供，則預設從 (0, 0, 0) 開始，角度為 0。
-    *   這個指令同時也設定了後續未指定軌道段的物件的相對原點。
-	
-3.  **`straight <length> [gradient_permille]`**
-    *   建立一段直線軌道。*   建立一段直線軌道。*   建立一段直線軌道。*   建立一段直線軌道。
-    *   `length`: 直線軌道的水平長度。*   `length`: 直線軌道的水平長度。*   `length`: 直線軌道的水平長度。*   `length`: 直線軌道的水平長度。
-    *   `gradient_permille` (可選): 軌道的坡度，單位是千分比 (‰)。正值表示上坡，負值表示下坡。預設為 0。*   `gradient_permille` (可選): 軌道的坡度，單位是千分比 (‰)。正值表示上坡，負值表示下坡。預設為 0。
-
-4.  **`curve <radius> <angle_deg> [gradient_permille]`**
-    *   建立一段彎曲軌道。
+*   `start <x> <y> <z> <angle_deg>`
+    *   設定電車和軌道的起始位置 (`x`, `y`, `z`) 和初始水平朝向角度 (`angle_deg`)。角度 0 沿 X 軸正方向，90 沿 Z 軸正方向。如果省略，則從 (0,0,0) 角度 0 開始。
+*   `straight <length> [gradient_permille]`
+    *   從當前軌道末端添加一段直線軌道。
+    *   `length`: 直線的水平長度。
+    *   `gradient_permille` (可選): 坡度，單位千分比 (‰)。正值上坡，負值下坡。預設為 0。
+*   `curve <radius> <angle_deg> [gradient_permille]`
+    *   從當前軌道末端添加一段彎曲軌道。
     *   `radius`: 彎道的半徑。
-    *   `angle_deg`: 彎道的角度（度）。正角度通常表示向左轉，負角度向右轉（相對於當前前進方向）。
-    *   `gradient_permille` (可選): 軌道的坡度，單位是千分比 (‰)。預設為 0。
+    *   `angle_deg`: 彎道的角度（度）。正角度向左轉 (逆時針)，負角度向右轉 (順時針)。
+    *   `gradient_permille` (可選): 坡度，單位千分比 (‰)。預設為 0。
+*   `building <rx> <ry> <rz> <rot_x> <rot_y> <rot_z> <width> <depth> <height> [texture] [uoff] [voff] [tang] [umode] [usca] [vsca]`
+    *   添加一個建築物（立方體）。
+    *   `<rx> <ry> <rz>`: 相對位置。
+    *   `<rot_x> <rot_y> <rot_z>`: 相對 Y 軸旋轉後的額外 X, Y, Z 軸旋轉角度（度）。
+    *   `<width> <depth> <height>`: 建築物的尺寸。
+    *   `texture` (可選): 紋理檔名 (在 `textures/` 資料夾下)。預設 "building.png"。
+    *   `uoff`, `voff` (可選): 紋理 UV 坐標偏移。預設 0.0。
+    *   `tang` (可選): 紋理旋轉角度（度）。預設 0.0。
+    *   `umode` (可選): UV 模式。1=拉伸填滿 (預設)，0=按單位平鋪。
+    *   `usca`, `vsca` (可選): 當 `umode=0` 時，紋理在 U 和 V 方向的縮放比例（每個紋理單位對應多少世界單位）。預設 1.0。
+*   `cylinder <rx> <ry> <rz> <rot_x> <rot_y> <rot_z> <radius> <height> [texture] [uoff] [voff] [tang] [umode] [usca] [vsca]`
+    *   添加一個圓柱體。參數與 `building` 類似。
+    *   `texture` 預設 "metal.png"。
+*   `tree <rx> <ry> <rz> <height>`
+    *   添加一棵樹。
+    *   `<rx> <ry> <rz>`: 相對位置。
+    *   `<height>`: 樹的高度。
+*   `map <filename> <center_world_x> <center_world_z> <scale>`
+    *   設定小地圖使用的背景圖片。
+    *   `filename`: 背景圖片檔名 (在 `textures/` 資料夾下)。
+    *   `center_world_x`, `center_world_z`: 背景圖片 **中心點** 對應的世界坐標 X 和 Z。
+    *   `scale`: 比例尺，表示 **每個像素** 對應多少世界單位長度。
 
-### 場景物件指令
+## 程式運作原理 / 架構
 
-1.  **`building <x> <y> <z> <rx> <ry> <rz> <width> <depth> <height> [texture_file]`**
-    *   在指定位置放置一個立方體建築。
-    *   `x`, `y`, `z`: 建築物底部中心的座標。
-    *   `rx`, `ry`, `rz`: 分別繞 X, Y, Z 軸的旋轉角度（度）。
-    *   `width`, `depth`, `height`: 建築物的寬度 (X軸方向)、深度 (Z軸方向)、高度 (Y軸方向)。
-    *   `texture_file` (可選): 指定使用的紋理檔案名稱（位於 `textures` 資料夾內）。預設為 `building.png`。
+本模擬器採用模塊化設計，主要由以下幾個部分組成：
 
-2.  **`cylinder <x> <y> <z> <rx> <ry> <rz> <radius> <height> [texture_file]`**
-    *   在指定位置放置一個圓柱體。
-    *   `x`, `y`, `z`: 圓柱體底部中心的座標。
-    *   `rx`, `ry`, `rz`: 分別繞 X, Y, Z 軸的旋轉角度（度）。注意：OpenGL 的 `gluCylinder` 預設沿 Z 軸繪製，渲染器內部會先旋轉使其豎直（沿 Y 軸），然後再應用這裡的旋轉。
-    *   `radius`: 圓柱體的半徑。
-    *   `height`: 圓柱體的高度。
-    *   `texture_file` (可選): 指定使用的紋理檔案名稱（位於 `textures` 資料夾內）。預設為 `metal.png`。
+1.  **主程式 (`main.py`):**
+    *   初始化 Pygame 和 OpenGL。
+    *   設置視窗和基本渲染狀態。
+    *   載入字體、場景。
+    *   創建電車 (`Tram`) 和攝影機 (`Camera`) 實例。
+    *   **主循環:**
+        *   處理使用者輸入（鍵盤、滑鼠）。
+        *   更新遊戲狀態（計算每幀時間 `dt`）。
+        *   調用 `tram.update(dt)` 更新電車物理狀態和位置。
+        *   調用 `camera.update_position_orientation()` 和 `camera.update_angles()` 更新攝影機。
+        *   定期檢查 `scene.txt` 是否更新並觸發 `scene_parser.load_scene()`。
+        *   **渲染:**
+            *   清空緩衝區。
+            *   設置 3D 投影 (`gluPerspective`)。
+            *   設置視圖矩陣 (`gluLookAt`，由 `camera.apply_view()` 控制)。
+            *   調用 `renderer` 模組繪製地面、軌道、場景物件和電車駕駛艙。
+            *   切換到 2D 正交投影繪製 HUD（小地圖、坐標）。
+            *   交換緩衝區顯示畫面 (`pygame.display.flip()`)。
+    *   退出時進行清理。
 
-3.  **`tree <x> <y> <z> <height>`**
-    *   在指定位置放置一棵樹（由圓柱樹幹和圓錐/球體樹葉組成）。
-    *   `x`, `y`, `z`: 樹根部的座標。
-    *   `height`: 樹的總高度。
+2.  **電車 (`tram.py`):**
+    *   `Tram` 類負責模擬電車的物理行為。
+    *   儲存電車狀態：在軌道上的距離 (`distance_on_track`)、目前速度 (`current_speed`)、最大速度、加速度、煞車力、摩擦力等。
+    *   `update(dt)` 方法根據時間間隔 `dt` 和控制狀態 (`is_accelerating`, `is_braking`) 更新速度和距離。
+    *   處理軌道邊界（循環或停止）。
+    *   根據 `distance_on_track` 從 `track` 物件獲取當前的 3D 世界坐標 (`position`) 和水平朝向向量 (`forward_vector_xz`)。
 
-### 範例 `scene.txt`
+3.  **攝影機 (`camera.py`):**
+    *   `Camera` 類管理第一人稱視角。
+    *   根據滑鼠輸入更新視角的偏航角 (`yaw`) 和俯仰角 (`pitch`)。
+    *   `update_position_orientation()` 方法根據電車的 `position` 和 `forward_vector_xz`，以及預設的偏移量，計算攝影機在世界中的基礎位置 (`base_position`) 和基礎朝向 (`base_forward`)。
+    *   `apply_view()` 方法結合基礎位置/朝向和滑鼠控制的 yaw/pitch，計算最終的 `eye_pos`, `look_at_pos`, `final_up` 向量，並調用 `gluLookAt` 設置 OpenGL 的視圖矩陣。
 
-```
-# 這是一個範例場景檔案
+4.  **場景解析器 (`scene_parser.py`):**
+    *   負責讀取和解析 `scene.txt` 文件。
+    *   `Scene` 類用於存儲解析後的場景數據，包括 `Track` 物件和包含 **絕對世界坐標** 的物件列表（建築、圓柱體、樹木）以及地圖背景資訊。
+    *   `parse_scene_file()` 函數逐行讀取文件，根據命令創建軌道段或計算物件的絕對世界坐標和旋轉，並將其添加到 `Scene` 物件中。
+    *   `load_scene()` 函數檢查文件修改時間，只在需要時重新解析文件，並觸發相關資源（紋理、軌道 VBO）的清理和重新載入。
 
-# 地圖視窗底圖
-map map.png 0 0 1 # 以圖檔中心點為起點，縮放比例1:1
+5.  **軌道 (`track.py`):**
+    *   `TrackSegment` 基類及其子類 `StraightTrack` 和 `CurveTrack` 定義了軌道的幾何形狀和屬性（長度、坡度、點、朝向）。
+    *   **核心優化：** 在軌道段初始化時 (`__init__`)，會計算出一系列內插點 (`points`) 和朝向 (`orientations`)，並基於這些點生成用於繪製道碴和軌道的頂點數據，創建 VBO 和 VAO (`setup_buffers`)。這避免了在渲染循環中進行大量計算和 OpenGL 調用。
+    *   `get_position_orientation()` 方法根據在段上的距離進行插值，返回精確的 3D 位置和 2D 朝向。
+    *   `Track` 類管理多個 `TrackSegment`，計算總長度，並提供根據總距離查找位置和朝向的方法。它也負責在清理時釋放所有段的 VBO/VAO 資源。
 
-# 軌道定義
-straight 50 5     # 前進 50 單位，上坡 5‰
-curve 20 90 -2    # 左轉 90 度，半徑 20，下坡 2‰
-straight 30
-curve 20 -90 0    # 右轉 90 度，半徑 20，水平
-straight 50 -5    # 前進 50 單位，下坡 5‰
+6.  **渲染器 (`renderer.py`):**
+    *   包含繪製場景中各種元素的函數。
+    *   `init_renderer()`: 初始化 OpenGL 光照、狀態等。
+    *   `draw_ground()`: 繪製地面（可選紋理）。
+    *   `draw_track()`: **使用 VBO/VAO 高效繪製軌道和道碴。** 遍歷 `Track` 中的 `TrackSegment`，綁定預先計算好的 VAO，並使用 `glDrawArrays` 繪製。
+    *   `draw_cube()`, `draw_cylinder()`, `draw_tree()`: **目前使用 OpenGL 立即模式 (Immediate Mode)** 繪製這些基本形狀，支援紋理和 `scene.txt` 中定義的各種 UV 變換參數。雖然比 VBO 慢，但實現了靈活的紋理控制。
+    *   `draw_scene_objects()`: 遍歷 `Scene` 中的物件列表，設置變換（平移、旋轉）並調用相應的繪製函數。
+    *   `draw_tram_cab()`: 在電車的局部坐標系中繪製駕駛艙模型和儀表。
+    *   `draw_minimap()`, `draw_coordinates()`: 切換到 2D 正交投影模式繪製 HUD 元素，涉及坐標轉換和文字渲染。
+    *   管理小地圖背景紋理的載入和更新。
 
-# 場景物件
-building 10 0 20  0 45 0  5 8 10 building_brick.png
-building -15 0 40 0 0 0   6 6 8
-cylinder 5 0 5    0 0 0   1 5 pipe.png
-tree 8 0 12 6
-tree -10 0 30 7
-```
-## 坐標系統說明
-以BUILDING指令為例  
-![image](https://github.com/user-attachments/assets/6123faf4-94f3-4ec0-9cab-bcdcee6830fb)  
-第一組XYZ是物件在空間中的位置 最後一組XYZ是物件的尺寸 兩組XYZ的坐標軸向定義不一樣  
-世界從俯瞰角度看到的是XZ平面 X+代表向左 Z+代表向前 Y+代表向天空  
-物體自身的尺寸坐標 Z軸代表身高  
-可以這樣來理解：3D世界是透過螢幕看進去的，所以原本螢幕的XY平面加上"深度"Z就變成立體。  
-但是一般物體描述的時候，會用XY平面當作俯視圖，Z軸代表高度，因此會有一點錯亂。  
-  
-  
-## 相對座標系統 (用於物件放置)
-
-為了方便使用者根據軌道路線佈置場景物件（如建築、圓柱體、樹木），本模擬器採用了一套相對座標系統來定義這些物件的位置和基礎朝向。  
-只要把物件放在軌道設定之後，該物件的原點就會自動設定為軌道起點。這樣就可以方便調整物件位置。  
-如果要放置以世界原點為基準的物件，就把物件放在軌道起點之前就可以了。  
-  
-### 原理如下：  
-
-*   **相對原點 (Relative Origin):** 當您在 `scene.txt` 中定義一個軌道段指令（`straight` 或 `curve`）之後定義物件時，該軌道段的**起始點位置**和**起始方向角度**將自動成為這些後續物件的「相對原點」。
-    *   如果物件定義在任何軌道段之前，或者沒有定義 `start` 指令，則世界原點 (0, 0, 0) 和 0 度角將作為預設的相對原點。
-
-*   **局部座標軸 (Local Axes):** 物件指令中的相對位置參數 (`rel_x`, `rel_y`, `rel_z`) 是在一個與相對原點方向對齊的**局部座標系**中解釋的：
-    *   `rel_z`: 代表沿著相對原點**前進方向**的距離。
-    *   `rel_x`: 代表沿著相對原點**右側方向**的距離。
-    *   `rel_y`: 代表沿著**世界 Y 軸向上**的距離（高度偏移）。
-
-*   **相對 Y 軸旋轉 (Relative Yaw):** 物件指令中的相對 Y 軸旋轉參數 (`rel_ry`，以度為單位) 會疊加到相對原點的角度上，共同決定了該物件最終在世界中的基礎 Y 軸朝向。
-
-*   **轉換過程:** `scene_parser.py` 負責將這些相對於軌道段的定義（相對位置、相對旋轉）轉換為每個物件最終的**絕對世界座標**和**絕對世界旋轉角度**。這個轉換過程會正確地考慮相對原點的旋轉，確保 `rel_x` 和 `rel_z` 始終是根據軌道方向進行偏移。
-
-*   **優點:** 這個系統的主要目的是讓使用者可以更直觀地思考物件的位置。例如，不論軌道指向哪個方向，`building 5 0 10 ...` 的定義始終意味著將建築放置在軌道段起點的「右側 5 單位、前方 10 單位」的位置。
-
-*   **其他旋轉 (`rx`, `rz`):** 物件的 X 軸旋轉 (`rx`, Pitch) 和 Z 軸旋轉 (`rz`, Roll) 參數則是在物件已經根據其最終的世界 Y 軸朝向對齊後，再相對於其自身的局部軸應用的。
-
-**簡而言之：您只需考慮物件相對於軌道起點的「前、後、左、右、上、下」以及相對於軌道方向的「額外轉向」，解析器會自動計算出它們在複雜 3D 世界中的最終位置和朝向。**
-
-
-## 紋理
-
-*   所有紋理檔案（建議使用 `.png` 格式）應放置在名為 `textures` 的子資料夾中。
-*   真實地圖檔案map.png同樣放置在名為 `textures` 的子資料夾中。
-*   程式會自動載入 `scene.txt` 中指定的紋理，或使用預設紋理。
+7.  **紋理載入器 (`texture_loader.py`):**
+    *   提供 `load_texture()` 函數，負責從文件載入圖片、創建 OpenGL 紋理對象、生成 Mipmap，並進行快取以避免重複載入。
+    *   提供 `clear_texture_cache()` 函數，在場景重載時釋放舊紋理。
 
 ---
 
