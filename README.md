@@ -1,7 +1,8 @@
 # train_sim
 
 # 簡易 3D 電車模擬器
-![image](https://github.com/user-attachments/assets/96b53e52-4b1d-4ae0-b5f8-b43e64f5115a)
+![image](https://github.com/user-attachments/assets/446e975b-c758-465f-ba05-d5908dd373e6)
+
 
 這是一個使用 Python、Pygame 和 PyOpenGL 建立的基礎 3D 電車模擬器。  
 使用者可以在一個由 `scene.txt` 文件定義的 3D 環境中駕駛電車。  
