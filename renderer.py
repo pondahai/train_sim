@@ -1136,7 +1136,7 @@ def draw_minimap(scene, tram, screen_width, screen_height):
 
         # --- Draw Textured Quad ---
         glBegin(GL_QUADS)
-        # 以下 glTexCoord2f 內的u_max u_min  因為要把圖片左右相反
+        # 修改以下 glTexCoord2f 內的u_max u_min  因為要把圖片左右相反
         glTexCoord2f(u_max, v_min); glVertex2f(map_left, map_bottom)   # Bottom Left
         glTexCoord2f(u_min, v_min); glVertex2f(map_right, map_bottom)  # Bottom Right
         glTexCoord2f(u_min, v_max); glVertex2f(map_right, map_top)     # Top Right
