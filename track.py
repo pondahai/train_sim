@@ -154,6 +154,9 @@ class TrackSegment:
 
         print(f"緩衝區已創建: Ballast VAO={self.ballast_vao}, Rail Left VAO={self.rail_left_vao}, Rail Right VAO={self.rail_right_vao}")
 
+    def create_gl_buffers(self):
+        self.setup_buffers()
+        
     def cleanup_buffers(self):
         """刪除 OpenGL 緩衝區"""
         if self.ballast_vao: glDeleteVertexArrays(1, [self.ballast_vao])
@@ -255,7 +258,7 @@ class StraightTrack(TrackSegment):
         # --- 生成繪圖頂點 ---
         self._generate_render_vertices()
         # --- 創建 VBO/VAO ---
-        self.setup_buffers() # 在初始化時就創建好
+#         self.setup_buffers() # 在初始化時就創建好
 
 class CurveTrack(TrackSegment):
     """彎曲軌道 (增加坡度支持)"""
@@ -356,7 +359,7 @@ class CurveTrack(TrackSegment):
         # --- 生成繪圖頂點 ---
         self._generate_render_vertices()
         # --- 創建 VBO/VAO ---
-        self.setup_buffers() # 在初始化時就創建好
+#         self.setup_buffers() # 在初始化時就創建好
 
 class Track:
     """管理整個軌道"""
@@ -367,6 +370,16 @@ class Track:
     def add_segment(self, segment):
         self.segments.append(segment)
         self.total_length += segment.length
+
+    def create_all_segment_buffers(self):
+        """Creates OpenGL buffers for all segments in the track."""
+        print(f"Creating GL buffers for {len(self.segments)} track segments...")
+        for i, segment in enumerate(self.segments):
+            # print(f"  Processing segment {i+1}/{len(self.segments)} ({type(segment).__name__})")
+            if hasattr(segment, 'create_gl_buffers') and callable(segment.create_gl_buffers):
+                segment.create_gl_buffers() # Call the method to create buffers
+            else:
+                print(f"  Warning: Segment {type(segment)} has no create_gl_buffers method.")
 
     def clear(self):
         # 在清除段之前，先清理它們的 OpenGL 資源

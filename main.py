@@ -68,10 +68,14 @@ def main():
         print("警告: HUD 字體未載入，坐標和網格標籤顯示將不可用。")
 
     # --- 載入場景 ---
+    scene = None # Initialize scene variable
     # Initial load, force it.
     if scene_parser.load_scene(force_reload=True):
         scene = scene_parser.get_current_scene()
         # Initial map texture load is now handled within load_scene calling renderer.update_map_texture
+        if scene and scene.track:
+             print("Initial load successful, creating track buffers...")
+             scene.track.create_all_segment_buffers()
         print("初始場景載入成功。")
     else:
         print("初始場景載入失敗，請檢查 scene.txt。場景將為空。")
@@ -138,9 +142,11 @@ def main():
                      # scene_parser.load_scene now handles texture cache clear and map update call
                      if scene_parser.load_scene(force_reload=True):
                          scene = scene_parser.get_current_scene()
-                         # Reset tram to new start position/track
-                         tram_instance.track = scene.track
-                         # tram_instance.distance_on_track = 0.0
+                         if scene and scene.track:
+                             print("Manual reload successful, creating track buffers...")
+                             scene.track.create_all_segment_buffers()
+                         # Reset tram
+                         tram_instance.track = scene.track if scene else None                         # tram_instance.distance_on_track = 0.0
                          # tram_instance.current_speed = 0.0
                          tram_instance.position = np.copy(scene.start_position)
                          start_angle_rad = math.radians(scene.start_angle_deg)
@@ -151,7 +157,7 @@ def main():
                          print("手動重新載入失敗。")
                          # scene might be empty now if load failed
                          scene = scene_parser.get_current_scene()
-                         tram_instance.track = scene.track # Update track reference even if empty
+                         tram_instance.track = scene.track if scene else None
                 elif event.key == pygame.K_m:
                     show_minimap = not show_minimap
                     print(f"小地圖: {'開啟' if show_minimap else '關閉'}")
@@ -202,8 +208,12 @@ def main():
         if current_time - last_scene_check_time > SCENE_CHECK_INTERVAL:
             if scene_parser.load_scene(): # load_scene 會自行判斷是否需要重載
                 scene = scene_parser.get_current_scene()
-                 # 如果場景成功重載，更新電車的軌道引用
-                tram_instance.track = scene.track
+                # *** FIX: Create buffers AFTER successful auto reload ***
+                if scene and scene.track:
+                    print("Auto reload successful, creating track buffers...")
+                    scene.track.create_all_segment_buffers()
+                # Update tram track reference
+                tram_instance.track = scene.track if scene else None
                 # 可以選擇是否重置電車位置
                 # tram_instance.distance_on_track = 0.0
                 print("場景自動重新載入完成。")
@@ -229,7 +239,8 @@ def main():
 
         # --- 繪製場景 ---
         renderer.draw_ground(show_ground_flag)
-        renderer.draw_track(scene.track)
+        if scene and scene.track: # Check if scene and track exist
+            renderer.draw_track(scene.track)
         renderer.draw_scene_objects(scene)
 
         # --- 繪製電車駕駛艙 (在世界坐標中，跟隨電車) ---
@@ -249,6 +260,8 @@ def main():
 
     # --- 清理 ---
     print("正在退出...")
+    if scene and scene.track:
+         scene.track.clear()
     if 'scene' in locals() and scene and scene.track: # 確保 scene 和 track 存在
          scene.track.clear() # 清理最後加載的軌道資源
     # Explicitly clear texture cache including map texture?

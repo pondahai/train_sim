@@ -3,7 +3,35 @@ import os
 import numpy as np
 # import math # <-- Add math import for radians conversion and degrees
 import numpy as math
-from track import StraightTrack, CurveTrack, Track
+from track import StraightTrack, CurveTrack, Track, TrackSegment
+
+# --- Texture loading dependency ---
+# These should be set by the application using this module (simulator or editor)
+texture_loader = None
+renderer_module = None # Keep renderer link if parser modifies renderable things directly (less likely now)
+
+def set_texture_loader(loader):
+    """Sets the texture loader instance to be used by the parser."""
+    global texture_loader
+    texture_loader = loader
+
+def set_renderer_module(renderer):
+    """Sets the renderer module instance (optional, if needed)."""
+    global renderer_module
+    renderer_module = renderer
+
+# --- Command Hints Dictionary ---
+# Used by the editor to display parameter names
+COMMAND_HINTS = {
+    "map": ["cmd", "file", "cx", "cz", "scale"],
+    "start": ["cmd", "x", "y", "z", "angle°"],
+    "straight": ["cmd", "length", "grad‰"],
+    "curve": ["cmd", "radius", "angle°", "grad‰"],
+    "building": ["cmd", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "w", "d", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
+    "cylinder": ["cmd", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "rad", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
+    "tree": ["cmd", "rel_x", "rel_y", "rel_z", "height"]
+    # Add other commands if they exist
+}
 
 class Scene:
     """儲存場景物件"""
@@ -46,308 +74,554 @@ class Scene:
 scene_file_path = "scene.txt"
 last_modified_time = 0
 current_scene = Scene()
-# --- Texture loading dependency ---
-texture_loader = None # Will be set by main.py
-renderer_module = None # Will be set by main.py
 
-def set_texture_loader(loader):
-    global texture_loader
-    texture_loader = loader
-
-def set_renderer_module(renderer):
-    global renderer_module
-    renderer_module = renderer
-
-def parse_scene_file(filepath):
+def _parse_scene_content(lines_list, load_textures=True):
+    print(f"DEBUG: _parse_scene_content called with load_textures = {load_textures}") # <--- Add this print
     """
-    解析 scene.txt 檔案。
-    - 物件 (building, cylinder, tree) 的 x,y,z 是相對於其前面軌道段起點的偏移。
-    - 物件 (building, cylinder) 的 ry 是相對於其前面軌道段起始角度的相對旋轉。
-    - 若物件定義在任何軌道段之前，則相對於世界原點 (0,0,0) 和 0 度角。
+    Internal function to parse scene commands from a list of strings.
+    Returns a new Scene object or None on failure.
+    Requires texture_loader to be set.
     """
-    global current_scene, texture_loader, renderer_module # Add renderer_module
-    if texture_loader is None:
-        print("錯誤：Texture Loader 尚未設定！")
+    global texture_loader # Ensure texture_loader is accessible
+
+    if load_textures and texture_loader is None:
+        print("錯誤：Texture Loader 尚未設定！無法解析場景。")
         return None
-    # Renderer module is optional during parsing, but needed later
-    # if renderer_module is None:
-    #     print("錯誤：Renderer Module 尚未設定！")
-    #     return None
 
     new_scene = Scene()
 
-    # --- State for track building ---
-    # current_pos/angle track the END of the last segment, ready for the NEXT segment
+    # State for track building
     current_pos = np.array([0.0, 0.0, 0.0], dtype=float)
-    current_angle_rad = 0 # Default angle is 0 (along +X axis) as per common convention
+    # Corrected default angle: 0 rad corresponds to +X axis based on previous logic
+    current_angle_rad = 0.0
 
-    # --- State for relative object placement ---
-    # relative_origin_pos/angle track the START of the segment PRECEDING the object
+    # State for relative object placement origin
     relative_origin_pos = np.array([0.0, 0.0, 0.0], dtype=float)
-    relative_origin_angle_rad = 0.5*math.pi # Default 0 angle
+    # 修改成  0.5*math.pi 世界需要轉個彎
+    relative_origin_angle_rad = 0.5*math.pi # Match default angle
 
-    start_cmd_found = False # Flag to store if start was explicitly set
-    map_cmd_found = False # Flag to track if map command was parsed
+    start_cmd_found = False
+    map_cmd_found = False
 
-    try:
-        with open(filepath, 'r', encoding="utf8") as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
+    for line_num, line in enumerate(lines_list, 1):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            # Keep comments and blank lines conceptually, but don't parse them as commands
+            continue # In a pure parsing context, we skip. The editor table will display them.
 
-                parts = line.split()
-                command = parts[0].lower()
+        parts = line.split()
+        if not parts: continue # Skip if split results in empty list
+        command = parts[0].lower()
 
-                try:
-                    # --- Map Command ---
-                    if command == "map":
-                        # map <filename> <center_world_x> <center_world_z> <scale>
-                        if len(parts) < 5:
-                             print(f"警告: 第 {line_num} 行 'map' 指令參數不足。格式: map filename center_x center_z scale")
-                             continue
-                        filename = parts[1]
-                        center_x = float(parts[2])
-                        center_z = float(parts[3])
-                        scale_val = float(parts[4])
+        try:
+            # --- Map Command ---
+            if command == "map":
+                
+                if len(parts) < 5: print(f"警告: 第 {line_num} 行 'map' 指令參數不足。"); continue
+                filename = parts[1]
+                center_x, center_z, scale_val = map(float, parts[2:5])
+                if scale_val <= 0: print(f"警告: 第 {line_num} 行 'map' 縮放比例必須為正數。"); scale_val = 1.0
+                new_scene.map_filename = filename
+                new_scene.map_world_center_x = center_x
+                new_scene.map_world_center_z = center_z
+                new_scene.map_world_scale = scale_val
+                map_cmd_found = True
 
-                        if scale_val <= 0:
-                            print(f"警告: 第 {line_num} 行 'map' 指令的縮放比例必須為正數。")
-                            scale_val = 1.0 # Use default scale
+            # --- Track and Start Commands ---
+            elif command == "start":
+                if len(parts) < 5: print(f"警告: 第 {line_num} 行 'start' 指令參數不足。"); continue
+                x, y, z = map(float, parts[1:4])
+                angle_deg = float(parts[4])
+                angle_rad = math.radians(angle_deg)
+                current_pos[:] = [x, y, z]
+                current_angle_rad = angle_rad
+                relative_origin_pos[:] = current_pos
+                relative_origin_angle_rad = current_angle_rad
+                new_scene.start_position[:] = current_pos
+                new_scene.start_angle_deg = angle_deg
+                start_cmd_found = True
 
-                        new_scene.map_filename = filename
-                        new_scene.map_world_center_x = center_x
-                        new_scene.map_world_center_z = center_z
-                        new_scene.map_world_scale = scale_val
-                        map_cmd_found = True
-                        print(f"小地圖背景設定: 檔案='{filename}', 中心=({center_x:.1f}, {center_z:.1f}), 比例={scale_val:.2f} 世界單位/像素")
+            elif command == "straight" or command == "curve":
+                if not start_cmd_found and not new_scene.track.segments: print(f"提示: 第 {line_num} 行軌道指令前未找到 'start'，將從 ({current_pos[0]:.1f},{current_pos[1]:.1f},{current_pos[2]:.1f}) 角度 {math.degrees(current_angle_rad):.1f}° 開始。")
+                relative_origin_pos[:] = current_pos
+                relative_origin_angle_rad = current_angle_rad
+                segment = None
+                if command == "straight":
+                    if len(parts) < 2: print(f"警告: 第 {line_num} 行 'straight' 指令參數不足。"); continue
+                    length = float(parts[1])
+                    gradient = float(parts[2]) if len(parts) > 2 else 0.0
+                    segment = StraightTrack(current_pos, current_angle_rad, length, gradient)
+                elif command == "curve":
+                    if len(parts) < 3: print(f"警告: 第 {line_num} 行 'curve' 指令參數不足。"); continue
+                    radius = float(parts[1])
+                    angle_deg = float(parts[2])
+                    gradient = float(parts[3]) if len(parts) > 3 else 0.0
+                    segment = CurveTrack(current_pos, current_angle_rad, radius, angle_deg, gradient)
 
-                    # --- Track and Start Commands (Update BOTH current state and relative origin) ---
-                    elif command == "start":
-                        if len(parts) < 5:
-                             print(f"警告: 第 {line_num} 行 'start' 指令參數不足。格式: start x y z angle_deg")
-                             continue
-                        x, y, z = map(float, parts[1:4])
-                        angle_deg = float(parts[4])
-                        angle_rad = math.radians(angle_deg)
+                if segment:
+                    # Important: Track segments now create VBOs in their constructor.
+                    # This might be slow if parsing frequently in the editor.
+                    # Consider deferring VBO creation until needed for rendering?
+                    # For now, we assume TrackSegment handles this.
+                    new_scene.track.add_segment(segment)
+                    current_pos = segment.end_pos
+                    current_angle_rad = segment.end_angle_rad
 
-                        # Update track building state
-                        current_pos[:] = [x, y, z]
-                        current_angle_rad = angle_rad
-
-                        # Update relative origin state for subsequent objects
-                        relative_origin_pos[:] = current_pos
-                        relative_origin_angle_rad = current_angle_rad
-
-                        # Record scene start info
-                        new_scene.start_position[:] = [x, y, z]
-                        new_scene.start_angle_deg = angle_deg
-                        start_cmd_found = True
-                        print(f"場景起始點設定: pos=({x:.2f}, {y:.2f}, {z:.2f}), angle={angle_deg:.2f}°")
-
-                    elif command == "straight" or command == "curve":
-                        if not start_cmd_found and not new_scene.track.segments:
-                             print(f"提示: 未找到 'start' 指令，軌道將從預設位置 (0,0,0) 角度 0 開始。")
-
-                        # --- Set relative origin BEFORE creating segment ---
-                        # The start of this segment becomes the relative origin for objects FOLLOWING it
-                        relative_origin_pos[:] = current_pos # Use the current start position
-                        relative_origin_angle_rad = current_angle_rad # Use the current start angle
-
-                        # --- Create the track segment ---
-                        segment = None
-                        if command == "straight":
-                            # straight <length> [gradient_permille]
-                            length = float(parts[1])
-                            gradient_permille = float(parts[2]) if len(parts) > 2 else 0.0
-                            segment = StraightTrack(current_pos, current_angle_rad, length, gradient_permille)
-                        elif command == "curve":
-                            # curve <radius> <angle_deg> [gradient_permille]
-                            radius = float(parts[1])
-                            angle_deg = float(parts[2])
-                            gradient_permille = float(parts[3]) if len(parts) > 3 else 0.0
-                            segment = CurveTrack(current_pos, current_angle_rad, radius, angle_deg, gradient_permille)
-
-                        if segment:
-                            new_scene.track.add_segment(segment)
-                            # --- Update track building state for the NEXT segment ---
-                            current_pos = segment.end_pos # Update to the end of the created segment
-                            current_angle_rad = segment.end_angle_rad # Update angle as well
-
-                    # --- Object Placement Commands (Use relative origin) ---
-                    elif command == "building":
-                        # building <rx> <ry> <rz> <rx> <ry> <rz> <w> <d> <h> [tex] [uoff] [voff] [tang] [umode] [usca] [vsca]
-                        # Base params = 9. Tex params min = 5 (tex, uoff, voff, tang, umode). Total min = 1+9+5 = 15
-                        # If umode=0, need 2 more: usca, vsca. Total = 17
-                        base_param_count = 9
-                        tex_param_base_count = 5
-                        tex_param_scale_count = 2
-                        min_parts_stretch = 1 + base_param_count + tex_param_base_count # 15
-                        min_parts_tile = min_parts_stretch + tex_param_scale_count # 17
-
-                        # Check minimum parts based on potential uv_mode
-                        if len(parts) < 1 + base_param_count: print(f"警告: 第 {line_num} 行 'building' 指令參數不足 (基本參數缺失)。"); continue
-#                         if len(parts) < min_parts_stretch:
-#                             print(f"警告: 第 {line_num} 行 'building' 指令參數不足 (基礎紋理參數缺失)。")
-                            
-
-                        rel_x, rel_y, rel_z = map(float, parts[1:4]); rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7]); w, d, h = map(float, parts[7:10])
-                        tex_file = parts[10] if len(parts) > (base_param_count+1) else "building.png"
-                        u_offset = float(parts[11]) if len(parts) > (base_param_count+2) else 0.0
-                        v_offset = float(parts[12]) if len(parts) > (base_param_count+3) else 0.0
-                        tex_angle_deg = float(parts[13]) if len(parts) > (base_param_count+4) else 0.0
-                        uv_mode = int(parts[14]) if len(parts) > (base_param_count+5) else 1
-                        
-                        uscale = 1.0 # Default scale
-                        vscale = 1.0 # Default scale
-                        if uv_mode == 0:
-                            if len(parts) >= min_parts_tile:
-                                uscale = float(parts[15])
-                                vscale = float(parts[16])
-                                if uscale <= 0 or vscale <= 0:
-                                    print(f"警告: 第 {line_num} 行 'building' uv_mode=0 的 uscale/vscale ({uscale}, {vscale}) 必須為正數。使用預設值 1.0。")
-                                    uscale = 1.0
-                                    vscale = 1.0
-                            else:
-                                print(f"警告: 第 {line_num} 行 'building' 指定了 uv_mode=0 但未提供 uscale 和 vscale。使用預設值 1.0。")
-                        elif uv_mode != 1:
-                            print(f"警告: 第 {line_num} 行 'building' 的 uv_mode ({uv_mode}) 無效。使用預設模式 1 (拉伸)。")
-                            uv_mode = 1
-
+            # --- Object Placement Commands ---
+            elif command == "building":
+                # building <rx> <ry> <rz> <rx> <ry> <rz> <w> <d> <h> [tex] [uoff] [voff] [tang] [umode] [usca] [vsca]
+                base_param_count = 9
+                if len(parts) < base_param_count: print(f"警告: 第 {line_num} 行 'building' 指令參數不足。"); continue
+                rel_x, rel_y, rel_z = map(float, parts[1:4]); rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7]); w, d, h = map(float, parts[7:10])
+                # --- Texture Parameter Parsing (with defaults) ---
+                tex_file = parts[10] if len(parts) > 10 else "building.png"
+                u_offset = float(parts[11]) if len(parts) > 11 else 0.0
+                v_offset = float(parts[12]) if len(parts) > 12 else 0.0
+                tex_angle_deg = float(parts[13]) if len(parts) > 13 else 0.0
+                uv_mode = int(parts[14]) if len(parts) > 14 else 1
+                uscale = float(parts[15]) if len(parts) > 15 and uv_mode == 0 else 1.0
+                vscale = float(parts[16]) if len(parts) > 16 and uv_mode == 0 else 1.0
+                if uv_mode == 0 and (uscale <= 0 or vscale <= 0): print(f"警告: 第 {line_num} 行 'building' uv_mode=0 的 uscale/vscale 必須為正數。"); uscale = vscale = 1.0
+                if uv_mode not in [0, 1]: print(f"警告: 第 {line_num} 行 'building' uv_mode 無效。"); uv_mode = 1
+#                 tex_id = texture_loader.load_texture(tex_file)
+                tex_id = None
+                if load_textures: # <-- Check the flag
+                    if texture_loader:
                         tex_id = texture_loader.load_texture(tex_file)
-
-                        # --- *** 核心修改：計算旋轉後的偏移量 *** ---
-                        origin_angle = relative_origin_angle_rad
-                        cos_a = math.cos(origin_angle)
-                        sin_a = math.sin(origin_angle)
-
-                        # 假設 rel_x 是軌道右側，rel_z 是軌道前方
-                        # 計算世界坐標系中的偏移向量
-                        world_offset_x = rel_z * cos_a + rel_x * sin_a # 旋轉 rel_x, rel_z
-                        world_offset_y = rel_y # Y 軸通常直接對應世界 Y
-                        world_offset_z = rel_z * sin_a - rel_x * cos_a # 旋轉 rel_x, rel_z
-
-                        # 計算最終的絕對世界位置
-                        world_x = relative_origin_pos[0] + world_offset_x
-                        world_y = relative_origin_pos[1] + world_offset_y
-                        world_z = relative_origin_pos[2] + world_offset_z
-                        # --- *** 修改結束 *** ---
-                        
-                        # Calculate absolute world Y rotation
-                        absolute_ry_deg = math.degrees(-relative_origin_angle_rad) + rel_ry_deg - 90
-
-                        new_scene.buildings.append(
-                            ("building", world_x, world_y, world_z,
-                             rx_deg, absolute_ry_deg, rz_deg, # Use absolute ry
-                             w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale) # Append scales
-                        )
-
-                    elif command == "cylinder":
-                        # cylinder <rx> <ry> <rz> <rx> <ry> <rz> <rad> <h> [tex] [uoff] [voff] [tang] [umode] [usca] [vsca]
-                        base_param_count = 8
-                        tex_param_base_count = 5
-                        tex_param_scale_count = 2
-                        min_parts_stretch = 1 + base_param_count + tex_param_base_count # 14
-                        min_parts_tile = min_parts_stretch + tex_param_scale_count # 16
-
-                        if len(parts) < 1 + base_param_count: print(f"警告: 第 {line_num} 行 'cylinder' 指令參數不足 (基本參數缺失)。"); continue
-#                         if len(parts) < min_parts_stretch:
-#                             print(f"警告: 第 {line_num} 行 'cylinder' 指令參數不足 (基礎紋理參數缺失)。")
-                            
-
-                        rel_x, rel_y, rel_z = map(float, parts[1:4]); rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7])
-                        radius = float(parts[7]); height = float(parts[8])
-                        tex_file = parts[9] if len(parts) > (base_param_count+1) else "metal.png"
-                        u_offset = float(parts[10]) if len(parts) > (base_param_count+2) else 0.0
-                        v_offset = float(parts[11]) if len(parts) > (base_param_count+3) else 0.0
-                        tex_angle_deg = float(parts[12]) if len(parts) > (base_param_count+4) else 0.0
-                        uv_mode = int(parts[13]) if len(parts) > (base_param_count+5) else 1 # Default to stretch/fill mode
-
-                        uscale = 1.0 # Default scale
-                        vscale = 1.0 # Default scale
-                        if uv_mode == 0:
-                            if len(parts) >= min_parts_tile:
-                                uscale = float(parts[14])
-                                vscale = float(parts[15])
-                                if uscale <= 0 or vscale <= 0:
-                                    print(f"警告: 第 {line_num} 行 'cylinder' uv_mode=0 的 uscale/vscale ({uscale}, {vscale}) 必須為正數。使用預設值 1.0。")
-                                    uscale = 1.0
-                                    vscale = 1.0
-                            else:
-                                print(f"警告: 第 {line_num} 行 'cylinder' 指定了 uv_mode=0 但未提供 uscale 和 vscale。使用預設值 1.0。")
-                        elif uv_mode != 1:
-                            print(f"警告: 第 {line_num} 行 'cylinder' 的 uv_mode ({uv_mode}) 無效。使用預設模式 1 (拉伸)。")
-                            uv_mode = 1
-                            
-                        tex_id = texture_loader.load_texture(tex_file)
-
-                        # --- *** 核心修改：計算旋轉後的偏移量 *** ---
-                        origin_angle = relative_origin_angle_rad
-                        cos_a = math.cos(origin_angle)
-                        sin_a = math.sin(origin_angle)
-                        world_offset_x = rel_z * cos_a + rel_x * sin_a
-                        world_offset_y = rel_y
-                        world_offset_z = rel_z * sin_a - rel_x * cos_a
-                        world_x = relative_origin_pos[0] + world_offset_x
-                        world_y = relative_origin_pos[1] + world_offset_y
-                        world_z = relative_origin_pos[2] + world_offset_z
-                        # --- *** 修改結束 *** ---
-                        
-                        # Calculate absolute world Y rotation
-                        absolute_ry_deg = math.degrees(-relative_origin_angle_rad) + rel_ry_deg - 90
-#                       # absolute_rz_deg = math.degrees(-relative_origin_angle_rad) + rel_rz_deg
-
-                        new_scene.cylinders.append(
-                            ("cylinder", world_x, world_y, world_z,
-                             rx_deg, rz_deg, absolute_ry_deg, # Use absolute ry
-                             radius, height, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale) # Append scales
-                        )
-
-                    elif command == "tree":
-                        # tree <rel_x> <rel_y> <rel_z> <height>
-                        rel_x, rel_y, rel_z = map(float, parts[1:4])
-                        height = float(parts[4])
-
-                        # --- *** 核心修改：計算旋轉後的偏移量 *** ---
-                        origin_angle = relative_origin_angle_rad
-                        cos_a = math.cos(origin_angle)
-                        sin_a = math.sin(origin_angle)
-                        world_offset_x = rel_z * cos_a + rel_x * sin_a
-                        world_offset_y = rel_y
-                        world_offset_z = rel_z * sin_a - rel_x * cos_a
-                        world_x = relative_origin_pos[0] + world_offset_x
-                        world_y = relative_origin_pos[1] + world_offset_y
-                        world_z = relative_origin_pos[2] + world_offset_z
-                        # --- *** 修改結束 *** ---
-                        
-                        new_scene.trees.append((world_x, world_y, world_z, height))
-
                     else:
-                        print(f"警告: 第 {line_num} 行無法識別的指令 '{command}'")
+                        print(f"警告: 第 {line_num} 行 'building' 無法載入紋理 '{tex_file}' (loader未設定)。")                
+                # --- Coordinate Transformation ---
+                origin_angle = relative_origin_angle_rad
+                cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
+                # 修改成 cos+sin sin-cos
+                world_offset_x = rel_z * cos_a + rel_x * sin_a # Adjusted for common convention: +rel_x=right, +rel_z=forward
+                world_offset_z = rel_z * sin_a - rel_x * cos_a
+                world_x = relative_origin_pos[0] + world_offset_x
+                world_y = relative_origin_pos[1] + rel_y # Y is absolute offset
+                world_z = relative_origin_pos[2] + world_offset_z
+                # 修改成 -origin_angle 以及後面 - 90
+                absolute_ry_deg = math.degrees(-origin_angle) + rel_ry_deg - 90# Combine origin angle and relative angle
+                new_scene.buildings.append(
+                    ("building", world_x, world_y, world_z, rx_deg, absolute_ry_deg, rz_deg,
+                     w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
+                     tex_file)
+                )
 
-                except (IndexError, ValueError) as e:
-                    print(f"警告: 解析第 {line_num} 行時發生錯誤 ('{line}'): {e}")
+            elif command == "cylinder":
+                # cylinder <rx> <ry> <rz> <rx> <ry> <rz> <rad> <h> [tex] [uoff] [voff] [tang] [umode] [usca] [vsca]
+                base_param_count = 8
+                if len(parts) < 1 + base_param_count: print(f"警告: 第 {line_num} 行 'cylinder' 指令參數不足。"); continue
+                rel_x, rel_y, rel_z = map(float, parts[1:4]); rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7])
+                radius = float(parts[7]); height = float(parts[8])
+                # --- Texture Parameter Parsing ---
+                tex_file = parts[9] if len(parts) > 9 else "metal.png"
+                u_offset = float(parts[10]) if len(parts) > 10 else 0.0
+                v_offset = float(parts[11]) if len(parts) > 11 else 0.0
+                tex_angle_deg = float(parts[12]) if len(parts) > 12 else 0.0
+                uv_mode = int(parts[13]) if len(parts) > 13 else 1
+                uscale = float(parts[14]) if len(parts) > 14 and uv_mode == 0 else 1.0
+                vscale = float(parts[15]) if len(parts) > 15 and uv_mode == 0 else 1.0
+                if uv_mode == 0 and (uscale <= 0 or vscale <= 0): print(f"警告: 第 {line_num} 行 'cylinder' uv_mode=0 的 uscale/vscale 必須為正數。"); uscale = vscale = 1.0
+                if uv_mode not in [0, 1]: print(f"警告: 第 {line_num} 行 'cylinder' uv_mode 無效。"); uv_mode = 1
+#                 tex_id = texture_loader.load_texture(tex_file)
+                tex_id = None
+                if load_textures: # <-- Check the flag
+                    if texture_loader:
+                        tex_id = texture_loader.load_texture(tex_file)
+                    else:
+                        print(f"警告: 第 {line_num} 行 'cylinder' 無法載入紋理 '{tex_file}' (loader未設定)。")                
+                # --- Coordinate Transformation ---
+                origin_angle = relative_origin_angle_rad
+                cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
+                # 修改成 cos+sin sin-cos
+                world_offset_x = rel_z * cos_a + rel_x * sin_a # Adjusted
+                world_offset_z = rel_z * sin_a - rel_x * cos_a
+                world_x = relative_origin_pos[0] + world_offset_x
+                world_y = relative_origin_pos[1] + rel_y
+                world_z = relative_origin_pos[2] + world_offset_z
+                # 修改成 -origin_angle 以及後面 - 90
+                absolute_ry_deg = math.degrees(-origin_angle) + rel_ry_deg - 90
+                # 修改成 rx_deg, rz_deg, absolute_ry_deg,
+                new_scene.cylinders.append(
+                    ("cylinder", world_x, world_y, world_z, rx_deg, rz_deg, absolute_ry_deg, # Note: ry is abs, rx/rz are obj local
+                     radius, height, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
+                     tex_file)
+                )
 
-        # If no start command was found, set default scene start info
-        if not start_cmd_found:
-            new_scene.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
-            new_scene.start_angle_deg = 0.0
-            # Hint was already printed if needed
+            elif command == "tree":
+                if len(parts) < 5: print(f"警告: 第 {line_num} 行 'tree' 指令參數不足。"); continue
+                rel_x, rel_y, rel_z = map(float, parts[1:4])
+                height = float(parts[4])
+                # --- Coordinate Transformation ---
+                origin_angle = relative_origin_angle_rad
+                cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
+                # 修改成 cos+sin sin-cos
+                world_offset_x = rel_z * cos_a + rel_x * sin_a # Adjusted
+                world_offset_z = rel_z * sin_a - rel_x * cos_a
+                world_x = relative_origin_pos[0] + world_offset_x
+                world_y = relative_origin_pos[1] + rel_y
+                world_z = relative_origin_pos[2] + world_offset_z
+                new_scene.trees.append((world_x, world_y, world_z, height))
 
-        print(f"場景檔案 '{filepath}' 解析完成 (使用相對坐標系).")
-        return new_scene
+            else:
+                print(f"警告: 第 {line_num} 行無法識別的指令 '{command}'")
 
+        except (IndexError, ValueError) as e:
+            print(f"警告: 解析第 {line_num} 行時發生錯誤 ('{line}'): {e}")
+        except Exception as e: # Catch potential errors in TrackSegment creation etc.
+             print(f"警告: 處理第 {line_num} 行時發生內部錯誤 ('{line}'): {e}")
+
+
+    # If no start command was found, set default scene start info
+    if not start_cmd_found:
+        new_scene.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
+        new_scene.start_angle_deg = 0.0
+        # Hint was already printed if needed during track parsing
+
+    return new_scene
+
+def parse_scene_from_lines(lines_list, load_textures=True):
+    """
+    Parses scene definition from a list of strings (e.g., from a table editor).
+    Requires texture_loader to be set beforehand.
+
+    Args:
+        lines_list: A list of strings, where each string is one line from the scene definition.
+
+    Returns:
+        A Scene object populated with the parsed data, or None if parsing fails critically.
+    """
+    print(f"從 {len(lines_list)} 行文字開始解析場景...")
+    parsed_scene = _parse_scene_content(lines_list, load_textures)
+    if parsed_scene:
+        print("場景內容解析完成。")
+    else:
+        print("場景內容解析失敗。")
+    return parsed_scene
+
+def parse_scene_file(filepath, load_textures=True):
+    """
+    Parses the scene definition from a file.
+    Requires texture_loader to be set beforehand.
+
+    Args:
+        filepath: Path to the scene definition file.
+
+    Returns:
+        A Scene object populated with the parsed data, or None if file not found or parsing fails.
+    """
+    print(f"從檔案 '{filepath}' 開始解析場景...")
+    try:
+        with open(filepath, 'r', encoding="utf-8") as f:
+            lines = f.readlines() # Read all lines into a list
+        parsed_scene = _parse_scene_content(lines, load_textures)
+        if parsed_scene:
+            print(f"場景檔案 '{filepath}' 解析完成。")
+        else:
+            print(f"場景檔案 '{filepath}' 解析失敗。")
+        return parsed_scene
     except FileNotFoundError:
-        print(f"錯誤: 場景檔案 '{filepath}' 不存在.")
+        print(f"錯誤: 場景檔案 '{filepath}' 不存在。")
         return None
     except Exception as e:
         print(f"讀取或解析場景檔案 '{filepath}' 時發生未知錯誤: {e}")
         return None
 
+# def parse_scene_file(filepath):
+#     """
+#     解析 scene.txt 檔案。
+#     - 物件 (building, cylinder, tree) 的 x,y,z 是相對於其前面軌道段起點的偏移。
+#     - 物件 (building, cylinder) 的 ry 是相對於其前面軌道段起始角度的相對旋轉。
+#     - 若物件定義在任何軌道段之前，則相對於世界原點 (0,0,0) 和 0 度角。
+#     """
+#     global current_scene, texture_loader, renderer_module # Add renderer_module
+#     if texture_loader is None:
+#         print("錯誤：Texture Loader 尚未設定！")
+#         return None
+#     # Renderer module is optional during parsing, but needed later
+#     # if renderer_module is None:
+#     #     print("錯誤：Renderer Module 尚未設定！")
+#     #     return None
+# 
+#     new_scene = Scene()
+# 
+#     # --- State for track building ---
+#     # current_pos/angle track the END of the last segment, ready for the NEXT segment
+#     current_pos = np.array([0.0, 0.0, 0.0], dtype=float)
+#     current_angle_rad = 0 # Default angle is 0 (along +X axis) as per common convention
+# 
+#     # --- State for relative object placement ---
+#     # relative_origin_pos/angle track the START of the segment PRECEDING the object
+#     relative_origin_pos = np.array([0.0, 0.0, 0.0], dtype=float)
+#     relative_origin_angle_rad = 0.5*math.pi # Default 0 angle
+# 
+#     start_cmd_found = False # Flag to store if start was explicitly set
+#     map_cmd_found = False # Flag to track if map command was parsed
+# 
+#     try:
+#         with open(filepath, 'r', encoding="utf8") as f:
+#             for line_num, line in enumerate(f, 1):
+#                 line = line.strip()
+#                 if not line or line.startswith('#'):
+#                     continue
+# 
+#                 parts = line.split()
+#                 command = parts[0].lower()
+# 
+#                 try:
+#                     # --- Map Command ---
+#                     if command == "map":
+#                         # map <filename> <center_world_x> <center_world_z> <scale>
+#                         if len(parts) < 5:
+#                              print(f"警告: 第 {line_num} 行 'map' 指令參數不足。格式: map filename center_x center_z scale")
+#                              continue
+#                         filename = parts[1]
+#                         center_x = float(parts[2])
+#                         center_z = float(parts[3])
+#                         scale_val = float(parts[4])
+# 
+#                         if scale_val <= 0:
+#                             print(f"警告: 第 {line_num} 行 'map' 指令的縮放比例必須為正數。")
+#                             scale_val = 1.0 # Use default scale
+# 
+#                         new_scene.map_filename = filename
+#                         new_scene.map_world_center_x = center_x
+#                         new_scene.map_world_center_z = center_z
+#                         new_scene.map_world_scale = scale_val
+#                         map_cmd_found = True
+#                         print(f"小地圖背景設定: 檔案='{filename}', 中心=({center_x:.1f}, {center_z:.1f}), 比例={scale_val:.2f} 世界單位/像素")
+# 
+#                     # --- Track and Start Commands (Update BOTH current state and relative origin) ---
+#                     elif command == "start":
+#                         if len(parts) < 5:
+#                              print(f"警告: 第 {line_num} 行 'start' 指令參數不足。格式: start x y z angle_deg")
+#                              continue
+#                         x, y, z = map(float, parts[1:4])
+#                         angle_deg = float(parts[4])
+#                         angle_rad = math.radians(angle_deg)
+# 
+#                         # Update track building state
+#                         current_pos[:] = [x, y, z]
+#                         current_angle_rad = angle_rad
+# 
+#                         # Update relative origin state for subsequent objects
+#                         relative_origin_pos[:] = current_pos
+#                         relative_origin_angle_rad = current_angle_rad
+# 
+#                         # Record scene start info
+#                         new_scene.start_position[:] = [x, y, z]
+#                         new_scene.start_angle_deg = angle_deg
+#                         start_cmd_found = True
+#                         print(f"場景起始點設定: pos=({x:.2f}, {y:.2f}, {z:.2f}), angle={angle_deg:.2f}°")
+# 
+#                     elif command == "straight" or command == "curve":
+#                         if not start_cmd_found and not new_scene.track.segments:
+#                              print(f"提示: 未找到 'start' 指令，軌道將從預設位置 (0,0,0) 角度 0 開始。")
+# 
+#                         # --- Set relative origin BEFORE creating segment ---
+#                         # The start of this segment becomes the relative origin for objects FOLLOWING it
+#                         relative_origin_pos[:] = current_pos # Use the current start position
+#                         relative_origin_angle_rad = current_angle_rad # Use the current start angle
+# 
+#                         # --- Create the track segment ---
+#                         segment = None
+#                         if command == "straight":
+#                             # straight <length> [gradient_permille]
+#                             length = float(parts[1])
+#                             gradient_permille = float(parts[2]) if len(parts) > 2 else 0.0
+#                             segment = StraightTrack(current_pos, current_angle_rad, length, gradient_permille)
+#                         elif command == "curve":
+#                             # curve <radius> <angle_deg> [gradient_permille]
+#                             radius = float(parts[1])
+#                             angle_deg = float(parts[2])
+#                             gradient_permille = float(parts[3]) if len(parts) > 3 else 0.0
+#                             segment = CurveTrack(current_pos, current_angle_rad, radius, angle_deg, gradient_permille)
+# 
+#                         if segment:
+#                             new_scene.track.add_segment(segment)
+#                             # --- Update track building state for the NEXT segment ---
+#                             current_pos = segment.end_pos # Update to the end of the created segment
+#                             current_angle_rad = segment.end_angle_rad # Update angle as well
+# 
+#                     # --- Object Placement Commands (Use relative origin) ---
+#                     elif command == "building":
+#                         # building <rx> <ry> <rz> <rx> <ry> <rz> <w> <d> <h> [tex] [uoff] [voff] [tang] [umode] [usca] [vsca]
+#                         # Base params = 9. Tex params min = 5 (tex, uoff, voff, tang, umode). Total min = 1+9+5 = 15
+#                         # If umode=0, need 2 more: usca, vsca. Total = 17
+#                         base_param_count = 9
+#                         tex_param_base_count = 5
+#                         tex_param_scale_count = 2
+#                         min_parts_stretch = 1 + base_param_count + tex_param_base_count # 15
+#                         min_parts_tile = min_parts_stretch + tex_param_scale_count # 17
+# 
+#                         # Check minimum parts based on potential uv_mode
+#                         if len(parts) < 1 + base_param_count: print(f"警告: 第 {line_num} 行 'building' 指令參數不足 (基本參數缺失)。"); continue
+# #                         if len(parts) < min_parts_stretch:
+# #                             print(f"警告: 第 {line_num} 行 'building' 指令參數不足 (基礎紋理參數缺失)。")
+#                             
+# 
+#                         rel_x, rel_y, rel_z = map(float, parts[1:4]); rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7]); w, d, h = map(float, parts[7:10])
+#                         tex_file = parts[10] if len(parts) > (base_param_count+1) else "building.png"
+#                         u_offset = float(parts[11]) if len(parts) > (base_param_count+2) else 0.0
+#                         v_offset = float(parts[12]) if len(parts) > (base_param_count+3) else 0.0
+#                         tex_angle_deg = float(parts[13]) if len(parts) > (base_param_count+4) else 0.0
+#                         uv_mode = int(parts[14]) if len(parts) > (base_param_count+5) else 1
+#                         
+#                         uscale = 1.0 # Default scale
+#                         vscale = 1.0 # Default scale
+#                         if uv_mode == 0:
+#                             if len(parts) >= min_parts_tile:
+#                                 uscale = float(parts[15])
+#                                 vscale = float(parts[16])
+#                                 if uscale <= 0 or vscale <= 0:
+#                                     print(f"警告: 第 {line_num} 行 'building' uv_mode=0 的 uscale/vscale ({uscale}, {vscale}) 必須為正數。使用預設值 1.0。")
+#                                     uscale = 1.0
+#                                     vscale = 1.0
+#                             else:
+#                                 print(f"警告: 第 {line_num} 行 'building' 指定了 uv_mode=0 但未提供 uscale 和 vscale。使用預設值 1.0。")
+#                         elif uv_mode != 1:
+#                             print(f"警告: 第 {line_num} 行 'building' 的 uv_mode ({uv_mode}) 無效。使用預設模式 1 (拉伸)。")
+#                             uv_mode = 1
+# 
+#                         tex_id = texture_loader.load_texture(tex_file)
+# 
+#                         # --- *** 核心修改：計算旋轉後的偏移量 *** ---
+#                         origin_angle = relative_origin_angle_rad
+#                         cos_a = math.cos(origin_angle)
+#                         sin_a = math.sin(origin_angle)
+# 
+#                         # 假設 rel_x 是軌道右側，rel_z 是軌道前方
+#                         # 計算世界坐標系中的偏移向量
+#                         world_offset_x = rel_z * cos_a + rel_x * sin_a # 旋轉 rel_x, rel_z
+#                         world_offset_y = rel_y # Y 軸通常直接對應世界 Y
+#                         world_offset_z = rel_z * sin_a - rel_x * cos_a # 旋轉 rel_x, rel_z
+# 
+#                         # 計算最終的絕對世界位置
+#                         world_x = relative_origin_pos[0] + world_offset_x
+#                         world_y = relative_origin_pos[1] + world_offset_y
+#                         world_z = relative_origin_pos[2] + world_offset_z
+#                         # --- *** 修改結束 *** ---
+#                         
+#                         # Calculate absolute world Y rotation
+#                         absolute_ry_deg = math.degrees(-relative_origin_angle_rad) + rel_ry_deg - 90
+# 
+#                         new_scene.buildings.append(
+#                             ("building", world_x, world_y, world_z,
+#                              rx_deg, absolute_ry_deg, rz_deg, # Use absolute ry
+#                              w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale) # Append scales
+#                         )
+# 
+#                     elif command == "cylinder":
+#                         # cylinder <rx> <ry> <rz> <rx> <ry> <rz> <rad> <h> [tex] [uoff] [voff] [tang] [umode] [usca] [vsca]
+#                         base_param_count = 8
+#                         tex_param_base_count = 5
+#                         tex_param_scale_count = 2
+#                         min_parts_stretch = 1 + base_param_count + tex_param_base_count # 14
+#                         min_parts_tile = min_parts_stretch + tex_param_scale_count # 16
+# 
+#                         if len(parts) < 1 + base_param_count: print(f"警告: 第 {line_num} 行 'cylinder' 指令參數不足 (基本參數缺失)。"); continue
+# #                         if len(parts) < min_parts_stretch:
+# #                             print(f"警告: 第 {line_num} 行 'cylinder' 指令參數不足 (基礎紋理參數缺失)。")
+#                             
+# 
+#                         rel_x, rel_y, rel_z = map(float, parts[1:4]); rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7])
+#                         radius = float(parts[7]); height = float(parts[8])
+#                         tex_file = parts[9] if len(parts) > (base_param_count+1) else "metal.png"
+#                         u_offset = float(parts[10]) if len(parts) > (base_param_count+2) else 0.0
+#                         v_offset = float(parts[11]) if len(parts) > (base_param_count+3) else 0.0
+#                         tex_angle_deg = float(parts[12]) if len(parts) > (base_param_count+4) else 0.0
+#                         uv_mode = int(parts[13]) if len(parts) > (base_param_count+5) else 1 # Default to stretch/fill mode
+# 
+#                         uscale = 1.0 # Default scale
+#                         vscale = 1.0 # Default scale
+#                         if uv_mode == 0:
+#                             if len(parts) >= min_parts_tile:
+#                                 uscale = float(parts[14])
+#                                 vscale = float(parts[15])
+#                                 if uscale <= 0 or vscale <= 0:
+#                                     print(f"警告: 第 {line_num} 行 'cylinder' uv_mode=0 的 uscale/vscale ({uscale}, {vscale}) 必須為正數。使用預設值 1.0。")
+#                                     uscale = 1.0
+#                                     vscale = 1.0
+#                             else:
+#                                 print(f"警告: 第 {line_num} 行 'cylinder' 指定了 uv_mode=0 但未提供 uscale 和 vscale。使用預設值 1.0。")
+#                         elif uv_mode != 1:
+#                             print(f"警告: 第 {line_num} 行 'cylinder' 的 uv_mode ({uv_mode}) 無效。使用預設模式 1 (拉伸)。")
+#                             uv_mode = 1
+#                             
+#                         tex_id = texture_loader.load_texture(tex_file)
+# 
+#                         # --- *** 核心修改：計算旋轉後的偏移量 *** ---
+#                         origin_angle = relative_origin_angle_rad
+#                         cos_a = math.cos(origin_angle)
+#                         sin_a = math.sin(origin_angle)
+#                         world_offset_x = rel_z * cos_a + rel_x * sin_a
+#                         world_offset_y = rel_y
+#                         world_offset_z = rel_z * sin_a - rel_x * cos_a
+#                         world_x = relative_origin_pos[0] + world_offset_x
+#                         world_y = relative_origin_pos[1] + world_offset_y
+#                         world_z = relative_origin_pos[2] + world_offset_z
+#                         # --- *** 修改結束 *** ---
+#                         
+#                         # Calculate absolute world Y rotation
+#                         absolute_ry_deg = math.degrees(-relative_origin_angle_rad) + rel_ry_deg - 90
+# #                       # absolute_rz_deg = math.degrees(-relative_origin_angle_rad) + rel_rz_deg
+# 
+#                         new_scene.cylinders.append(
+#                             ("cylinder", world_x, world_y, world_z,
+#                              rx_deg, rz_deg, absolute_ry_deg, # Use absolute ry
+#                              radius, height, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale) # Append scales
+#                         )
+# 
+#                     elif command == "tree":
+#                         # tree <rel_x> <rel_y> <rel_z> <height>
+#                         rel_x, rel_y, rel_z = map(float, parts[1:4])
+#                         height = float(parts[4])
+# 
+#                         # --- *** 核心修改：計算旋轉後的偏移量 *** ---
+#                         origin_angle = relative_origin_angle_rad
+#                         cos_a = math.cos(origin_angle)
+#                         sin_a = math.sin(origin_angle)
+#                         world_offset_x = rel_z * cos_a + rel_x * sin_a
+#                         world_offset_y = rel_y
+#                         world_offset_z = rel_z * sin_a - rel_x * cos_a
+#                         world_x = relative_origin_pos[0] + world_offset_x
+#                         world_y = relative_origin_pos[1] + world_offset_y
+#                         world_z = relative_origin_pos[2] + world_offset_z
+#                         # --- *** 修改結束 *** ---
+#                         
+#                         new_scene.trees.append((world_x, world_y, world_z, height))
+# 
+#                     else:
+#                         print(f"警告: 第 {line_num} 行無法識別的指令 '{command}'")
+# 
+#                 except (IndexError, ValueError) as e:
+#                     print(f"警告: 解析第 {line_num} 行時發生錯誤 ('{line}'): {e}")
+# 
+#         # If no start command was found, set default scene start info
+#         if not start_cmd_found:
+#             new_scene.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
+#             new_scene.start_angle_deg = 0.0
+#             # Hint was already printed if needed
+# 
+#         print(f"場景檔案 '{filepath}' 解析完成 (使用相對坐標系).")
+#         return new_scene
+# 
+#     except FileNotFoundError:
+#         print(f"錯誤: 場景檔案 '{filepath}' 不存在.")
+#         return None
+#     except Exception as e:
+#         print(f"讀取或解析場景檔案 '{filepath}' 時發生未知錯誤: {e}")
+#         return None
+
 def load_scene(force_reload=False):
     """載入或重新載入場景檔案"""
     global last_modified_time, current_scene, scene_file_path, renderer_module
     try:
+        # Ensure loaders are set before parsing
+        if texture_loader is None:
+             print("錯誤: Texture Loader 未在 load_scene 前設定。")
+             return False # Indicate failure
+
         current_mod_time = os.path.getmtime(scene_file_path)
         needs_reload = force_reload or current_mod_time != last_modified_time
 
@@ -365,6 +639,7 @@ def load_scene(force_reload=False):
                  renderer_module.clear_cached_map_texture() # Need to add this function to renderer
 
             new_scene_data = parse_scene_file(scene_file_path)
+            
             if new_scene_data:
                 current_scene = new_scene_data # 替換場景
                 last_modified_time = current_mod_time

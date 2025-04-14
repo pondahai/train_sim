@@ -24,14 +24,15 @@ NEEDLE_COLOR = (0.0, 0.0, 0.0) # 指針顏色
 CYLINDER_SLICES = 128 # 圓柱體側面數
 
 # --- 小地圖參數 ---  <-- 新增
-MINIMAP_SIZE = 200  # 小地圖的像素大小 (正方形)
+MINIMAP_SIZE = 500  # 小地圖的像素大小 (正方形)
 MINIMAP_PADDING = 10 # 離螢幕邊緣的距離
 # MINIMAP_RANGE = 300.0 # 小地圖顯示的世界單位範圍 (以此距離為半徑的正方形區域)
-DEFAULT_MINIMAP_RANGE = 300.0 # 小地圖預設顯示的世界單位範圍
+DEFAULT_MINIMAP_RANGE = 500.0 # 小地圖預設顯示的世界單位範圍
 MINIMAP_MIN_RANGE = 10.0      # <-- 新增：最小縮放範圍 (放大極限)
 MINIMAP_MAX_RANGE = 1000.0    # <-- 新增：最大縮放範圍 (縮小極限)
 MINIMAP_ZOOM_FACTOR = 1.1     # <-- 新增：每次縮放的比例因子
 MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Use if no map image specified or fails to load
+EDITOR_BG_COLOR = (0.15, 0.15, 0.18, 1.0) # Different BG for editor view <--- ADD THIS LINE
 MINIMAP_BG_COLOR = (0.2, 0.2, 0.2, 0.7) # 背景顏色 (RGBA)
 MINIMAP_TRACK_COLOR = (1.0, 0.0, 0.0) # 軌道顏色 ()
 MINIMAP_BUILDING_COLOR = (0.6, 0.4, 0.2) # 建築顏色 (棕色)
@@ -39,12 +40,12 @@ MINIMAP_CYLINDER_COLOR = (0.6, 0.4, 0.2) # Use same color for cylinders for now
 MINIMAP_TILTED_CYLINDER_BOX_SIZE_FACTOR = 1.0 # Factor to scale the tilted box size (relative to max(radius, height/2))
 MINIMAP_TREE_COLOR = (0.1, 0.8, 0.1) # 樹木顏色 (綠色)
 MINIMAP_PLAYER_COLOR = (1.0, 0.0, 0.0) # 玩家顏色 (紅色)
-MINIMAP_PLAYER_SIZE = 6 # 玩家標記的大小 (像素)
+MINIMAP_PLAYER_SIZE = 36 # 玩家標記的大小 (像素)
 # --- 新增：網格線參數 ---
 MINIMAP_GRID_SCALE = 50.0 # 世界單位中每格的大小
 MINIMAP_GRID_COLOR = (1.0, 1.0, 1.0, 0.3) # 網格線顏色 (淡白色)
 MINIMAP_GRID_LABEL_COLOR = (255, 255, 255, 180) # 網格標籤顏色 (稍亮的白色)
-MINIMAP_GRID_LABEL_FONT_SIZE = 12 # 網格標籤字體大小
+MINIMAP_GRID_LABEL_FONT_SIZE = 24 # 網格標籤字體大小
 MINIMAP_GRID_LABEL_OFFSET = 2 # 標籤離地圖邊緣的像素距離
 
 # --- REMOVED Hardcoded map file and world coordinate constants ---
@@ -703,7 +704,7 @@ def draw_scene_objects(scene):
     for obj_data in scene.buildings:
         (obj_type, x, y, z, rx, ry, rz, w, d, h, tex_id,
          u_offset, v_offset, tex_angle_deg, uv_mode,
-         uscale, vscale) = obj_data
+         uscale, vscale, tex_file) = obj_data
         glPushMatrix()
         glTranslatef(x, y, z) # Move to position
         # Apply rotations: Y (yaw), then X (pitch), then Z (roll) - common order
@@ -718,7 +719,7 @@ def draw_scene_objects(scene):
         # Order from parser: type, x, y, z, rx, rz, ry, radius, h, tex_id
         (obj_type, x, y, z, rx, rz, ry, radius, h, tex_id,
          u_offset, v_offset, tex_angle_deg, uv_mode,
-         uscale, vscale) = obj_data
+         uscale, vscale, tex_file) = obj_data
         glPushMatrix()
         glTranslatef(x, y, z) # Move to position
         # Apply rotations specified in the file (rx, ry, rz order matters)
@@ -999,20 +1000,20 @@ def draw_tram_cab(tram, camera):
     glEnable(GL_TEXTURE_2D) # 恢復紋理
     glPopMatrix() # 恢復電車世界變換
     
-@njit    
-def _world_to_map_coords(world_x, world_z, player_x, player_z, map_center_x, map_center_y, scale):
-    """內部輔助函數：將世界XZ坐標轉換為小地圖2D屏幕坐標"""
-    # 計算相對於玩家的偏移量
-    delta_x = world_x - player_x
-    delta_z = world_z - player_z # 注意：通常地圖Y對應世界Z
-
-    # 應用縮放並計算在小地圖上的坐標
-    # 假設地圖 X+ 對應世界 X+, 地圖 Y+ 對應世界 Z+
-    # 這裡改成map_center_x - delta_x * scale 不然minimap會左右顛倒
-    map_x = map_center_x - delta_x * scale
-    map_y = map_center_y + delta_z * scale
-
-    return map_x, map_y
+# @njit    
+# def _world_to_map_coords(world_x, world_z, player_x, player_z, map_center_x, map_center_y, scale):
+#     """內部輔助函數：將世界XZ坐標轉換為小地圖2D屏幕坐標"""
+#     # 計算相對於玩家的偏移量
+#     delta_x = world_x - player_x
+#     delta_z = world_z - player_z # 注意：通常地圖Y對應世界Z
+# 
+#     # 應用縮放並計算在小地圖上的坐標
+#     # 假設地圖 X+ 對應世界 X+, 地圖 Y+ 對應世界 Z+
+#     # 這裡改成map_center_x - delta_x * scale 不然minimap會左右顛倒
+#     map_x = map_center_x - delta_x * scale
+#     map_y = map_center_y + delta_z * scale
+# 
+#     return map_x, map_y
 
 # 這裡引數必須排列成rx_deg, rz_deg, ry_deg 才可以讓旋轉正確
 @njit
@@ -1045,395 +1046,7 @@ def _rotate_point_3d(point, rx_deg, rz_deg, ry_deg):
     return np.array([x3, y3, z3])
 
 
-# --- Modified draw_minimap ---
-def draw_minimap(scene, tram, screen_width, screen_height):
-    """繪製 HUD 小地圖 (使用場景定義的背景圖或純色)"""
-    global grid_label_font, current_minimap_range
-    # Use cached texture ID and dimensions
-    global minimap_bg_texture_id, minimap_bg_image_width_px, minimap_bg_image_height_px
 
-    # --- Calculate Map Position on Screen ---
-    map_left = screen_width - MINIMAP_SIZE - MINIMAP_PADDING
-    map_right = screen_width - MINIMAP_PADDING
-    map_bottom = screen_height - MINIMAP_SIZE - MINIMAP_PADDING # Y=0 is bottom in ortho
-    map_top = screen_height - MINIMAP_PADDING
-    map_center_x = map_left + MINIMAP_SIZE / 2
-    map_center_y = map_bottom + MINIMAP_SIZE / 2
-
-    # --- Player and Viewport Info ---
-    player_x = tram.position[0]
-    player_z = tram.position[2] # 使用 Z 坐標
-
-    # 縮放比例：世界單位範圍映射到地圖像素大小
-    if current_minimap_range <= 0: current_minimap_range = MINIMAP_MIN_RANGE # 防止除零
-    scale = MINIMAP_SIZE / current_minimap_range
-    world_half_range = current_minimap_range / 2.0
-    #
-    world_view_left = player_x - world_half_range
-    world_view_right = player_x + world_half_range
-    world_view_bottom_z = player_z - world_half_range # Bottom of map = smaller Z
-    world_view_top_z = player_z + world_half_range   # Top of map = larger Z
-
-    # --- 切換到 2D 正交投影 ---
-    glMatrixMode(GL_PROJECTION)
-    glPushMatrix()          # 保存透視投影矩陣
-    glLoadIdentity()
-    gluOrtho2D(0, screen_width, 0, screen_height) # 設置屏幕像素坐標系
-
-    glMatrixMode(GL_MODELVIEW)
-    glPushMatrix()          # 保存 3D 視圖矩陣
-    glLoadIdentity()        # 重置模型視圖矩陣
-
-    # --- 關閉 3D 相關狀態 ---
-    glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT | GL_LINE_BIT | GL_POINT_BIT) # 保存狀態
-    glDisable(GL_DEPTH_TEST)
-    glDisable(GL_LIGHTING)
-    glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    glDisable(GL_TEXTURE_2D) # Default to disabled
-
-    # --- Draw Minimap Background ---
-    use_texture = (minimap_bg_texture_id is not None and
-                   minimap_bg_image_width_px > 0 and
-                   minimap_bg_image_height_px > 0 and
-                   scene.map_filename is not None and # Ensure scene specified a map
-                   abs(scene.map_world_scale) > 1e-6) # Ensure valid scale
-
-    if use_texture:
-        glEnable(GL_TEXTURE_2D)
-        glBindTexture(GL_TEXTURE_2D, minimap_bg_texture_id)
-        glColor4f(1.0, 1.0, 1.0, 1.0)
-
-        # --- Calculate World Extent of the Loaded Image ---
-        # Scale is world units per pixel
-        image_world_width = minimap_bg_image_width_px * scene.map_world_scale
-        image_world_height = minimap_bg_image_height_px * scene.map_world_scale
-
-        img_world_x_min = scene.map_world_center_x - image_world_width / 2.0
-        img_world_x_max = scene.map_world_center_x + image_world_width / 2.0
-        # Assuming image (0,0) is top-left, and world Z increases upwards on map (map_y increases upwards)
-        # Texture V=0 is bottom (due to pygame flip), V=1 is top.
-        # World Z corresponding to image bottom (V=0)
-        img_world_z_min = scene.map_world_center_z - image_world_height / 2.0
-        # World Z corresponding to image top (V=1)
-        img_world_z_max = scene.map_world_center_z + image_world_height / 2.0
-
-        # --- Calculate Texture Coordinates for the Visible Viewport ---
-        # Avoid division by zero if width/height are somehow zero
-        if abs(image_world_width) < 1e-6 or abs(image_world_height) < 1e-6:
-            u_min, u_max, v_min, v_max = 0.0, 1.0, 0.0, 1.0 # Fallback UVs
-            print("Warning: Calculated image world width/height is near zero.")
-        else:
-            # 以下兩行是修改過的  因為要讓圖片跟著同方向移動
-            u_min = (-world_view_left + img_world_x_max) / image_world_width
-            u_max = (-world_view_right + img_world_x_max) / image_world_width
-            v_min = (world_view_bottom_z - img_world_z_min) / image_world_height # Z_min corresponds to V=0 (bottom)
-            v_max = (world_view_top_z - img_world_z_min) / image_world_height    # Z_max corresponds to V=1 (top)
-
-        # Clamp texture coordinates to [0, 1] if using CLAMP_TO_EDGE wasn't enough
-        # u_min, u_max = max(0.0, u_min), min(1.0, u_max)
-        # v_min, v_max = max(0.0, v_min), min(1.0, v_max)
-
-        # --- Draw Textured Quad ---
-        glBegin(GL_QUADS)
-        # 修改以下 glTexCoord2f 內的u_max u_min  因為要把圖片左右相反
-        glTexCoord2f(u_max, v_min); glVertex2f(map_left, map_bottom)   # Bottom Left
-        glTexCoord2f(u_min, v_min); glVertex2f(map_right, map_bottom)  # Bottom Right
-        glTexCoord2f(u_min, v_max); glVertex2f(map_right, map_top)     # Top Right
-        glTexCoord2f(u_max, v_max); glVertex2f(map_left, map_top)      # Top Left
-        glEnd()
-
-        glBindTexture(GL_TEXTURE_2D, 0)
-        glDisable(GL_TEXTURE_2D)
-    else:
-        # --- Fallback: Draw Solid Color Background ---
-        glDisable(GL_TEXTURE_2D)
-        glColor4fv(MINIMAP_BG_FALLBACK_COLOR)
-        glBegin(GL_QUADS)
-        glVertex2f(map_left, map_bottom); glVertex2f(map_right, map_bottom)
-        glVertex2f(map_right, map_top); glVertex2f(map_left, map_top)
-        glEnd()
-        
-    # --- 設置裁剪區域 (只在小地圖範圍內繪製) ---
-    # 注意：glScissor 的 Y 是從左下角算的
-    glEnable(GL_SCISSOR_TEST)
-    glScissor(int(map_left), int(map_bottom), int(MINIMAP_SIZE), int(MINIMAP_SIZE))
-
-    # --- Draw Grid Lines ---
-    # (Grid drawing code - check world_view boundaries vs grid scale)
-    draw_grid = current_minimap_range < DEFAULT_MINIMAP_RANGE * 1.5 # Show grid when zoomed in
-    if draw_grid:
-        glColor4fv(MINIMAP_GRID_COLOR)
-        glLineWidth(1.0)
-        start_grid_x = math.floor(world_view_left / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
-        start_grid_z = math.floor(world_view_bottom_z / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
-        # ... (垂直線繪製) ...
-        current_grid_x = start_grid_x
-        while current_grid_x <= world_view_right:
-            map_x, _ = _world_to_map_coords(current_grid_x, player_z, player_x, player_z, map_center_x, map_center_y, scale)
-            # Draw line only if it's potentially visible within the map bounds
-            if map_left - 1 <= map_x <= map_right + 1:
-                glBegin(GL_LINES); glVertex2f(map_x, map_bottom); glVertex2f(map_x, map_top); glEnd()
-            current_grid_x += MINIMAP_GRID_SCALE
-        # ... (水平線繪製) ...
-        current_grid_z = start_grid_z
-        while current_grid_z <= world_view_top_z:
-             _, map_y = _world_to_map_coords(player_x, current_grid_z, player_x, player_z, map_center_x, map_center_y, scale)
-             if map_bottom - 1 <= map_y <= map_top + 1:
-                 glBegin(GL_LINES); glVertex2f(map_left, map_y); glVertex2f(map_right, map_y); glEnd()
-             current_grid_z += MINIMAP_GRID_SCALE
-
-
-    # --- 繪製軌道 ---
-    glColor3fv(MINIMAP_TRACK_COLOR)
-    glLineWidth(2.0)
-    for segment in scene.track.segments:
-        if not segment.points or len(segment.points) < 2:
-            continue
-        
-        map_x, map_y = _world_to_map_coords(segment.points[0][0], segment.points[0][2],
-                                            player_x, player_z,
-                                            map_center_x, map_center_y, scale)
-        glPointSize(8)
-        glBegin(GL_POINTS)
-        glColor3fv(MINIMAP_TRACK_COLOR)
-        glVertex2f(map_x, map_y)  # 
-        glEnd()
-        
-        
-        glBegin(GL_LINE_STRIP)
-        
-        for point_world in segment.points:
-            # 將世界坐標轉換為地圖坐標
-            map_x, map_y = _world_to_map_coords(point_world[0], point_world[2],
-                                                player_x, player_z,
-                                                map_center_x, map_center_y, scale)
-            
-            # 在此處進行簡單的邊界檢查 (可選，glScissor 已做裁剪)
-            # if map_left <= map_x <= map_right and map_bottom <= map_y <= map_top:
-            glVertex2f(map_x, map_y)
-            
-        glEnd()
-
-    # --- 繪製建築物 (簡單方塊) ---
-    glColor3fv(MINIMAP_BUILDING_COLOR)
-    glLineWidth(1.0) # 使用線條繪製輪廓
-    for bldg in scene.buildings:
-        b_type, wx, wy, wz, rx, ry, rz, ww, wd, wh, tid, uoffset, voffset, tangle, uvmode, uscale, vscale = bldg
-        # 獲取建築物在世界坐標系中的四個底角 (忽略高度 wy)
-        half_w = ww / 2.0
-        half_d = wd / 2.0
-        # 局部坐標系下的四個角 (Y=0 平面)
-        corners_local = [
-            np.array([-half_w, 0, -half_d]), # 後左
-            np.array([ half_w, 0, -half_d]), # 後右
-            np.array([ half_w, 0,  half_d]), # 前右
-            np.array([-half_w, 0,  half_d])  # 前左
-        ]
-
-        # 應用旋轉 (只考慮 Y 軸旋轉 ry，因為是俯視圖)
-        angle_y_rad = -math.radians(ry)
-        cos_y = math.cos(angle_y_rad)
-        sin_y = math.sin(angle_y_rad)
-
-        corners_world_xz = []
-        for corner in corners_local:
-            # 應用 Y 軸旋轉
-            rotated_x = corner[0] * cos_y - corner[2] * sin_y
-            rotated_z = corner[0] * sin_y + corner[2] * cos_y
-            # 平移到世界位置
-            world_corner_x = wx + rotated_x
-            world_corner_z = wz + rotated_z
-            corners_world_xz.append((world_corner_x, world_corner_z))
-
-        # 將世界坐標轉換為地圖坐標並繪製矩形輪廓
-        map_coords = []
-        in_map = True # 檢查是否有任何角點在圖內
-        for wcx, wcz in corners_world_xz:
-            map_x, map_y = _world_to_map_coords(wcx, wcz, player_x, player_z, map_center_x, map_center_y, scale)
-            map_coords.append((map_x, map_y))
-            if not (map_left <= map_x <= map_right and map_bottom <= map_y <= map_top):
-                 # 如果需要嚴格裁剪，可以在這裡跳過繪製完全在外的物體
-                 # pass
-                 pass # 依賴 glScissor
-
-        # 繪製輪廓 (GL_LINE_LOOP)
-        glBegin(GL_LINE_LOOP)
-        for mx, my in map_coords:
-            glVertex2f(mx, my)
-        glEnd()
-
-    # --- 繪製圓柱體 (根據旋轉選擇圓形或矩形) ---
-    # 圓柱體也用相同顏色
-    num_circle_segments = 128 # 用幾條線段近似圓形
-    for cyl in scene.cylinders:
-        c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, uoffset, voffset, tangle, uvmode, uscale, vscale = cyl # cr=radius, ch=height
-
-        # 檢查是否有 X 或 Y 軸的傾斜
-        is_tilted = abs(rx) > 0.1 or abs(ry) > 0.1
-
-        if is_tilted:
-            # --- 繪製傾斜圓柱體的投影矩形 (方案 2：以原點投影定位) ---
-
-            # 1. 計算旋轉後的軸心線端點 (仍然需要計算投影軸以確定角度)
-            p_bottom_local_rel = np.array([0, -ch/2.0, 0])
-            p_top_local_rel = np.array([0, ch/2.0, 0])
-            p_bottom_rotated_rel = _rotate_point_3d(p_bottom_local_rel, rx, ry, rz)
-            p_top_rotated_rel = _rotate_point_3d(p_top_local_rel, rx, ry, rz)
-            p_bottom_world = np.array([wx, wy, wz]) + p_bottom_rotated_rel
-            p_top_world = np.array([wx, wy, wz]) + p_top_rotated_rel
-            p_bottom_xz = np.array([p_bottom_world[0], p_bottom_world[2]])
-            p_top_xz = np.array([p_top_world[0], p_top_world[2]])
-
-            # 2. 計算投影軸向量和角度 (用於旋轉)
-            axis_proj_xz = p_top_xz - p_bottom_xz
-            length_proj = np.linalg.norm(axis_proj_xz)
-            # Angle of the projected axis on the map (relative to +X axis)
-            angle_map_rad = math.atan2(axis_proj_xz[1], axis_proj_xz[0]) if length_proj > 1e-6 else 0
-
-            # 3. 計算矩形在地圖上的尺寸
-            rect_length = length_proj + 2 * cr # Approximation of projected length
-            rect_width = 2 * cr
-
-            # --- *** START CHANGE (方案 2) *** ---
-            # 4. 計算 *原點* (wx, wz) 在地圖上的坐標，用於定位
-            origin_map_x, origin_map_y = _world_to_map_coords(wx, wz, # 使用原始的 wx, wz
-                                                            player_x, player_z,
-                                                            map_center_x, map_center_y, scale)
-            # --- *** END CHANGE *** ---
-
-            # 5. 繪製旋轉的矩形
-            glPushMatrix()
-            # --- *** START CHANGE (方案 2) *** ---
-            # 平移到 *原點* 的地圖坐標
-            glTranslatef(origin_map_x, origin_map_y, 0)
-            # --- *** END CHANGE *** ---
-            # 旋轉 (使用投影軸計算出的角度)
-            glRotatef(math.degrees(angle_map_rad), 0, 0, 1)
-            # 繪製相對於旋轉後 *原點* 的矩形 (尺寸需要縮放)
-            half_len = (rect_length * scale) / 2.0
-            half_wid = (rect_width * scale) / 2.0
-            glBegin(GL_LINE_LOOP)
-            glVertex2f(-half_len, -half_wid)
-            glVertex2f( half_len, -half_wid)
-            glVertex2f( half_len,  half_wid)
-            glVertex2f(-half_len,  half_wid)
-            glEnd()
-            glPopMatrix()
-
-        else:
-            # --- 繪製未傾斜圓柱體的圓形輪廓 (保持不變) ---
-            center_map_x, center_map_y = _world_to_map_coords(wx, wz, player_x, player_z, map_center_x, map_center_y, scale)
-            radius_map = cr * scale
-
-            if map_left - radius_map <= center_map_x <= map_right + radius_map and \
-               map_bottom - radius_map <= center_map_y <= map_top + radius_map:
-                glBegin(GL_LINE_LOOP)
-                for i in range(num_circle_segments):
-                    angle = 2 * math.pi * i / num_circle_segments
-                    offset_x = radius_map * math.cos(angle)
-                    offset_y = radius_map * math.sin(angle)
-                    glVertex2f(center_map_x + offset_x, center_map_y + offset_y)
-                glEnd()
-
-
-    # Adjust point size based on zoom? Optional.
-    min_point_size, max_point_size = 1.0, 5.0
-    # Map range from min_range to default_range to max_point_size to min_point_size
-    point_size_ratio = (DEFAULT_MINIMAP_RANGE - current_minimap_range) / (DEFAULT_MINIMAP_RANGE - MINIMAP_MIN_RANGE) if DEFAULT_MINIMAP_RANGE != MINIMAP_MIN_RANGE else 1.0
-    point_size = min_point_size + (max_point_size - min_point_size) * max(0, min(1, point_size_ratio)) # Clamp ratio
-    point_size = max(min_point_size, min(max_point_size, point_size)) # Ensure within bounds
-
-    # --- 繪製樹木 (簡單點) ---
-    glColor3fv(MINIMAP_TREE_COLOR)
-    glPointSize(max(3.0, point_size))
-    glBegin(GL_POINTS)
-    for tree in scene.trees:
-        tx, ty, tz, th = tree
-        map_x, map_y = _world_to_map_coords(tx, tz, player_x, player_z, map_center_x, map_center_y, scale)
-        if map_left <= map_x <= map_right and map_bottom <= map_y <= map_top:
-            glVertex2f(map_x, map_y)
-    glEnd()
-
-    # --- 繪製玩家標記 (紅色三角形指示方向) ---
-    glColor3fv(MINIMAP_PLAYER_COLOR)
-    # 計算玩家朝向角度 (從 X 軸正方向算，逆時針為正)
-    # tram.forward_vector_xz 是 (x, z)
-    player_angle_rad = -math.arctan2(tram.forward_vector_xz[1], tram.forward_vector_xz[0]) # atan2(y, x) -> atan2(z, x)
-
-    # 計算三角形的三個頂點 (相對於地圖中心)
-    # 頂點 (指向前方)
-    tip_x = map_center_x + math.cos(player_angle_rad - math.pi) * MINIMAP_PLAYER_SIZE * 3
-    tip_y = map_center_y + math.sin(player_angle_rad - math.pi) * MINIMAP_PLAYER_SIZE * 3
-    # 左後點
-    left_angle = player_angle_rad - math.pi * .75 # 往後 135 度
-    left_x = map_center_x + math.cos(left_angle) * MINIMAP_PLAYER_SIZE * 1
-    left_y = map_center_y + math.sin(left_angle) * MINIMAP_PLAYER_SIZE * 1
-    # 右後點
-    right_angle = player_angle_rad + math.pi * .75 # 往後 135 度 (順時針)
-    right_x = map_center_x + math.cos(right_angle) * MINIMAP_PLAYER_SIZE * 1
-    right_y = map_center_y + math.sin(right_angle) * MINIMAP_PLAYER_SIZE * 1
-
-    glBegin(GL_TRIANGLES)
-    glVertex2f(tip_x, tip_y)
-    glVertex2f(left_x, left_y)
-    glVertex2f(right_x, right_y)
-    glEnd()
-
-    # --- *** 關閉裁剪，準備繪製標籤 (標籤在裁剪區域外) *** ---
-    glDisable(GL_SCISSOR_TEST)
-
-    # --- 繪製網格標籤 ---
-    draw_labels = current_minimap_range < DEFAULT_MINIMAP_RANGE * 1.2
-    if grid_label_font and draw_labels:
-        glEnable(GL_TEXTURE_2D) # 啟用紋理繪製文字
-
-        # 繪製 X 坐標標籤 (在地圖底部)
-        current_grid_x = start_grid_x
-        while current_grid_x <= world_view_right:
-            map_x, _ = _world_to_map_coords(current_grid_x, player_z, player_x, player_z, map_center_x, map_center_y, scale)
-            if map_left <= map_x <= map_right:
-                label_text = f"{current_grid_x:.0f}"
-                try:
-                    text_surface = grid_label_font.render(label_text, True, MINIMAP_GRID_LABEL_COLOR)
-                    text_width, text_height = text_surface.get_size()
-                    # 繪製在底部，稍微外移
-                    draw_label_x = map_x - text_width / 2 # 居中
-                    draw_label_y = map_bottom - MINIMAP_GRID_LABEL_OFFSET - text_height
-                    _draw_text_texture(text_surface, draw_label_x, draw_label_y)
-                except Exception as e:
-                    print(f"渲染 X 標籤時出錯: {e}") # 避免崩潰
-            current_grid_x += MINIMAP_GRID_SCALE
-
-        # 繪製 Z 坐標標籤 (在地圖左側)
-        current_grid_z = start_grid_z
-        while current_grid_z <= world_view_top_z:
-             _, map_y = _world_to_map_coords(player_x, current_grid_z, player_x, player_z, map_center_x, map_center_y, scale)
-             if map_bottom <= map_y <= map_top:
-                label_text = f"{current_grid_z:.0f}"
-                try:
-                    text_surface = grid_label_font.render(label_text, True, MINIMAP_GRID_LABEL_COLOR)
-                    text_width, text_height = text_surface.get_size()
-                    # 繪製在左側，稍微外移
-                    draw_label_x = map_left - MINIMAP_GRID_LABEL_OFFSET - text_width
-                    draw_label_y = map_y - text_height / 2 # 垂直居中
-                    _draw_text_texture(text_surface, draw_label_x, draw_label_y)
-                except Exception as e:
-                    print(f"渲染 Z 標籤時出錯: {e}") # 避免崩潰
-             current_grid_z += MINIMAP_GRID_SCALE
-
-        glDisable(GL_TEXTURE_2D) # 完成文字繪製後禁用
-
-    # --- 恢復 OpenGL 狀態 ---
-    glDisable(GL_SCISSOR_TEST) # 關閉裁剪
-    glDisable(GL_BLEND)
-    glPopAttrib()           # 恢復之前保存的狀態 (Enable/Color/Line/Point)
-
-    # --- 恢復矩陣 ---
-    glMatrixMode(GL_PROJECTION)
-    glPopMatrix()           # 恢復透視投影矩陣
-    glMatrixMode(GL_MODELVIEW)
-    glPopMatrix()           # 恢復 3D 視圖矩陣
 
 # --- 新增：繪製文字紋理的輔助函數 ---
 def _draw_text_texture(text_surface, x, y):
@@ -1450,6 +1063,7 @@ def _draw_text_texture(text_surface, x, y):
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, text_width, text_height, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
 
+    glEnable(GL_TEXTURE_2D)
     glColor4f(1.0, 1.0, 1.0, 1.0) # 確保紋理顏色不被污染
     glBegin(GL_QUADS)
     glTexCoord2f(0, 0); glVertex2f(x, y)
@@ -1634,3 +1248,398 @@ def test_draw_cylinder_y_up_centered(radius, height, texture_id=None, slices=CYL
     glBindTexture(GL_TEXTURE_2D, 0)
     glEnable(GL_TEXTURE_2D) # 恢復    
     
+# Consider njit for this if performance critical and only uses basic math/numpy
+# @njit
+def _world_to_map_coords_adapted(world_x, world_z, view_center_x, view_center_z, map_widget_center_x, map_widget_center_y, scale):
+    """
+    Internal helper: Converts world XZ to map widget coordinates.
+    Assumes map X+ = world X+, map Y+ = world Z+.
+    """
+    delta_x = world_x - view_center_x
+    delta_z = world_z - view_center_z
+    # 軌道左右顛倒 因此修改成減號 
+    map_x = map_widget_center_x - delta_x * scale
+    map_y = map_widget_center_y + delta_z * scale
+    return map_x, map_y
+
+def _render_map_view(scene, view_center_x, view_center_z, view_range, target_widget_rect, draw_grid_labels=True, background_color=None):
+    """
+    Internal Helper: Renders the core content of a map view (track, objects, grid).
+    This function assumes necessary OpenGL projection and states are set by the caller.
+    It operates within the coordinate system defined by target_widget_rect.
+
+    Args:
+        scene: The Scene object.
+        view_center_x, view_center_z: World coordinates to center the view on.
+        view_range: World units defining the width/height of the view.
+        target_widget_rect: (left, bottom, width, height) of the target drawing area in widget coordinates.
+        draw_grid_labels: Whether to attempt drawing grid coordinate labels.
+        background_color: The background color for this view.
+    """
+    widget_left, widget_bottom, widget_width, widget_height = target_widget_rect
+    widget_center_x = widget_left + widget_width / 2.0
+    widget_center_y = widget_bottom + widget_height / 2.0
+
+    if view_range <= MINIMAP_MIN_RANGE / 10.0: view_range = MINIMAP_MIN_RANGE # Prevent extreme zoom / division issues
+    # Calculate scale based on the available widget space and desired world range
+    # Use the smaller dimension to ensure the full range fits
+    scale = min(widget_width, widget_height) / view_range
+
+    # --- World View Boundaries ---
+    # Note: The actual visible range might be larger in one dimension if widget isn't square
+    world_half_range_x = (widget_width / scale) / 2.0
+    world_half_range_z = (widget_height / scale) / 2.0
+    world_view_left = view_center_x - world_half_range_x
+    world_view_right = view_center_x + world_half_range_x
+    world_view_bottom_z = view_center_z - world_half_range_z
+    world_view_top_z = view_center_z + world_half_range_z
+
+    # --- Draw Background ---
+    if background_color is not None:
+#         glDisable(GL_TEXTURE_2D) # Ensure texturing is off unless specifically drawing texture
+#         glColor4fv(background_color)
+#         glBegin(GL_QUADS)
+#         glVertex2f(widget_left, widget_bottom); glVertex2f(widget_left + widget_width, widget_bottom)
+#         glVertex2f(widget_left + widget_width, widget_bottom + widget_height); glVertex2f(widget_left, widget_bottom + widget_height)
+#         glEnd()
+        pass
+    
+    # --- Draw Grid Lines ---
+    if view_range < DEFAULT_MINIMAP_RANGE * 1.5: # Only draw grid when reasonably zoomed
+        glColor4fv(MINIMAP_GRID_COLOR)
+        glLineWidth(1.0)
+        start_grid_x = math.floor(world_view_left / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
+        start_grid_z = math.floor(world_view_bottom_z / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
+
+        # Vertical lines
+        current_grid_x = start_grid_x
+        while current_grid_x <= world_view_right:
+            map_x, _ = _world_to_map_coords_adapted(current_grid_x, view_center_z, view_center_x, view_center_z, widget_center_x, widget_center_y, scale)
+            # Draw line slightly beyond boundaries to avoid gaps at edges
+            glBegin(GL_LINES); glVertex2f(map_x, widget_bottom - 5); glVertex2f(map_x, widget_bottom + widget_height + 5); glEnd()
+            current_grid_x += MINIMAP_GRID_SCALE
+        # Horizontal lines
+        current_grid_z = start_grid_z
+        while current_grid_z <= world_view_top_z:
+            _, map_y = _world_to_map_coords_adapted(view_center_x, current_grid_z, view_center_x, view_center_z, widget_center_x, widget_center_y, scale)
+            glBegin(GL_LINES); glVertex2f(widget_left - 5, map_y); glVertex2f(widget_left + widget_width + 5, map_y); glEnd()
+            current_grid_z += MINIMAP_GRID_SCALE
+
+    # --- Draw Track ---
+    if scene.track:
+        glColor3fv(MINIMAP_TRACK_COLOR)
+        glLineWidth(2.0)        
+        for segment in scene.track.segments:
+            if not segment.points or len(segment.points) < 2: continue
+            
+            #標記線段開頭
+            map_x, map_y = _world_to_map_coords_adapted(segment.points[0][0], segment.points[0][2],
+                                                view_center_x, view_center_z,
+                                                widget_center_x, widget_center_y, scale)
+            glPointSize(8)
+            glBegin(GL_POINTS)
+            glColor3fv(MINIMAP_TRACK_COLOR)
+            glVertex2f(map_x, map_y)  # 
+            glEnd()        
+            
+            glBegin(GL_LINE_STRIP)
+            for point_world in segment.points:
+                map_x, map_y = _world_to_map_coords_adapted(point_world[0], point_world[2],
+                                                            view_center_x, view_center_z,
+                                                            widget_center_x, widget_center_y, scale)
+                glVertex2f(map_x, map_y)
+            glEnd()
+
+    # --- Draw Buildings (as Rectangles) ---
+    glColor3fv(MINIMAP_BUILDING_COLOR)
+    glLineWidth(1.0)
+    for bldg in scene.buildings:
+        b_type, wx, wy, wz, rx, ry, rz, ww, wd, wh, tid, uoff, voff, tang, uvmode, usca, vsca, tex_file = bldg
+        half_w, half_d = ww / 2.0, wd / 2.0
+        # Local corners (relative to object center wx,wy,wz) on XZ plane
+        corners_local = [ np.array([-half_w, 0, -half_d]), np.array([ half_w, 0, -half_d]),
+                          np.array([ half_w, 0,  half_d]), np.array([-half_w, 0,  half_d]) ]
+        # Only apply world Y rotation for top-down minimap
+        # 修改成 -ry 因為物件左右顛倒
+        angle_y_rad = math.radians(-ry)
+        cos_y, sin_y = math.cos(angle_y_rad), math.sin(angle_y_rad)
+        map_coords = []
+        for corner in corners_local:
+            # Rotate around Y axis
+            rotated_x = corner[0] * cos_y - corner[2] * sin_y
+            rotated_z = corner[0] * sin_y + corner[2] * cos_y
+            # Add world position
+            world_corner_x = wx + rotated_x
+            world_corner_z = wz + rotated_z
+            # Convert to map coords
+            map_x, map_y = _world_to_map_coords_adapted(world_corner_x, world_corner_z, view_center_x, view_center_z, widget_center_x, widget_center_y, scale)
+            map_coords.append((map_x, map_y))
+        # Draw the loop
+        glBegin(GL_LINE_LOOP)
+        for mx, my in map_coords: glVertex2f(mx, my)
+        glEnd()
+
+    # --- Draw Cylinders (Circle or Rotated Box) ---
+    glColor3fv(MINIMAP_CYLINDER_COLOR)
+    num_circle_segments = 12 # Fewer segments for minimap circles
+    for cyl in scene.cylinders:
+        c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, uoff, voff, tang, uvmode, usca, vsca, tex_file = cyl
+        # 修改 檢查傾斜軸向為 rx ry
+        is_tilted = abs(rx) > 0.1 or abs(ry) > 0.1 # 
+
+        if is_tilted:
+            # --- Draw Tilted Cylinder as a Rotated Bounding Box ---
+            # Find major axis projection on XZ plane
+            # Simplified: Use world Y rotation (ry) for box angle, size based on max(2*r, h) projected?
+            # More accurate: calculate rotated endpoints, project onto XZ.
+            # 修改為 [0, -ch / 2.0, 0]
+            p_bottom_local = np.array([0, -ch / 2.0, 0]) # Assume cylinder is initially Z-aligned if using GLU standard
+            p_top_local = np.array([0, ch / 2.0, 0])
+            # Apply rotations (careful with order - e.g., Y, X, Z)
+            # Need a consistent rotation function like _rotate_point_3d_numpy
+            # For simplicity here, let's approximate using ry for angle and fixed size
+            # 修改增加以下 用來旋轉傾斜的圓柱投影方塊
+            p_bottom_rotated_rel = _rotate_point_3d(p_bottom_local, rx, ry, rz)
+            p_top_rotated_rel = _rotate_point_3d(p_top_local, rx, ry, rz)
+            p_bottom_world = np.array([wx, wy, wz]) + p_bottom_rotated_rel
+            p_top_world = np.array([wx, wy, wz]) + p_top_rotated_rel
+            p_bottom_xz = np.array([p_bottom_world[0], p_bottom_world[2]])
+            p_top_xz = np.array([p_top_world[0], p_top_world[2]])
+            axis_proj_xz = p_top_xz - p_bottom_xz
+            length_proj = np.linalg.norm(axis_proj_xz)
+            angle_map_rad = math.arctan2(axis_proj_xz[1], axis_proj_xz[0]) if length_proj > 1e-6 else 0
+            
+            map_center_x, map_center_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x, widget_center_y, scale)
+
+            # Approximate projected size - crude, needs better projection logic if accuracy is vital
+            proj_len = max(ch, 2*cr) * scale # Max dimension scaled
+            proj_wid = min(ch, 2*cr) * scale # Min dimension scaled
+
+            glPushMatrix()
+            glTranslatef(map_center_x, map_center_y, 0)
+            glRotatef(math.degrees(angle_map_rad), 0, 0, 1) # Rotate on screen Z
+            glBegin(GL_LINE_LOOP)
+            glVertex2f(-proj_len / 2, -proj_wid / 2)
+            glVertex2f( proj_len / 2, -proj_wid / 2)
+            glVertex2f( proj_len / 2,  proj_wid / 2)
+            glVertex2f(-proj_len / 2,  proj_wid / 2)
+            glEnd()
+            glPopMatrix()
+        else:
+            # --- Draw Non-Tilted Cylinder as Circle ---
+            center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x, widget_center_y, scale)
+            radius_map = cr * scale
+            # Basic culling (optional, scissor test handles it)
+            if widget_left - radius_map <= center_map_x <= widget_left + widget_width + radius_map and \
+               widget_bottom - radius_map <= center_map_y <= widget_bottom + widget_height + radius_map:
+                glBegin(GL_LINE_LOOP)
+                for i in range(num_circle_segments):
+                    angle = 2 * math.pi * i / num_circle_segments
+                    glVertex2f(center_map_x + radius_map * math.cos(angle), center_map_y + radius_map * math.sin(angle))
+                glEnd()
+
+    # --- Draw Trees (as Points) ---
+    glColor3fv(MINIMAP_TREE_COLOR)
+    # Adjust point size based on zoom maybe?
+    min_point_size, max_point_size = 2.0, 5.0
+    zoom_ratio = max(0, min(1, (DEFAULT_MINIMAP_RANGE - view_range) / (DEFAULT_MINIMAP_RANGE - MINIMAP_MIN_RANGE))) if (DEFAULT_MINIMAP_RANGE - MINIMAP_MIN_RANGE) != 0 else 0
+    point_size = min_point_size + (max_point_size - min_point_size) * zoom_ratio
+    glPointSize(max(1.0, point_size)) # Ensure point size is at least 1
+    glBegin(GL_POINTS)
+    for tree in scene.trees:
+        tx, ty, tz, th = tree
+        map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x, widget_center_y, scale)
+        # Basic culling
+        if widget_left <= map_x <= widget_left + widget_width and widget_bottom <= map_y <= widget_bottom + widget_height:
+            glVertex2f(map_x, map_y)
+    glEnd()
+    glPointSize(1.0) # Reset point size
+
+    # --- Draw Grid Labels ---
+    # Labels are drawn outside the main map area typically, so handled after scissor usually
+    if draw_grid_labels and grid_label_font and view_range < DEFAULT_MINIMAP_RANGE * 1.2:
+        # This needs to be called *after* glDisable(GL_SCISSOR_TEST) by the caller
+        # We'll add a flag or structure to return label info, or the caller handles labels
+        pass # Label drawing logic moved to caller (draw_minimap or editor widget)
+
+# --- ============================================= ---
+# ---       SIMULATOR's draw_minimap Function       ---
+# --- ============================================= ---
+
+def draw_minimap(scene, tram, screen_width, screen_height):
+    """
+    Draws the HUD minimap for the SIMULATOR.
+    Sets up projection, viewport, calls _render_map_view, and adds player marker.
+    """
+    global current_minimap_range, minimap_bg_texture_id # Use simulator's zoom and texture
+
+    # --- Calculate Map Position on Screen (Simulator specific) ---
+    map_draw_size = MINIMAP_SIZE
+    map_left = screen_width - map_draw_size - MINIMAP_PADDING
+    map_right = screen_width - MINIMAP_PADDING
+    map_bottom = screen_height - map_draw_size - MINIMAP_PADDING # Y=0 screen bottom
+    map_top = screen_height - MINIMAP_PADDING
+    map_rect = (map_left, map_bottom, map_draw_size, map_draw_size)
+    map_center_x = map_left + map_draw_size / 2.0
+    map_center_y = map_bottom + map_draw_size / 2.0
+
+    # --- Player Info ---
+    player_x = tram.position[0]
+    player_z = tram.position[2]
+    view_range = current_minimap_range # Use the simulator's current zoom level
+
+    # --- Setup 2D Projection for the whole screen ---
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity()
+    # Use screen coordinates directly
+    gluOrtho2D(0, screen_width, 0, screen_height)
+    glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity()
+
+    # --- Save OpenGL State ---
+    glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_VIEWPORT_BIT | GL_SCISSOR_BIT | GL_LINE_BIT | GL_POINT_BIT | GL_TEXTURE_BIT)
+    glDisable(GL_DEPTH_TEST)
+    glDisable(GL_LIGHTING)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+
+    # --- Set Viewport and Scissor for Minimap Area ---
+    glViewport(int(map_left), int(map_bottom), int(map_draw_size), int(map_draw_size))
+    glEnable(GL_SCISSOR_TEST)
+    glScissor(int(map_left), int(map_bottom), int(map_draw_size), int(map_draw_size))
+
+    # --- Choose Background: Texture or Fallback Color ---
+    bg_color = MINIMAP_BG_FALLBACK_COLOR
+    use_texture = (minimap_bg_texture_id is not None and
+                   minimap_bg_image_width_px > 0 and
+                   minimap_bg_image_height_px > 0 and
+                   scene.map_filename is not None and
+                   abs(scene.map_world_scale) > 1e-6)
+
+    if use_texture:
+         # --- Draw Textured Background (Simulator specific logic) ---
+         glEnable(GL_TEXTURE_2D)
+         glBindTexture(GL_TEXTURE_2D, minimap_bg_texture_id)
+         glColor4f(1.0, 1.0, 1.0, 1.0) # White base for texture
+
+         # Calculate texture coordinates based on player position and map settings
+         image_world_width = minimap_bg_image_width_px * scene.map_world_scale
+         image_world_height = minimap_bg_image_height_px * scene.map_world_scale
+         img_world_x_min = scene.map_world_center_x - image_world_width / 2.0
+         img_world_z_min = scene.map_world_center_z - image_world_height / 2.0
+         # 以下兩行是修改添加過的 因為要讓圖片跟著同方向移動 見下方 u_min u_max的計算
+         img_world_x_max = scene.map_world_center_x + image_world_width / 2.0
+         img_world_z_max = scene.map_world_center_z + image_world_height / 2.0
+
+         # Calculate world boundaries currently visible in the minimap square
+         world_half = view_range / 2.0
+         view_l, view_r = player_x - world_half, player_x + world_half
+         view_b, view_t = player_z - world_half, player_z + world_half # Z maps to V
+
+         # Calculate UVs
+         if abs(image_world_width) < 1e-6 or abs(image_world_height) < 1e-6:
+             u_min, u_max, v_min, v_max = 0.0, 1.0, 0.0, 1.0 # Fallback
+         else:
+             # Correct calculation: map world view coords to texture coords [0,1]
+             # 以下兩行是修改過的 改成 +img_world_x_max 因為要讓圖片跟著同方向移動
+             u_min = (-view_l + img_world_x_max) / image_world_width
+             u_max = (-view_r + img_world_x_max) / image_world_width
+             v_min = (view_b - img_world_z_min) / image_world_height # V=0 at bottom
+             v_max = (view_t - img_world_z_min) / image_world_height # V=1 at top
+
+         # Draw textured Quad for the minimap background
+         # 修改以下 glTexCoord2f 內的u_max u_min  因為要把圖片左右相反
+         glBegin(GL_QUADS)
+         glTexCoord2f(u_max, v_min); glVertex2f(map_left, map_bottom)   # Bottom Left
+         glTexCoord2f(u_min, v_min); glVertex2f(map_right, map_bottom)  # Bottom Right
+         glTexCoord2f(u_min, v_max); glVertex2f(map_right, map_top)     # Top Right
+         glTexCoord2f(u_max, v_max); glVertex2f(map_left, map_top)      # Top Left
+         glEnd()
+         glBindTexture(GL_TEXTURE_2D, 0)
+         glDisable(GL_TEXTURE_2D)
+         bg_color_to_use = None # IMPORTANT: Set to None if texture was drawn
+         
+    # --- Call the core rendering function ---
+    # Pass player position as view center, simulator's zoom, and map rect
+    _render_map_view(scene, player_x, player_z, view_range, map_rect,
+                     draw_grid_labels=False, # Labels drawn outside scissor area later
+                     background_color=bg_color_to_use) # Pass fallback if texture failed/off
+
+    # --- Draw Player Marker (Simulator specific) ---
+    glDisable(GL_TEXTURE_2D) # Marker is not textured
+    glColor3fv(MINIMAP_PLAYER_COLOR)
+    # Calculate angle from +X axis (counter-clockwise positive)
+    # forward_vector_xz is (x, z)
+    # 修改加負號 玩家方向顛倒
+    player_angle_rad = -math.arctan2(tram.forward_vector_xz[1], tram.forward_vector_xz[0])
+
+    # Triangle points relative to map center
+    tip_angle = player_angle_rad - math.pi # Pointing forward
+    left_angle = player_angle_rad - math.pi * 0.75 # Back left (~135 deg)
+    right_angle = player_angle_rad + math.pi * 0.75 # Back right (~-135 deg)
+
+    tip_x = map_center_x + math.cos(tip_angle) * MINIMAP_PLAYER_SIZE
+    tip_y = map_center_y + math.sin(tip_angle) * MINIMAP_PLAYER_SIZE # sin(angle) corresponds to Z offset
+    left_x = map_center_x + math.cos(left_angle) * MINIMAP_PLAYER_SIZE * 0.7
+    left_y = map_center_y + math.sin(left_angle) * MINIMAP_PLAYER_SIZE * 0.7
+    right_x = map_center_x + math.cos(right_angle) * MINIMAP_PLAYER_SIZE * 0.7
+    right_y = map_center_y + math.sin(right_angle) * MINIMAP_PLAYER_SIZE * 0.7
+
+    glBegin(GL_TRIANGLES)
+    glVertex2f(tip_x, tip_y)
+    glVertex2f(left_x, left_y)
+    glVertex2f(right_x, right_y)
+    glEnd()
+
+    # --- Disable Scissor to Draw Labels Outside Map Area ---
+    glDisable(GL_SCISSOR_TEST)
+
+    # --- Draw Grid Labels (If enabled and font available) ---
+    show_labels = grid_label_font and view_range < DEFAULT_MINIMAP_RANGE * 1.2
+    if show_labels:
+        # Calculate visible world boundaries again for label placement
+        world_half_range_x = (map_draw_size / (min(map_draw_size, map_draw_size) / view_range)) / 2.0
+        world_half_range_z = world_half_range_x # Assume square aspect for labels
+        world_view_left = player_x - world_half_range_x
+        world_view_right = player_x + world_half_range_x
+        world_view_bottom_z = player_z - world_half_range_z
+        world_view_top_z = player_z + world_half_range_z
+
+        scale = min(map_draw_size, map_draw_size) / view_range # Recalculate scale used
+
+        start_grid_x = math.floor(world_view_left / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
+        start_grid_z = math.floor(world_view_bottom_z / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
+
+        # Draw X labels below map
+        current_grid_x = start_grid_x
+        while current_grid_x <= world_view_right:
+            map_x, _ = _world_to_map_coords_adapted(current_grid_x, player_z, player_x, player_z, map_center_x, map_center_y, scale)
+            if map_left <= map_x <= map_right:
+                label_text = f"{current_grid_x:.0f}"
+                try:
+                    text_surface = grid_label_font.render(label_text, True, MINIMAP_GRID_LABEL_COLOR)
+                    draw_label_x = map_x - text_surface.get_width() / 2
+                    draw_label_y = map_bottom - MINIMAP_GRID_LABEL_OFFSET - text_surface.get_height()
+                    _draw_text_texture(text_surface, draw_label_x, draw_label_y)
+                except Exception as e: print(f"渲染 X 標籤時出錯: {e}")
+            current_grid_x += MINIMAP_GRID_SCALE
+
+        # Draw Z labels left of map
+        current_grid_z = start_grid_z
+        while current_grid_z <= world_view_top_z:
+            _, map_y = _world_to_map_coords_adapted(player_x, current_grid_z, player_x, player_z, map_center_x, map_center_y, scale)
+            if map_bottom <= map_y <= map_top:
+                label_text = f"{current_grid_z:.0f}"
+                try:
+                    text_surface = grid_label_font.render(label_text, True, MINIMAP_GRID_LABEL_COLOR)
+                    draw_label_x = map_left - MINIMAP_GRID_LABEL_OFFSET - text_surface.get_width()
+                    draw_label_y = map_y - text_surface.get_height() / 2
+                    _draw_text_texture(text_surface, draw_label_x, draw_label_y)
+                except Exception as e: print(f"渲染 Z 標籤時出錯: {e}")
+            current_grid_z += MINIMAP_GRID_SCALE
+
+    # --- Restore OpenGL State ---
+    glPopAttrib() # Restore saved states
+
+    # --- Restore Matrices ---
+    glMatrixMode(GL_PROJECTION); glPopMatrix()
+    glMatrixMode(GL_MODELVIEW); glPopMatrix()
