@@ -2,6 +2,7 @@
 
 # 簡易 3D 電車模擬器
 ![image](https://github.com/user-attachments/assets/446e975b-c758-465f-ba05-d5908dd373e6)
+![image](https://github.com/user-attachments/assets/44cdd953-a60a-4787-abd1-b69d61718ced)
 
 
 這是一個使用 Python、Pygame 和 PyOpenGL 建立的基礎 3D 電車模擬器。  
