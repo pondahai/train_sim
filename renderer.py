@@ -24,10 +24,10 @@ NEEDLE_COLOR = (0.0, 0.0, 0.0) # 指針顏色
 CYLINDER_SLICES = 128 # 圓柱體側面數
 
 # --- 小地圖參數 ---  <-- 新增
-MINIMAP_SIZE = 500  # 小地圖的像素大小 (正方形)
+MINIMAP_SIZE = 300  # 小地圖的像素大小 (正方形)
 MINIMAP_PADDING = 10 # 離螢幕邊緣的距離
 # MINIMAP_RANGE = 300.0 # 小地圖顯示的世界單位範圍 (以此距離為半徑的正方形區域)
-DEFAULT_MINIMAP_RANGE = 500.0 # 小地圖預設顯示的世界單位範圍
+DEFAULT_MINIMAP_RANGE = 300.0 # 小地圖預設顯示的世界單位範圍
 MINIMAP_MIN_RANGE = 10.0      # <-- 新增：最小縮放範圍 (放大極限)
 MINIMAP_MAX_RANGE = 1000.0    # <-- 新增：最大縮放範圍 (縮小極限)
 MINIMAP_ZOOM_FACTOR = 1.1     # <-- 新增：每次縮放的比例因子
@@ -43,8 +43,8 @@ MINIMAP_PLAYER_COLOR = (1.0, 0.0, 0.0) # 玩家顏色 (紅色)
 MINIMAP_PLAYER_SIZE = 36 # 玩家標記的大小 (像素)
 # --- 新增：網格線參數 ---
 MINIMAP_GRID_SCALE = 50.0 # 世界單位中每格的大小
-MINIMAP_GRID_COLOR = (1.0, 1.0, 1.0, 0.3) # 網格線顏色 (淡白色)
-MINIMAP_GRID_LABEL_COLOR = (255, 255, 255, 180) # 網格標籤顏色 (稍亮的白色)
+MINIMAP_GRID_COLOR = (155.0, 155.0, 1.0, 10.3) # 網格線顏色 
+MINIMAP_GRID_LABEL_COLOR = (155, 155, 5, 180) # 網格標籤顏色 
 MINIMAP_GRID_LABEL_FONT_SIZE = 24 # 網格標籤字體大小
 MINIMAP_GRID_LABEL_OFFSET = 2 # 標籤離地圖邊緣的像素距離
 
@@ -1284,11 +1284,12 @@ def _render_map_view(scene, view_center_x, view_center_z, view_range, target_wid
     # Calculate scale based on the available widget space and desired world range
     # Use the smaller dimension to ensure the full range fits
     scale = min(widget_width, widget_height) / view_range
-
     # --- World View Boundaries ---
     # Note: The actual visible range might be larger in one dimension if widget isn't square
-    world_half_range_x = (widget_width / scale) / 2.0
-    world_half_range_z = (widget_height / scale) / 2.0
+#     world_half_range_x = (widget_width / scale) / 2.0
+#     world_half_range_z = (widget_height / scale) / 2.0
+    world_half_range_x = (widget_width / view_range) / 2.0
+    world_half_range_z = (widget_height / view_range) / 2.0
     world_view_left = view_center_x - world_half_range_x
     world_view_right = view_center_x + world_half_range_x
     world_view_bottom_z = view_center_z - world_half_range_z
@@ -1305,9 +1306,9 @@ def _render_map_view(scene, view_center_x, view_center_z, view_range, target_wid
         pass
     
     # --- Draw Grid Lines ---
-    if view_range < DEFAULT_MINIMAP_RANGE * 1.5: # Only draw grid when reasonably zoomed
+    if view_range < DEFAULT_MINIMAP_RANGE * 3.0: # Only draw grid when reasonably zoomed
         glColor4fv(MINIMAP_GRID_COLOR)
-        glLineWidth(1.0)
+        glLineWidth(1)
         start_grid_x = math.floor(world_view_left / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
         start_grid_z = math.floor(world_view_bottom_z / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
 
@@ -1482,6 +1483,7 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     map_rect = (map_left, map_bottom, map_draw_size, map_draw_size)
     map_center_x = map_left + map_draw_size / 2.0
     map_center_y = map_bottom + map_draw_size / 2.0
+#     print(f"map_draw_size: {map_draw_size}, map_left: {map_left}, map_right: {map_right}, map_bottom: {map_bottom}, map_top: {map_top}, map_rect: {map_rect}, map_center_x: {map_center_x}, map_center_y: {map_center_y}")
 
     # --- Player Info ---
     player_x = tram.position[0]
@@ -1491,7 +1493,10 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     # --- Setup 2D Projection for the whole screen ---
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity()
     # Use screen coordinates directly
-    gluOrtho2D(0, screen_width, 0, screen_height)
+#     gluOrtho2D(0, screen_width, 0, screen_height)
+#     gluOrtho2D(0, map_draw_size, 0, map_draw_size)
+    # 這裡改這樣是為了修正在模擬器畫面中小地圖顯示比例不是正方形的問題
+    gluOrtho2D(map_left-50, map_right, map_bottom-50, map_top)
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity()
 
     # --- Save OpenGL State ---
@@ -1500,7 +1505,6 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     glDisable(GL_LIGHTING)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-
 
     # --- Set Viewport and Scissor for Minimap Area ---
     glViewport(int(map_left), int(map_bottom), int(map_draw_size), int(map_draw_size))
@@ -1516,47 +1520,46 @@ def draw_minimap(scene, tram, screen_width, screen_height):
                    abs(scene.map_world_scale) > 1e-6)
 
     if use_texture:
-         # --- Draw Textured Background (Simulator specific logic) ---
-         glEnable(GL_TEXTURE_2D)
-         glBindTexture(GL_TEXTURE_2D, minimap_bg_texture_id)
-         glColor4f(1.0, 1.0, 1.0, 1.0) # White base for texture
+        # --- Draw Textured Background (Simulator specific logic) ---
+        glEnable(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, minimap_bg_texture_id)
+        glColor4f(1.0, 1.0, 1.0, 1.0) # White base for texture
 
-         # Calculate texture coordinates based on player position and map settings
-         image_world_width = minimap_bg_image_width_px * scene.map_world_scale
-         image_world_height = minimap_bg_image_height_px * scene.map_world_scale
-         img_world_x_min = scene.map_world_center_x - image_world_width / 2.0
-         img_world_z_min = scene.map_world_center_z - image_world_height / 2.0
-         # 以下兩行是修改添加過的 因為要讓圖片跟著同方向移動 見下方 u_min u_max的計算
-         img_world_x_max = scene.map_world_center_x + image_world_width / 2.0
-         img_world_z_max = scene.map_world_center_z + image_world_height / 2.0
+        # Calculate texture coordinates based on player position and map settings
+        image_world_width = minimap_bg_image_width_px * scene.map_world_scale
+        image_world_height = minimap_bg_image_height_px * scene.map_world_scale
+        img_world_x_min = scene.map_world_center_x - (image_world_width / 2.0)
+        img_world_z_min = scene.map_world_center_z - (image_world_height / 2.0)
+        # 以下兩行是修改添加過的 因為要讓圖片跟著同方向移動 見下方 u_min u_max的計算
+        img_world_x_max = scene.map_world_center_x + (image_world_width / 2.0)
+        img_world_z_max = scene.map_world_center_z + (image_world_height / 2.0)
 
-         # Calculate world boundaries currently visible in the minimap square
-         world_half = view_range / 2.0
-         view_l, view_r = player_x - world_half, player_x + world_half
-         view_b, view_t = player_z - world_half, player_z + world_half # Z maps to V
+        # Calculate world boundaries currently visible in the minimap square
+        world_half = view_range / 2.0
+        view_l, view_r = player_x - world_half, player_x + world_half
+        view_b, view_t = player_z - world_half, player_z + world_half # Z maps to V
 
-         # Calculate UVs
-         if abs(image_world_width) < 1e-6 or abs(image_world_height) < 1e-6:
-             u_min, u_max, v_min, v_max = 0.0, 1.0, 0.0, 1.0 # Fallback
-         else:
-             # Correct calculation: map world view coords to texture coords [0,1]
-             # 以下兩行是修改過的 改成 +img_world_x_max 因為要讓圖片跟著同方向移動
-             u_min = (-view_l + img_world_x_max) / image_world_width
-             u_max = (-view_r + img_world_x_max) / image_world_width
-             v_min = (view_b - img_world_z_min) / image_world_height # V=0 at bottom
-             v_max = (view_t - img_world_z_min) / image_world_height # V=1 at top
-
-         # Draw textured Quad for the minimap background
-         # 修改以下 glTexCoord2f 內的u_max u_min  因為要把圖片左右相反
-         glBegin(GL_QUADS)
-         glTexCoord2f(u_max, v_min); glVertex2f(map_left, map_bottom)   # Bottom Left
-         glTexCoord2f(u_min, v_min); glVertex2f(map_right, map_bottom)  # Bottom Right
-         glTexCoord2f(u_min, v_max); glVertex2f(map_right, map_top)     # Top Right
-         glTexCoord2f(u_max, v_max); glVertex2f(map_left, map_top)      # Top Left
-         glEnd()
-         glBindTexture(GL_TEXTURE_2D, 0)
-         glDisable(GL_TEXTURE_2D)
-         bg_color_to_use = None # IMPORTANT: Set to None if texture was drawn
+        # Calculate UVs
+        if abs(image_world_width) < 1e-6 or abs(image_world_height) < 1e-6:
+            u_min, u_max, v_min, v_max = 0.0, 1.0, 0.0, 1.0 # Fallback
+        else:
+            # Correct calculation: map world view coords to texture coords [0,1]
+            # 以下兩行是修改過的 改成 +img_world_x_max 因為要讓圖片跟著同方向移動
+            u_min = ((-view_l + img_world_x_max) / image_world_width)
+            u_max = ((-view_r + img_world_x_max) / image_world_width)
+            v_min = ((view_b - img_world_z_min) / image_world_height) # V=0 at bottom
+            v_max = ((view_t - img_world_z_min) / image_world_height) # V=1 at top
+        # Draw textured Quad for the minimap background
+        # 修改以下 glTexCoord2f 內的u_max u_min  因為要把圖片左右相反
+        glBegin(GL_QUADS)
+        glTexCoord2f(u_max, v_min); glVertex2f(map_left, map_bottom)   # Bottom Left
+        glTexCoord2f(u_min, v_min); glVertex2f(map_right, map_bottom)  # Bottom Right
+        glTexCoord2f(u_min, v_max); glVertex2f(map_right, map_top)     # Top Right
+        glTexCoord2f(u_max, v_max); glVertex2f(map_left, map_top)      # Top Left
+        glEnd()
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glDisable(GL_TEXTURE_2D)
+        bg_color_to_use = None # IMPORTANT: Set to None if texture was drawn
          
     # --- Call the core rendering function ---
     # Pass player position as view center, simulator's zoom, and map rect
@@ -1614,12 +1617,17 @@ def draw_minimap(scene, tram, screen_width, screen_height):
         while current_grid_x <= world_view_right:
             map_x, _ = _world_to_map_coords_adapted(current_grid_x, player_z, player_x, player_z, map_center_x, map_center_y, scale)
             if map_left <= map_x <= map_right:
+#             if True:
                 label_text = f"{current_grid_x:.0f}"
                 try:
                     text_surface = grid_label_font.render(label_text, True, MINIMAP_GRID_LABEL_COLOR)
-                    draw_label_x = map_x - text_surface.get_width() / 2
-                    draw_label_y = map_bottom - MINIMAP_GRID_LABEL_OFFSET - text_surface.get_height()
-                    _draw_text_texture(text_surface, draw_label_x, draw_label_y)
+#                     draw_label_x = int(map_x - text_surface.get_width() / 2)
+#                     draw_label_x = int(map_x - text_surface.get_width() / 2)
+                    draw_label_x = map_x
+#                     draw_label_y = int(map_bottom - MINIMAP_GRID_LABEL_OFFSET - text_surface.get_height())
+                    draw_label_y = map_bottom - 20
+#                     print(f"draw_label_x:{draw_label_x},draw_label_y:{draw_label_y}")
+                    _draw_text_texture(text_surface, draw_label_x , draw_label_y )
                 except Exception as e: print(f"渲染 X 標籤時出錯: {e}")
             current_grid_x += MINIMAP_GRID_SCALE
 
@@ -1631,8 +1639,9 @@ def draw_minimap(scene, tram, screen_width, screen_height):
                 label_text = f"{current_grid_z:.0f}"
                 try:
                     text_surface = grid_label_font.render(label_text, True, MINIMAP_GRID_LABEL_COLOR)
-                    draw_label_x = map_left - MINIMAP_GRID_LABEL_OFFSET - text_surface.get_width()
-                    draw_label_y = map_y - text_surface.get_height() / 2
+#                     draw_label_x = map_left - MINIMAP_GRID_LABEL_OFFSET - text_surface.get_width()
+                    draw_label_x = map_left - 48
+                    draw_label_y = map_y
                     _draw_text_texture(text_surface, draw_label_x, draw_label_y)
                 except Exception as e: print(f"渲染 Z 標籤時出錯: {e}")
             current_grid_z += MINIMAP_GRID_SCALE
