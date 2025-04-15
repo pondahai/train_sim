@@ -7,6 +7,8 @@
 這是一個使用 Python 開發的簡易 3D 電車模擬器，包含兩個主要程式：
 1. 電車模擬器 (`main.py`)
 2. 場景編輯器 (`scene_editor.py`)
+  
+  
 全程用gemini-2.5-pro vibe coding完成  
 
 ## 功能特點
