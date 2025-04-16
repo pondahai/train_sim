@@ -1565,7 +1565,7 @@ def draw_minimap(scene, tram, screen_width, screen_height):
     # Pass player position as view center, simulator's zoom, and map rect
     _render_map_view(scene, player_x, player_z, view_range, map_rect,
                      draw_grid_labels=False, # Labels drawn outside scissor area later
-                     background_color=bg_color_to_use) # Pass fallback if texture failed/off
+                     background_color=None) # Pass fallback if texture failed/off
 
     # --- Draw Player Marker (Simulator specific) ---
     glDisable(GL_TEXTURE_2D) # Marker is not textured
