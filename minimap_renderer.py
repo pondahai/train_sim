@@ -30,8 +30,10 @@ EDITOR_BG_COLOR = (0.15, 0.15, 0.18, 1.0) # Editor preview BG fallback if no map
 MINIMAP_TRACK_COLOR = (1.0, 0.0, 0.0) # White track
 MINIMAP_GRID_SCALE = 50.0
 MINIMAP_GRID_LABEL_COLOR = (255, 255, 0, 180)
-MINIMAP_GRID_LABEL_FONT_SIZE = 24
+# MINIMAP_GRID_LABEL_FONT_SIZE = 24
 MINIMAP_GRID_LABEL_OFFSET = 2
+#
+# MINIMAP_COORD_LABEL_FONT_SZIE = 12
 # Constants for Dynamic Drawing (Editor Preview - matching original renderer)
 MINIMAP_DYNAMIC_GRID_COLOR = (0.5, 0.5, 0.5, 0.3) # Color for editor grid lines
 MINIMAP_DYNAMIC_BUILDING_COLOR = (0.6, 0.4, 0.9) # Editor building lines
@@ -73,12 +75,17 @@ current_simulator_minimap_range = DEFAULT_MINIMAP_RANGE
 
 # Fonts
 grid_label_font = None
+coord_label_font = None
 
 # --- Helper Functions ---
 
 def set_grid_label_font(font):
     global grid_label_font
     grid_label_font = font
+
+def set_coord_label_font(font):
+    global coord_label_font
+    coord_label_font = font
 
 # --- Coordinate Conversion (Keep identical, used by both draw modes) ---
 # @njit # Re-enable if performance requires and testing passes
@@ -646,7 +653,10 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
         glLineWidth(2.0)
         for bldg in scene.buildings:
-            b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg; half_w,half_d = ww/2.,wd/2.
+            b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg;
+            
+            
+            half_w,half_d = ww/2.,wd/2.
             corners_local = [np.array([-half_w,0,-half_d]),np.array([half_w,0,-half_d]),np.array([half_w,0,half_d]),np.array([-half_w,0,half_d])]
             angle_y_rad = math.radians(-abs_ry);
             cos_y,sin_y = math.cos(angle_y_rad),math.sin(angle_y_rad)
@@ -662,6 +672,21 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 glBegin(GL_LINE_LOOP);
                 [glVertex2f(mx,my) for mx,my in map_coords];
                 glEnd()
+            
+            # 求取矩形中心座標
+            sum_x = sum(coord[0] for coord in map_coords)
+            sum_y = sum(coord[1] for coord in map_coords)
+            center = (sum_x / 4, sum_y / 4)
+
+            # 顯示Y值
+            label_text=f"{wy:.1f}";
+            try:
+                text_surface=coord_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
+                dx=center[0] + 0;
+                dy=center[1];
+                renderer._draw_text_texture(text_surface,dx,dy);
+            except Exception as e:
+                pass
 
         # Cylinders (Circles/Boxes)
         glColor3fv(MINIMAP_DYNAMIC_CYLINDER_COLOR); num_circle_segments = 12
@@ -754,10 +779,24 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                             )
                     glEnd()
 
+            # 顯示Y值
+            label_text=f"{wy:.1f}";
+            try:
+                text_surface=coord_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
+                dx=center_map_x + 0;
+                dy=center_map_y;
+                renderer._draw_text_texture(text_surface,dx,dy);
+            except Exception as e:
+                pass
+
         # Trees (Points)
         glColor3fv(MINIMAP_DYNAMIC_TREE_COLOR)
-        min_pt, max_pt = 2.0, 5.0; vr = view_range; dr = DEFAULT_MINIMAP_RANGE; mr = MINIMAP_MIN_RANGE
-        zoom_ratio = max(0, min(1, (dr-vr)/(dr-mr))) if (dr-mr)!=0 else 0; point_size = min_pt+(max_pt-min_pt)*zoom_ratio
+        min_pt, max_pt = 2.0, 10.0;
+        vr = view_range;
+        dr = DEFAULT_MINIMAP_RANGE;
+        mr = MINIMAP_MIN_RANGE
+        zoom_ratio = max(0, min(1, (dr-vr)/(dr-mr))) if (dr-mr)!=0 else 0;
+        point_size = min_pt+(max_pt-min_pt)*zoom_ratio
         glPointSize(max(1.0, point_size))
         glBegin(GL_POINTS)
         for tree in scene.trees:
@@ -785,7 +824,16 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             glVertex2f(map_x, map_y)  # 
             glEnd()        
 
-
+            # 顯示端點Y值
+            label_text=f"y: {segment.points[0][1]:.1f}";
+            try:
+                text_surface=coord_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
+                dx=map_x + 5;
+                dy=map_y;
+                renderer._draw_text_texture(text_surface,dx,dy);
+            except Exception as e:
+                pass
+            
             glBegin(GL_LINE_STRIP)
             for point_world in segment.points:
                 widget_x, widget_y = _world_to_map_coords_adapted(point_world[0], point_world[2], view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)

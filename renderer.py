@@ -36,9 +36,10 @@ CYLINDER_SLICES = 16 # Keep (maybe reduce default slightly?)
 hud_display_font = None
 # --- Grid Label Font (Still created here, passed to minimap_renderer) ---
 grid_label_font = None
+coord_label_font = None
 # Grid label font size constant (can be moved to minimap_renderer if preferred)
 MINIMAP_GRID_LABEL_FONT_SIZE = 24 # Keep here or move? Let's keep for now.
-
+MINIMAP_COORD_LABEL_FONT_SIZE = 16
 # --- Coordinate Display Parameters (Keep) ---
 COORD_PADDING_X = 10
 COORD_PADDING_Y = 10
@@ -63,13 +64,15 @@ def set_hud_font(font):
     From main.py receives the Pygame font object for HUD display.
     Also attempts to create the grid label font.
     """
-    global hud_display_font, grid_label_font
+    global hud_display_font, grid_label_font, coord_label_font
     hud_display_font = font
 
     # Reset grid_label_font
     grid_label_font = None
+    coord_label_font = None
     # For grid labels, create a smaller font.
     if hud_display_font: # Check if main font loaded
+        # init grid label font
         try:
             # Use the constant defined above
             grid_label_font = pygame.font.SysFont(None, MINIMAP_GRID_LABEL_FONT_SIZE)
@@ -86,6 +89,23 @@ def set_hud_font(font):
         except Exception as e:
             print(f"警告: 無法加載系統默認字體作為網格標籤字體 (大小: {MINIMAP_GRID_LABEL_FONT_SIZE}): {e}")
             grid_label_font = None
+        # init coord label font
+        try:
+            # Use the constant defined above
+            coord_label_font = pygame.font.SysFont(None, MINIMAP_COORD_LABEL_FONT_SIZE)
+            print(f"網格標籤字體已創建 (大小: {MINIMAP_COORD_LABEL_FONT_SIZE}).")
+            # *** ADDED: Pass the font to minimap_renderer ***
+            try:
+                import minimap_renderer
+                minimap_renderer.set_coord_label_font(coord_label_font)
+            except ImportError:
+                print("警告: 無法導入 minimap_renderer 來設置網格字體。")
+            except AttributeError:
+                 print("警告: minimap_renderer 中未找到 set_coord_label_font。")
+
+        except Exception as e:
+            print(f"警告: 無法加載系統默認字體作為網格標籤字體 (大小: {MINIMAP_COORD_LABEL_FONT_SIZE}): {e}")
+            grid_coord_font = None
     else:
         print("警告: 主 HUD 字體未設置，網格標籤字體無法創建。")
 
