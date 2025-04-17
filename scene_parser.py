@@ -24,13 +24,13 @@ def set_texture_loader(loader):
 # --- Command Hints Dictionary (Keep) ---
 # Used by the editor to display parameter names
 COMMAND_HINTS = {
-    "map": ["cmd", "file", "cx", "cz", "scale"],
-    "start": ["cmd", "x", "y", "z", "angle°"],
-    "straight": ["cmd", "length", "grad‰"],
-    "curve": ["cmd", "radius", "angle°", "grad‰"],
-    "building": ["cmd", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "w", "d", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
-    "cylinder": ["cmd", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "rad", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
-    "tree": ["cmd", "rel_x", "rel_y", "rel_z", "height"]
+    "map": ["__cmd__", "file", "cx", "cz", "scale"],
+    "start": ["__cmd__", "x", "y", "z", "angle°"],
+    "straight": ["__cmd__", "length", "grad‰"],
+    "curve": ["__cmd__", "radius", "angle°", "grad‰"],
+    "building": ["__cmd__", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "w", "d", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
+    "cylinder": ["__cmd__", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "rad", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
+    "tree": ["__cmd__", "rel_x", "rel_y", "rel_z", "height"]
     # Add other commands if they exist
 }
 
