@@ -37,7 +37,9 @@ MINIMAP_GRID_LABEL_OFFSET = 2
 # Constants for Dynamic Drawing (Editor Preview - matching original renderer)
 MINIMAP_DYNAMIC_GRID_COLOR = (0.5, 0.5, 0.5, 0.3) # Color for editor grid lines
 MINIMAP_DYNAMIC_BUILDING_COLOR = (0.6, 0.4, 0.9) # Editor building lines
+MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_BUILDING_COLOR) + (180,)
 MINIMAP_DYNAMIC_CYLINDER_COLOR = (0.5, 0.9, 0.5) # Editor cylinder lines/circles
+MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_CYLINDER_COLOR) + (180,)
 MINIMAP_DYNAMIC_TREE_COLOR = (0.1, 0.8, 0.1) # Editor tree points
 # Constants for FBO Baking
 MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Simulator fallback BG
@@ -310,8 +312,8 @@ def _render_static_elements_to_fbo(scene: Scene):
             try: # Keep tilted box approx logic identical to previous version
                 p_bottom_local = np.array([0,ch/2,0]);
                 p_top_local = np.array([0,-ch/2,0])
-                p_bottom_rotated_rel = _rotate_point_3d(p_bottom_local, rx, ry, -rz)
-                p_top_rotated_rel = _rotate_point_3d(p_top_local, rx, ry, -rz)
+                p_bottom_rotated_rel = _rotate_point_3d(p_bottom_local, -rx, ry, -rz)
+                p_top_rotated_rel = _rotate_point_3d(p_top_local, -rx, ry, -rz)
                 p_bottom_world = np.array([wx,wy,wz]) + p_bottom_rotated_rel #p_bottom_rotated_rel
                 p_top_world = np.array([wx,wy,wz]) + p_top_rotated_rel
                 p_bottom_xz = np.array([p_bottom_world[0], p_bottom_world[2]]);
@@ -328,47 +330,58 @@ def _render_static_elements_to_fbo(scene: Scene):
                 scale_z_fbo = fbo_h / world_h;
                 ################################################
                 # 計算投影方向與偏移
-                if length_proj > 1e-6:
-                    direction_x = axis_proj_xz[0] / length_proj
-                    direction_z = axis_proj_xz[1] / length_proj
-                else:
-                    direction_x, direction_z = 0.0, 0.0
-                #（沿投影方向移動0.5*ch）
-                delta_world_x = direction_x * 0.5 * ch
-                delta_world_z = direction_z * 0.5 * ch
-                delta_fbo_x = delta_world_x * scale_x_fbo
-                delta_fbo_y = delta_world_z * scale_z_fbo
-#                 print(f"delta_fbo_x {delta_fbo_x} delta_fbo_y {delta_fbo_y}")
-                # 調整中心坐標
-                center_fbo_x += delta_fbo_x
-                center_fbo_y += delta_fbo_y
-                ##############################################
-                # 計算順時針90度方向的單位向量(往圓柱體圓心偏移
-                if length_proj > 1e-6:
-                    direction_90_x = -direction_z
-                    direction_90_z = direction_x
-                else:
-                    direction_90_x = 0.0
-                    direction_90_z = 0.0
+#                 if length_proj > 1e-6:
+#                     direction_x = axis_proj_xz[0] / length_proj
+#                     direction_z = axis_proj_xz[1] / length_proj
+#                 else:
+#                     direction_x, direction_z = 0.0, 0.0
+#                 #（沿投影方向移動0.5*ch）
+#                 delta_world_x = direction_x * 0.5 * length_proj
+#                 delta_world_z = direction_z * 0.5 * length_proj
+#                 delta_fbo_x = delta_world_x * scale_x_fbo
+#                 delta_fbo_y = delta_world_z * scale_z_fbo
+# #                 print(f"delta_fbo_x {delta_fbo_x} delta_fbo_y {delta_fbo_y}")
+#                 # 調整中心坐標
+#                 center_fbo_x += delta_fbo_x
+#                 center_fbo_y += delta_fbo_y
 
-                # 計算世界坐標系中的偏移量（長度為cr）
-                delta_world_x_90 = direction_90_x * cr * 2
-                delta_world_z_90 = direction_90_z * cr * 2
-
-                # 轉換為FBO坐標系的偏移量
-                delta_fbo_x_90 = delta_world_x_90 * scale_x_fbo
-                delta_fbo_y_90 = delta_world_z_90 * scale_z_fbo
-
-                # 進一步調整中心坐標
-                center_fbo_x += delta_fbo_x_90
-                center_fbo_y += delta_fbo_y_90
 
 #                 min_scale = min(scale_x_fbo, scale_z_fbo)
                 proj_len_px = length_proj * scale_x_fbo;
                 proj_wid_px = proj_wid_world * scale_z_fbo
+                
+                
+                
+                ##############################################
+                # 計算順時針90度方向的單位向量(往圓柱體圓心偏移
+
+
+#                 if length_proj > 1e-6:
+#                     direction_90_x = -direction_z
+#                     direction_90_z = direction_x
+#                 else:
+#                     direction_90_x = 0.0
+#                     direction_90_z = 0.0
+# 
+#                 # 計算世界坐標系中的偏移量（長度為cr）
+#                 delta_world_x_90 = direction_90_x * proj_len_px 
+#                 delta_world_z_90 = direction_90_z * proj_len_px 
+# 
+#                 # 轉換為FBO坐標系的偏移量
+#                 delta_fbo_x_90 = delta_world_x_90 * scale_x_fbo
+#                 delta_fbo_y_90 = delta_world_z_90 * scale_z_fbo
+# 
+#                 # 進一步調整中心坐標
+#                 center_fbo_x += delta_fbo_x_90
+#                 center_fbo_y += delta_fbo_y_90
+
+                print(f"center_fbo_x {center_fbo_x} center_fbo_y {center_fbo_y} proj_len_px {proj_len_px} proj_wid_px {proj_wid_px}")
                 glPushMatrix();
                 glTranslatef(center_fbo_x, center_fbo_y, 0);
                 glRotatef(ry-math.degrees(angle_map_rad), 0, 0, 1)
+                #
+                glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
+                
                 glBegin(GL_QUADS);
                 glVertex2f(-proj_len_px/2,-proj_wid_px/2);
                 glVertex2f(-proj_len_px/2,proj_wid_px/2);
@@ -382,7 +395,7 @@ def _render_static_elements_to_fbo(scene: Scene):
             radius_px_x = cr*(fbo_w/world_w);
             radius_px_y = cr*(fbo_h/world_h);
             radius_px = min(radius_px_x, radius_px_y)
-            print(f"center_fbo_x{center_fbo_x} center_fbo_y{center_fbo_y} radius_px_x{radius_px_x} radius_px_y{radius_px_y} radius_px{radius_px}")
+#             print(f"center_fbo_x{center_fbo_x} center_fbo_y{center_fbo_y} radius_px_x{radius_px_x} radius_px_y{radius_px_y} radius_px{radius_px}")
             if radius_px > 0.5:
                 glBegin(GL_TRIANGLE_FAN);
                 glVertex2f(center_fbo_x, center_fbo_y)
@@ -681,7 +694,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             # 顯示Y值
             label_text=f"{wy:.1f}";
             try:
-                text_surface=coord_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
+                text_surface=coord_label_font.render(label_text,True,MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR);
                 dx=center[0] + 0;
                 dy=center[1];
                 renderer._draw_text_texture(text_surface,dx,dy);
@@ -699,8 +712,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 try:
                     p_bl = np.array([0,ch/2,0]);
                     p_tl = np.array([0,-ch/2,0])
-                    p_br = _rotate_point_3d(p_bl, rx, ry, -rz);
-                    p_tr = _rotate_point_3d(p_tl, rx, ry, -rz)
+                    p_br = _rotate_point_3d(p_bl, -rx, ry, -rz);
+                    p_tr = _rotate_point_3d(p_tl, -rx, ry, -rz)
                     p_bw = np.array([wx,wy,wz])+p_br;
                     p_tw = np.array([wx,wy,wz])+p_tr
                     p_bxz = np.array([p_bw[0],p_bw[2]]);
@@ -717,40 +730,40 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     scale_z_fbo = scale # / widget_height;
                     ###############################################
                     # 計算投影方向與偏移
-                    if length_proj > 1e-6:
-                        direction_x = axis_proj[0] / length_proj
-                        direction_z = axis_proj[1] / length_proj
-                    else:
-                        direction_x, direction_z = 0.0, 0.0
-                    #（沿投影方向移動0.5*ch）
-                    delta_world_x = direction_x * 0.5 * ch
-                    delta_world_z = direction_z * 0.5 * ch
-                    delta_fbo_x = delta_world_x * scale_x_fbo
-                    delta_fbo_y = delta_world_z * scale_z_fbo
-    #                 print(f"delta_fbo_x {delta_fbo_x} delta_fbo_y {delta_fbo_y}")
-                    # 調整中心坐標
-                    center_map_x += delta_fbo_x
-                    center_map_y += delta_fbo_y
+#                     if length_proj > 1e-6:
+#                         direction_x = axis_proj[0] / length_proj
+#                         direction_z = axis_proj[1] / length_proj
+#                     else:
+#                         direction_x, direction_z = 0.0, 0.0
+#                     #（沿投影方向移動0.5*ch）
+#                     delta_world_x = direction_x * 0.5 * ch
+#                     delta_world_z = direction_z * 0.5 * ch
+#                     delta_fbo_x = delta_world_x * scale_x_fbo
+#                     delta_fbo_y = delta_world_z * scale_z_fbo
+#     #                 print(f"delta_fbo_x {delta_fbo_x} delta_fbo_y {delta_fbo_y}")
+#                     # 調整中心坐標
+#                     center_map_x += delta_fbo_x
+#                     center_map_y += delta_fbo_y
                     ###################################################
                     # 計算順時針90度方向的單位向量(往圓柱體圓心偏移
-                    if length_proj > 1e-6:
-                        direction_90_x = -direction_z  # 原方向的Z分量
-                        direction_90_z = direction_x # 原方向的X分量取反
-                    else:
-                        direction_90_x = 0.0
-                        direction_90_z = 0.0
-
-                    # 計算世界坐標系中的偏移量（長度為cr）
-                    delta_world_x_90 = direction_90_x * cr * 2
-                    delta_world_z_90 = direction_90_z * cr * 2
-
-                    # 轉換為FBO坐標系的偏移量
-                    delta_fbo_x_90 = delta_world_x_90 * scale_x_fbo
-                    delta_fbo_y_90 = delta_world_z_90 * scale_z_fbo
-
-                    # 進一步調整中心坐標
-                    center_map_x += delta_fbo_x_90
-                    center_map_y += delta_fbo_y_90
+#                     if length_proj > 1e-6:
+#                         direction_90_x = -direction_z  # 原方向的Z分量
+#                         direction_90_z = direction_x # 原方向的X分量取反
+#                     else:
+#                         direction_90_x = 0.0
+#                         direction_90_z = 0.0
+# 
+#                     # 計算世界坐標系中的偏移量（長度為cr）
+#                     delta_world_x_90 = direction_90_x * cr * 2
+#                     delta_world_z_90 = direction_90_z * cr * 2
+# 
+#                     # 轉換為FBO坐標系的偏移量
+#                     delta_fbo_x_90 = delta_world_x_90 * scale_x_fbo
+#                     delta_fbo_y_90 = delta_world_z_90 * scale_z_fbo
+# 
+#                     # 進一步調整中心坐標
+#                     center_map_x += delta_fbo_x_90
+#                     center_map_y += delta_fbo_y_90
 
                     proj_len_px = length_proj * scale_x_fbo;
                     proj_wid_px = proj_wid * scale_z_fbo
@@ -758,6 +771,9 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     glPushMatrix();
                     glTranslatef(center_map_x, center_map_y, 0);
                     glRotatef(ry-math.degrees(angle_map), 0, 0, 1)
+                    # 往旋轉後的矩形中心點偏移
+                    glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
+                    
                     glBegin(GL_LINE_LOOP);
                     glVertex2f(-proj_len_px/2,-proj_wid_px/2);
                     glVertex2f(-proj_len_px/2,proj_wid_px/2);
@@ -782,7 +798,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             # 顯示Y值
             label_text=f"{wy:.1f}";
             try:
-                text_surface=coord_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
+                text_surface=coord_label_font.render(label_text,True,MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR);
                 dx=center_map_x + 0;
                 dy=center_map_y;
                 renderer._draw_text_texture(text_surface,dx,dy);

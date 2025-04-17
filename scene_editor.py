@@ -7,7 +7,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint
 from PyQt5.QtOpenGL import QGLWidget # Using QGLWidget
-from PyQt5.QtGui import QFont # Keep if needed for alternative text
+# *** ADD QFontMetrics ***
+from PyQt5.QtGui import QFont, QFontMetrics # Keep if needed for alternative text
 from OpenGL.GL import *
 from OpenGL.GLU import *
 import pygame # Still needed for font init and maybe text rendering helper
@@ -226,6 +227,9 @@ class SceneTableWidget(QTableWidget):
     """Custom Table Widget for editing scene file content."""
     # --- KEEPING ALL LOGIC IDENTICAL ---
     sceneDataChanged = pyqtSignal()
+    # *** ADD CONSTANTS for padding and minimum width ***
+    HEADER_PADDING = 20 # Pixels to add to calculated header text width
+    MIN_COLUMN_WIDTH = 40 # Minimum width for any column
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -236,6 +240,11 @@ class SceneTableWidget(QTableWidget):
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.verticalHeader().setVisible(True)
+
+        # *** Disable default content-based resizing ***
+        # self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents) # DON'T USE THIS
+        # Use Interactive mode so users *can* resize manually if needed, but we'll override
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
 
         self.currentCellChanged.connect(self._on_current_cell_changed)
         self.itemChanged.connect(self._on_item_changed)
@@ -248,6 +257,32 @@ class SceneTableWidget(QTableWidget):
     #     # if self.parent() and hasattr(self.parent(), 'save_scene_file'):
     #     #     self.parent().save_scene_file() # Trigger save on edit
 
+    # *** NEW METHOD: Resize columns based on header labels ***
+    def _resize_columns_to_header_labels(self):
+        """Resizes columns based solely on the width of their header labels."""
+        header = self.horizontalHeader()
+        # Ensure the header has a valid font before proceeding
+        header_font = header.font()
+        if not header_font:
+             print("Warning: Header font not available for resizing.")
+             return
+        fm = QFontMetrics(header_font)
+
+        for col in range(self.columnCount()):
+            header_item = self.horizontalHeaderItem(col)
+            header_text = header_item.text() if header_item else f"P{col}" # Fallback text
+
+            # Calculate width based on text
+            text_width = fm.horizontalAdvance(header_text)
+
+            # Add padding and enforce minimum width
+            final_width = max(self.MIN_COLUMN_WIDTH, text_width + self.HEADER_PADDING)
+
+            # Set the column width
+            self.setColumnWidth(col, final_width)
+            # Alternatively, use header.resizeSection(col, final_width)
+
+        # print(f"Resized columns based on headers.") # Optional debug print
 
     def load_scene_file(self):
         """Loads content from the scene file into the table."""
@@ -259,7 +294,8 @@ class SceneTableWidget(QTableWidget):
             print(f"Scene file '{self._filepath}' not found. Creating empty table.")
             self.insertRow(0)
             self.setColumnCount(1)
-            self.setHorizontalHeaderLabels(["Command"])
+            self.setHorizontalHeaderLabels(["Command"]) # Set initial header
+            self._resize_columns_to_header_labels() # Resize after setting header
             return False
 
         try:
@@ -269,7 +305,8 @@ class SceneTableWidget(QTableWidget):
             if not lines:
                 self.insertRow(0)
                 self.setColumnCount(1)
-                self.setHorizontalHeaderLabels(["Command"])
+                self.setHorizontalHeaderLabels(["Command"]) # Set initial header
+                self._resize_columns_to_header_labels() # Resize after setting header
                 return True
 
             max_cols = 0
@@ -278,7 +315,8 @@ class SceneTableWidget(QTableWidget):
                 max_cols = max(max_cols, len(parts))
             max_cols = max(1, max_cols)
             self.setColumnCount(max_cols)
-            self.setHorizontalHeaderLabels([f"P{i}" for i in range(max_cols)])
+            # Set initial generic headers first
+            self.setHorizontalHeaderLabels([f"__P{i}__" for i in range(max_cols)])
 
             self.setRowCount(len(lines))
             self.blockSignals(True) # Block during population
@@ -295,7 +333,10 @@ class SceneTableWidget(QTableWidget):
                 self.blockSignals(False) # Unblock
 
             self._data_modified = False
-            self.resizeColumnsToContents()
+            # *** REMOVE old resizeColumnsToContents() ***
+            # self.resizeColumnsToContents()
+            # *** CALL new header-based resize ***
+            self._resize_columns_to_header_labels()
             print(f"Loaded '{self._filepath}' into table.")
             self.sceneDataChanged.emit() # Emit AFTER loading
             return True
@@ -305,6 +346,7 @@ class SceneTableWidget(QTableWidget):
             self.clear(); self.setRowCount(0); self.setColumnCount(0)
             return False
 
+    # --- get_scene_lines, is_modified, mark_saved, is_row_empty (NO CHANGES) ---
     def get_scene_lines(self):
         """Gets the current content of the table as a list of strings."""
         lines = []
@@ -369,19 +411,38 @@ class SceneTableWidget(QTableWidget):
         super().keyPressEvent(event) # Default handling for other keys
 
     def _on_current_cell_changed(self, currentRow, currentColumn, previousRow, previousColumn):
-        """Updates column headers with hints."""
+        """Updates column headers with hints and resizes columns."""
+        # --- Update Header Labels ---
         if currentRow < 0 or currentRow >= self.rowCount():
-             for c in range(self.columnCount()): self.setHorizontalHeaderItem(c, QTableWidgetItem(f"P{c}"))
-             return
-        command_item = self.item(currentRow, 0)
-        command = command_item.text().lower().strip() if command_item else ""
-        hints = self._command_hints.get(command, [])
-        max_cols = self.columnCount()
-        current_headers = []
-        for i, hint in enumerate(hints):
-            if i < max_cols: current_headers.append(hint)
-        for i in range(len(hints), max_cols): current_headers.append(f"P{i}")
-        self.setHorizontalHeaderLabels(current_headers)
+             # Set default headers if no row is selected or table is empty
+             default_headers = [f"P{c}" for c in range(self.columnCount())]
+             if not default_headers and self.columnCount() == 0: # Handle completely empty table case
+                 pass # No headers to set
+             elif default_headers:
+                 self.setHorizontalHeaderLabels(default_headers)
+             else: # If column count is 0 but row count isn't (shouldn't happen), provide one default
+                  self.setColumnCount(1)
+                  self.setHorizontalHeaderLabels(["__P0__"])
+
+        else:
+            command_item = self.item(currentRow, 0)
+            command = command_item.text().lower().strip() if command_item else ""
+            hints = self._command_hints.get(command, [])
+            max_cols = self.columnCount()
+            current_headers = []
+            for i, hint in enumerate(hints):
+                if i < max_cols: current_headers.append(hint)
+            for i in range(len(hints), max_cols): current_headers.append(f"__P{i}__")
+
+            # Set the new header labels
+            if current_headers:
+                 self.setHorizontalHeaderLabels(current_headers)
+            elif max_cols > 0: # Ensure there are headers even if hints are empty
+                 self.setHorizontalHeaderLabels([f"__P{i}__" for i in range(max_cols)])
+            # else: table has 0 columns, do nothing
+
+        # *** CALL new header-based resize AFTER labels are set ***
+        self._resize_columns_to_header_labels()
 
     def _on_item_changed(self, item):
         """Flags data as modified when a cell changes."""
@@ -445,7 +506,7 @@ class SceneEditorWindow(QMainWindow):
         self.layout = QHBoxLayout(self.central_widget)
         self.splitter = QSplitter(Qt.Horizontal)
         self.layout.addWidget(self.splitter)
-        self.table_widget = SceneTableWidget(self)
+        self.table_widget = SceneTableWidget(self) # Instantiated with new logic
         self.splitter.addWidget(self.table_widget)
         self.minimap_widget = MinimapGLWidget(self)
         self.splitter.addWidget(self.minimap_widget)
@@ -471,7 +532,7 @@ class SceneEditorWindow(QMainWindow):
     def load_initial_scene(self):
         """Loads the scene file and triggers buffer creation and minimap baking."""
         print("Loading initial scene for editor...")
-        if self.table_widget.load_scene_file(): # Loads text into table
+        if self.table_widget.load_scene_file(): # Loads text into table (triggers resize)
             self.statusBar.showMessage(f"Loaded '{SCENE_FILE}'", 5000)
             # Now trigger parse, buffer creation, bake, and widget update
             self.update_minimap_preview()

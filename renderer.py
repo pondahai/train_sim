@@ -39,7 +39,7 @@ grid_label_font = None
 coord_label_font = None
 # Grid label font size constant (can be moved to minimap_renderer if preferred)
 MINIMAP_GRID_LABEL_FONT_SIZE = 24 # Keep here or move? Let's keep for now.
-MINIMAP_COORD_LABEL_FONT_SIZE = 16
+MINIMAP_COORD_LABEL_FONT_SIZE = 18
 # --- Coordinate Display Parameters (Keep) ---
 COORD_PADDING_X = 10
 COORD_PADDING_Y = 10
@@ -1015,52 +1015,106 @@ def _draw_text_texture(text_surface, x, y):
         if 'tex_id' in locals() and tex_id and glIsTexture(tex_id):
              glDeleteTextures(1, [tex_id])
 
-
-# --- Keep draw_coordinates ---
-def draw_coordinates(tram_position, screen_width, screen_height):
-    """在 HUD 左上角繪製電車坐標"""
-    # --- KEEPING LOGIC IDENTICAL ---
-    global hud_display_font
+def draw_info(tram, screen_width, screen_height):
+    """在 HUD 左上角繪製電車坐標、里程和速度"""
+    global hud_display_font # Use the main HUD font
     if not hud_display_font:
         return
 
-    # Format coordinates
-    coord_text = f"X: {tram_position[0]:.2f}  Y: {tram_position[1]:.2f}  Z: {tram_position[2]:.2f}"
+    # --- Get Data ---
+    pos = tram.position
+    dist_m = tram.distance_on_track
+    speed_kmh = tram.get_speed_kmh()
+
+    # --- Format Text ---
+    coord_text = f"X: {pos[0]:>6.1f} Y: {pos[1]:>6.1f} Z: {pos[2]:>6.1f}" # Adjusted formatting
+    dist_km = dist_m / 1000.0
+    dist_text = f"Kilo: {dist_km:>7.3f} km" # Use 3 decimal places for km
+    speed_text = f"Speed: {speed_kmh:>5.1f} km/h" # Use 1 decimal place for speed
+
+    # Combine into a multi-line string
+    info_text = f"{coord_text}\n{dist_text}\n{speed_text}"
 
     try:
-        text_surface = hud_display_font.render(coord_text, True, COORD_TEXT_COLOR)
+        # Render the multi-line text. Pygame handles '\n'.
+        text_surface = hud_display_font.render(info_text, True, COORD_TEXT_COLOR)
         text_width, text_height = text_surface.get_size()
     except Exception as e:
         print(f"渲染 HUD 文字時出錯: {e}")
         return
 
-    # Switch to 2D ortho projection
+    # --- Setup OpenGL for 2D Drawing ---
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity()
     gluOrtho2D(0, screen_width, 0, screen_height) # Y=0 is bottom
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity()
 
-    # Setup GL state for 2D HUD drawing
-    glPushAttrib(GL_ENABLE_BIT | GL_TEXTURE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT) # Save state
-    glDisable(GL_DEPTH_TEST)
-    glDisable(GL_LIGHTING)
-    glEnable(GL_TEXTURE_2D) # Needed for text texture
-    glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    glColor4f(1.0, 1.0, 1.0, 1.0) # Use white base color for text texture
+    # Save and set GL state for HUD drawing
+    glPushAttrib(GL_ENABLE_BIT | GL_TEXTURE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT | GL_DEPTH_BUFFER_BIT) # Added DEPTH_BUFFER_BIT
+    glDisable(GL_DEPTH_TEST)    # No depth test for HUD
+    glDisable(GL_LIGHTING)      # No lighting for HUD
+    glEnable(GL_TEXTURE_2D)     # Needed for text texture
+    glEnable(GL_BLEND)          # Enable alpha blending
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) # Standard alpha blending
 
-    # Calculate draw position (top-left corner)
+    # --- Calculate Position and Draw ---
+    # Position text block at the top-left corner
     draw_x = COORD_PADDING_X
-    draw_y = screen_height - COORD_PADDING_Y - text_height # Adjust for Y=0 at bottom
+    draw_y = screen_height - COORD_PADDING_Y - text_height # Y is from bottom, so subtract height
 
-    # Draw the text using the helper
+    # Draw the text surface using the helper function
     _draw_text_texture(text_surface, draw_x, draw_y)
 
-    # Restore GL state
-    glPopAttrib()
+    # --- Restore OpenGL State ---
+    glPopAttrib() # Restore enable, texture, color, current, depth bits
 
     # Restore matrices
     glMatrixMode(GL_PROJECTION); glPopMatrix()
     glMatrixMode(GL_MODELVIEW); glPopMatrix()
+# --- Keep draw_coordinates ---
+# def draw_coordinates(tram_position, screen_width, screen_height):
+#     """在 HUD 左上角繪製電車坐標"""
+#     # --- KEEPING LOGIC IDENTICAL ---
+#     global hud_display_font
+#     if not hud_display_font:
+#         return
+# 
+#     # Format coordinates
+#     coord_text = f"X: {tram_position[0]:.2f}  Y: {tram_position[1]:.2f}  Z: {tram_position[2]:.2f}"
+# 
+#     try:
+#         text_surface = hud_display_font.render(coord_text, True, COORD_TEXT_COLOR)
+#         text_width, text_height = text_surface.get_size()
+#     except Exception as e:
+#         print(f"渲染 HUD 文字時出錯: {e}")
+#         return
+# 
+#     # Switch to 2D ortho projection
+#     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity()
+#     gluOrtho2D(0, screen_width, 0, screen_height) # Y=0 is bottom
+#     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity()
+# 
+#     # Setup GL state for 2D HUD drawing
+#     glPushAttrib(GL_ENABLE_BIT | GL_TEXTURE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT) # Save state
+#     glDisable(GL_DEPTH_TEST)
+#     glDisable(GL_LIGHTING)
+#     glEnable(GL_TEXTURE_2D) # Needed for text texture
+#     glEnable(GL_BLEND)
+#     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+#     glColor4f(1.0, 1.0, 1.0, 1.0) # Use white base color for text texture
+# 
+#     # Calculate draw position (top-left corner)
+#     draw_x = COORD_PADDING_X
+#     draw_y = screen_height - COORD_PADDING_Y - text_height # Adjust for Y=0 at bottom
+# 
+#     # Draw the text using the helper
+#     _draw_text_texture(text_surface, draw_x, draw_y)
+# 
+#     # Restore GL state
+#     glPopAttrib()
+# 
+#     # Restore matrices
+#     glMatrixMode(GL_PROJECTION); glPopMatrix()
+#     glMatrixMode(GL_MODELVIEW); glPopMatrix()
 
 # --- Keep Test Drawing Functions if needed ---
 def test_draw_cube_centered(width, depth, height, texture_id=None):

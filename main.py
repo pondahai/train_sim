@@ -110,7 +110,7 @@ def main():
     last_scene_check_time = time.time()
     show_ground_flag = True # Default ground to visible
     show_minimap = True
-    show_coordinates = False
+    show_hud_info = False   # <-- Optional: Rename flag for clarity
 
     # --- Main Loop ---
     while running:
@@ -178,8 +178,8 @@ def main():
                     show_minimap = not show_minimap
                     print(f"小地圖: {'開啟' if show_minimap else '關閉'}")
                 elif event.key == pygame.K_i:
-                    show_coordinates = not show_coordinates
-                    print(f"坐標顯示: {'開啟' if show_coordinates else '關閉'}")
+                    show_hud_info = not show_hud_info        # <-- Use new name
+                    print(f"資訊顯示: {'開啟' if show_hud_info else '關閉'}")       # <-- Updated message
                 elif event.key == pygame.K_PAGEUP:
                     # *** MODIFIED: Call minimap zoom function ***
                     minimap_renderer.zoom_simulator_minimap(1 / minimap_renderer.MINIMAP_ZOOM_FACTOR) # Zoom In
@@ -269,8 +269,8 @@ def main():
             minimap_renderer.draw_simulator_minimap(scene, tram_instance, SCREEN_WIDTH, SCREEN_HEIGHT)
 
         # Draw Coordinates (Keep)
-        if show_coordinates and hud_font:
-             renderer.draw_coordinates(tram_instance.position, SCREEN_WIDTH, SCREEN_HEIGHT)
+        if show_hud_info and hud_font:    # <-- Check new flag name
+            renderer.draw_info(tram_instance, SCREEN_WIDTH, SCREEN_HEIGHT) # <-- MODIFIED CALL
 
 
         # --- Swap Buffers (Keep) ---

@@ -6,7 +6,7 @@ class Tram:
         self.track = track
         self.distance_on_track = 0.0
         self.current_speed = 0.0 # m/s
-        self.max_speed = 20.0    # m/s
+        self.max_speed = 60.0    # m/s
         self.acceleration = 2.0  # m/s^2
         self.braking = 3.0       # m/s^2 (煞車減速度)
         self.friction = 0.2      # m/s^2 (自然減速度)
