@@ -15,6 +15,7 @@ class TrackSegment:
         # *** 確保 start_pos 是 3D numpy array ***
         self.start_pos = np.array(start_pos_3d, dtype=float)
 #         self.start_angle_rad = start_angle_rad # Y 軸旋轉角度 (弧度)
+        self.angle_deg = 0.0
         self.start_angle_rad = start_angle_rad_xz # 水平面上的起始角度 (Y 軸旋轉)
         self.gradient_factor = gradient_permille / 1000.0 # 轉換為每單位水平距離的垂直變化率
         
@@ -265,6 +266,7 @@ class CurveTrack(TrackSegment):
     def __init__(self, start_pos_3d, start_angle_rad_xz, radius, angle_deg, gradient_permille=0.0):
         super().__init__(start_pos_3d, start_angle_rad_xz, gradient_permille)
         self.radius = abs(radius) # 半徑始終為正
+        self.angle_deg = angle_deg
         self.angle_rad = math.radians(angle_deg)
         # 水平弧長
         self.horizontal_length = self.radius * abs(self.angle_rad)

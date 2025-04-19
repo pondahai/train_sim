@@ -299,7 +299,10 @@ def _render_static_elements_to_fbo(scene: Scene):
             world_corner_x = wx + rotated_x; world_corner_z = wz + rotated_z
             map_x, map_y = _world_to_fbo_coords(world_corner_x, world_corner_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
             fbo_coords.append((map_x, map_y))
-        if len(fbo_coords)==4: glBegin(GL_QUADS); [glVertex2f(mx, my) for mx, my in fbo_coords]; glEnd()
+        if len(fbo_coords)==4:
+            glBegin(GL_LINE_LOOP);
+            [glVertex2f(mx, my) for mx, my in fbo_coords];
+            glEnd()
 
     # Cylinders (Filled Circles or Boxes)
     glColor4fv(MINIMAP_BAKE_CYLINDER_COLOR); num_circle_segments = 16
@@ -353,36 +356,16 @@ def _render_static_elements_to_fbo(scene: Scene):
                 
                 
                 ##############################################
-                # 計算順時針90度方向的單位向量(往圓柱體圓心偏移
 
 
-#                 if length_proj > 1e-6:
-#                     direction_90_x = -direction_z
-#                     direction_90_z = direction_x
-#                 else:
-#                     direction_90_x = 0.0
-#                     direction_90_z = 0.0
-# 
-#                 # 計算世界坐標系中的偏移量（長度為cr）
-#                 delta_world_x_90 = direction_90_x * proj_len_px 
-#                 delta_world_z_90 = direction_90_z * proj_len_px 
-# 
-#                 # 轉換為FBO坐標系的偏移量
-#                 delta_fbo_x_90 = delta_world_x_90 * scale_x_fbo
-#                 delta_fbo_y_90 = delta_world_z_90 * scale_z_fbo
-# 
-#                 # 進一步調整中心坐標
-#                 center_fbo_x += delta_fbo_x_90
-#                 center_fbo_y += delta_fbo_y_90
-
-                print(f"center_fbo_x {center_fbo_x} center_fbo_y {center_fbo_y} proj_len_px {proj_len_px} proj_wid_px {proj_wid_px}")
+#                 print(f"center_fbo_x {center_fbo_x} center_fbo_y {center_fbo_y} proj_len_px {proj_len_px} proj_wid_px {proj_wid_px}")
                 glPushMatrix();
                 glTranslatef(center_fbo_x, center_fbo_y, 0);
                 glRotatef(ry-math.degrees(angle_map_rad), 0, 0, 1)
                 #
                 glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
                 
-                glBegin(GL_QUADS);
+                glBegin(GL_LINE_LOOP);
                 glVertex2f(-proj_len_px/2,-proj_wid_px/2);
                 glVertex2f(-proj_len_px/2,proj_wid_px/2);
                 glVertex2f(proj_len_px/2,proj_wid_px/2);
@@ -470,6 +453,7 @@ def draw_simulator_minimap(scene: Scene, tram: Tram, screen_width, screen_height
         for segment in scene.track.segments:
             if not segment.points or len(segment.points)<2:
                 continue
+#             print(f"segment: {segment}")
             # 畫出軌道端點
             map_x, map_y = _world_to_map_coords_adapted(segment.points[0][0], segment.points[0][2],
                                                 player_x, player_z,
@@ -745,25 +729,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 #                     center_map_x += delta_fbo_x
 #                     center_map_y += delta_fbo_y
                     ###################################################
-                    # 計算順時針90度方向的單位向量(往圓柱體圓心偏移
-#                     if length_proj > 1e-6:
-#                         direction_90_x = -direction_z  # 原方向的Z分量
-#                         direction_90_z = direction_x # 原方向的X分量取反
-#                     else:
-#                         direction_90_x = 0.0
-#                         direction_90_z = 0.0
-# 
-#                     # 計算世界坐標系中的偏移量（長度為cr）
-#                     delta_world_x_90 = direction_90_x * cr * 2
-#                     delta_world_z_90 = direction_90_z * cr * 2
-# 
-#                     # 轉換為FBO坐標系的偏移量
-#                     delta_fbo_x_90 = delta_world_x_90 * scale_x_fbo
-#                     delta_fbo_y_90 = delta_world_z_90 * scale_z_fbo
-# 
-#                     # 進一步調整中心坐標
-#                     center_map_x += delta_fbo_x_90
-#                     center_map_y += delta_fbo_y_90
+
 
                     proj_len_px = length_proj * scale_x_fbo;
                     proj_wid_px = proj_wid * scale_z_fbo
@@ -829,7 +795,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         for segment in scene.track.segments:
             if not segment.points or len(segment.points) < 2:
                 continue
-
+#             print(f"segment: {dir(segment)}")
             # 畫出軌道端點
             map_x, map_y = _world_to_map_coords_adapted(segment.points[0][0], segment.points[0][2],
                                                 view_center_x, view_center_z,
@@ -840,8 +806,20 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             glVertex2f(map_x, map_y)  # 
             glEnd()        
 
-            # 顯示端點Y值
-            label_text=f"y: {segment.points[0][1]:.1f}";
+            # 顯示端點info
+            # 'ballast_vao', 'ballast_vbo', 'ballast_vertices',
+            # 'cleanup_buffers', 'create_gl_buffers', 'end_angle_rad',
+            # 'end_pos', 'get_position_orientation', 'gradient_factor',
+            # 'horizontal_length', 'length', 'orientations', 'points',
+            # 'rail_left_vao', 'rail_left_vbo', 'rail_left_vertices',
+            # 'rail_right_vao', 'rail_right_vbo', 'rail_right_vertices',
+            # 'setup_buffers', 'start_angle_rad', 'start_pos'
+            is_curve = True if segment.start_angle_rad != segment.end_angle_rad else False
+            if is_curve:
+                track_info = f"C {segment.angle_deg:.1f}°"
+            else:
+                track_info = f"S {segment.horizontal_length}"
+            label_text=f"{track_info} y: {segment.points[0][1]:.1f}";
             try:
                 text_surface=coord_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
                 dx=map_x + 5;

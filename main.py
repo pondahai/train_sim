@@ -111,7 +111,8 @@ def main():
     show_ground_flag = True # Default ground to visible
     show_minimap = True
     show_hud_info = False   # <-- Optional: Rename flag for clarity
-
+    show_cab = True
+    
     # --- Main Loop ---
     while running:
         dt = clock.tick(TARGET_FPS) / 1000.0
@@ -174,6 +175,8 @@ def main():
                          # Bake minimap even if reload failed (will bake empty state)
                          minimap_renderer.bake_static_map_elements(scene)
 
+                elif event.key == pygame.K_c:
+                    show_cab = not show_cab
                 elif event.key == pygame.K_m:
                     show_minimap = not show_minimap
                     print(f"小地圖: {'開啟' if show_minimap else '關閉'}")
@@ -261,7 +264,8 @@ def main():
         renderer.draw_scene_objects(scene)
 
         # --- Draw Tram Cab (Keep) ---
-        renderer.draw_tram_cab(tram_instance, camera_instance)
+        if show_cab:
+            renderer.draw_tram_cab(tram_instance, camera_instance)
 
         # --- Draw HUD ---
         # *** MODIFIED: Call minimap renderer's draw function ***
