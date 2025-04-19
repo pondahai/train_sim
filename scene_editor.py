@@ -28,8 +28,8 @@ from camera import Camera # <--- 新增：用於 3D 預覽攝影機
 # --- Constants (Keep) ---
 SCENE_FILE = "scene.txt"
 EDITOR_WINDOW_TITLE = "Tram Scene Editor"
-INITIAL_WINDOW_WIDTH = 1600 # 稍微加寬以容納更多視窗
-INITIAL_WINDOW_HEIGHT = 800 # 稍微加高
+INITIAL_WINDOW_WIDTH = 1200 # 稍微加寬以容納更多視窗
+INITIAL_WINDOW_HEIGHT = 600 # 稍微加高
 EDITOR_COORD_COLOR = (205, 205, 20, 200) # Keep
 EDITOR_COORD_FONT_SIZE = 24 # Keep
 EDITOR_LABEL_OFFSET_X = 5 # Keep
