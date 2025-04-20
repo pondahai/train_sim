@@ -153,7 +153,7 @@ class TrackSegment:
             glBindVertexArray(0)
             glBindBuffer(GL_ARRAY_BUFFER, 0)
 
-        print(f"緩衝區已創建: Ballast VAO={self.ballast_vao}, Rail Left VAO={self.rail_left_vao}, Rail Right VAO={self.rail_right_vao}")
+#         print(f"緩衝區已創建: Ballast VAO={self.ballast_vao}, Rail Left VAO={self.rail_left_vao}, Rail Right VAO={self.rail_right_vao}")
 
     def create_gl_buffers(self):
         self.setup_buffers()

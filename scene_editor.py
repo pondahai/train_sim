@@ -462,6 +462,7 @@ class SceneTableWidget(QTableWidget):
         if not header_font: return
         fm = QFontMetrics(header_font)
         for col in range(self.columnCount()):
+            if col == 0: continue
             header_item = self.horizontalHeaderItem(col)
             header_text = header_item.text() if header_item else f"P{col}"
             text_width = fm.horizontalAdvance(header_text)
@@ -486,7 +487,7 @@ class SceneTableWidget(QTableWidget):
             max_cols = max((len(line.strip().split()) for line in lines if line.strip()), default=0)
             max_cols = max(1, max_cols)
             self.setColumnCount(max_cols)
-            self.setHorizontalHeaderLabels([f"__P{i}__" for i in range(max_cols)])
+            self.setHorizontalHeaderLabels([f"P{i}" for i in range(max_cols)])
             self.setRowCount(len(lines))
             self.blockSignals(True)
             try:
@@ -568,15 +569,15 @@ class SceneTableWidget(QTableWidget):
              if default_headers or self.columnCount() == 0:
                   if default_headers: self.setHorizontalHeaderLabels(default_headers)
              else:
-                  self.setColumnCount(1); self.setHorizontalHeaderLabels(["__P0__"])
+                  self.setColumnCount(1); self.setHorizontalHeaderLabels(["P0"])
         else:
             command_item = self.item(currentRow, 0)
             command = command_item.text().lower().strip() if command_item else ""
             hints = self._command_hints.get(command, [])
             max_cols = self.columnCount()
-            current_headers = [hints[i] if i < len(hints) else f"__P{i}__" for i in range(max_cols)]
+            current_headers = [hints[i] if i < len(hints) else f"P{i}" for i in range(max_cols)]
             if current_headers: self.setHorizontalHeaderLabels(current_headers)
-            elif max_cols > 0: self.setHorizontalHeaderLabels([f"__P{i}__" for i in range(max_cols)])
+            elif max_cols > 0: self.setHorizontalHeaderLabels([f"P{i}" for i in range(max_cols)])
         self._resize_columns_to_header_labels()
 
     def _on_item_changed(self, item):

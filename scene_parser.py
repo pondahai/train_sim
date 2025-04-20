@@ -24,13 +24,13 @@ def set_texture_loader(loader):
 # --- Command Hints Dictionary (Keep) ---
 # Used by the editor to display parameter names
 COMMAND_HINTS = {
-    "map": ["__cmd__", "file", "cx", "cz", "scale"],
-    "start": ["__cmd__", "x", "y", "z", "angle°"],
-    "straight": ["__cmd__", "length", "grad‰"],
-    "curve": ["__cmd__", "radius", "angle°", "grad‰"],
-    "building": ["__cmd__", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "w", "d", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
-    "cylinder": ["__cmd__", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "rad", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
-    "tree": ["__cmd__", "rel_x", "rel_y", "rel_z", "height"]
+    "map": ["    cmd    ", "file", "cx", "cz", "scale"],
+    "start": ["    cmd    ", "x", "y", "z", "angle°"],
+    "straight": ["    cmd    ", "length", "grad‰"],
+    "curve": ["    cmd    ", "radius", "angle°", "grad‰"],
+    "building": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "w", "d", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
+    "cylinder": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "rad", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
+    "tree": ["    cmd    ", "rel_x", "rel_y", "rel_z", "height"]
     # Add other commands if they exist
 }
 
@@ -220,9 +220,12 @@ def _parse_scene_content(lines_list, load_textures=True):
                 tex_id = None
                 if load_textures and texture_loader:
                     tex_id = texture_loader.load_texture(tex_file)
-                    if tex_id is None: print(f"提示: 第 {line_num} 行 'building' 無法載入紋理 '{tex_file}'。")
+                    if tex_id is None:
+#                         print(f"提示: 第 {line_num} 行 'building' 無法載入紋理 '{tex_file}'。")
+                        pass
                 elif load_textures:
                     print(f"提示: 第 {line_num} 行 'building' 無法載入紋理 '{tex_file}' (loader未設定)。")
+                    
 
                 # Coordinate Transformation (Keep logic identical, including -90 offset)
                 origin_angle = relative_origin_angle_rad
@@ -274,7 +277,9 @@ def _parse_scene_content(lines_list, load_textures=True):
                 tex_id = None
                 if load_textures and texture_loader:
                     tex_id = texture_loader.load_texture(tex_file)
-                    if tex_id is None: print(f"提示: 第 {line_num} 行 'cylinder' 無法載入紋理 '{tex_file}'。")
+                    if tex_id is None:
+#                         print(f"提示: 第 {line_num} 行 'cylinder' 無法載入紋理 '{tex_file}'。")
+                        pass
                 elif load_textures:
                     print(f"提示: 第 {line_num} 行 'cylinder' 無法載入紋理 '{tex_file}' (loader未設定)。")
 

@@ -12,7 +12,7 @@ def load_texture(filename):
 
     filepath = os.path.join("textures", filename)
     if not os.path.exists(filepath):
-        print(f"警告: 紋理檔案 '{filepath}' 不存在")
+#         print(f"警告: 紋理檔案 '{filepath}' 不存在")
         return None
 
     try:
