@@ -455,6 +455,7 @@ class SceneTableWidget(QTableWidget):
         self.currentCellChanged.connect(self._on_current_cell_changed)
         self.itemChanged.connect(self._on_item_changed)
         self.needUpdate = False
+        self._last_active_row = -1
         
     def _resize_columns_to_header_labels(self):
         header = self.horizontalHeader()
@@ -470,6 +471,9 @@ class SceneTableWidget(QTableWidget):
             self.setColumnWidth(col, final_width)
 
     def load_scene_file(self):
+        # --- 修改：在清空前儲存目前行號 ---
+        remember_row = self._last_active_row
+
         self.clear()
         self.setRowCount(0); self.setColumnCount(0)
         if not os.path.exists(self._filepath):
@@ -501,6 +505,22 @@ class SceneTableWidget(QTableWidget):
             self._resize_columns_to_header_labels()
             # print(f"Loaded '{self._filepath}' into table.") #減少訊息
             self.sceneDataChanged.emit()
+
+            # --- 新增：載入完成後嘗試跳轉 ---
+            new_row_count = self.rowCount()
+            if 0 <= remember_row < new_row_count:
+                # 確保 item 存在才滾動
+                item_to_scroll = self.item(remember_row, 0)
+                if item_to_scroll:
+                    self.setCurrentCell(remember_row, 0)
+                    self.scrollToItem(item_to_scroll, QAbstractItemView.PositionAtCenter)
+                    self._last_active_row = remember_row # 更新回載入成功的值
+                    print(f"重新載入後跳轉到行: {remember_row + 1}")
+                else:
+                     self._last_active_row = -1 # 如果item不存在，重置
+            else:
+                self._last_active_row = -1 # 如果行號無效，重置
+                
             return True
         except Exception as e:
             print(f"Error loading scene file '{self._filepath}': {e}")
@@ -560,6 +580,10 @@ class SceneTableWidget(QTableWidget):
         super().keyPressEvent(event)
 
     def _on_current_cell_changed(self, currentRow, currentColumn, previousRow, previousColumn):
+        # --- 新增：更新最後活動行號 ---
+        if currentRow >= 0:
+             self._last_active_row = currentRow
+             
         if currentRow != previousRow and self.needUpdate:
             self.sceneDataChanged.emit()
             self.needUpdate = False
@@ -699,7 +723,11 @@ class SceneEditorWindow(QMainWindow):
         menubar = self.menuBar()
         file_menu = menubar.addMenu('&File')
         save_action = QAction('&Save', self); save_action.setShortcut('Ctrl+S'); save_action.setStatusTip('Save scene file'); save_action.triggered.connect(self.save_scene_file); file_menu.addAction(save_action)
-        reload_action = QAction('&Reload', self); reload_action.setShortcut('Ctrl+R'); reload_action.setStatusTip('Reload scene file from disk'); reload_action.triggered.connect(self.ask_reload_scene); file_menu.addAction(reload_action)
+        reload_action = QAction('&Reload', self);
+        reload_action.setShortcut('Ctrl+R');
+        reload_action.setStatusTip('Reload scene file from disk');
+        reload_action.triggered.connect(self.ask_reload_scene);
+        file_menu.addAction(reload_action)
         exit_action = QAction('&Exit', self); exit_action.setShortcut('Ctrl+Q'); exit_action.setStatusTip('Exit application'); exit_action.triggered.connect(self.close); file_menu.addAction(exit_action)
 
         # --- 新增：View 選單，用於控制 Dock Widgets 的顯示/隱藏 ---
