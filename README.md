@@ -13,57 +13,77 @@
 
 # 簡易 3D 電車模擬器
 
-這是一個使用 Python、Pygame 和 PyOpenGL 建立的基礎 3D 電車模擬器。使用者可以在一個由 `scene.txt` 文件定義的 3D 環境中駕駛電車。
+這是一個使用 Python、Pygame 和 PyOpenGL 建立的基礎 3D 電車模擬器。使用者可以在 `scene.txt` 文件定義的 3D 環境中駕駛電車。
 
 ## 功能特色
 
-* **3D 環境渲染：** 使用 PyOpenGL 進行基本的 3D 場景渲染。
-* **電車物理模擬：**
-    * 包含加速度、煞車、自然摩擦力。
-    * 最高速度限制。
-    * 可沿預定軌道行駛。
-* **自訂軌道與場景：**
-    * 透過 `scene.txt` 文件定義軌道（直線、彎道）和場景物件。
-    * 支援軌道坡度。
-    * 可放置建築物（立方體）、圓柱體和樹木等靜態物件。
-    * 支援物件紋理貼圖（需放置於 `textures` 資料夾）。
-* **駕駛艙視角：**
-    * 提供第一人稱駕駛視角。
-    * 包含基本的儀表板顯示（速度表、操作桿）。
-* **視角控制：** 使用滑鼠自由調整視角（可鎖定/解鎖）。
-* **HUD 顯示：**
-    * 可選的小地圖（顯示軌道、物件和電車位置/方向）。
-    * 小地圖可套圖（預設檔名 map.png，一個像素等於模擬世界一個單位（公尺））。
-    * 可選的座標顯示（顯示電車在世界中的 X, Y, Z 座標）。
-* **動態場景載入：**
-    * 可手動觸發（按 `R`）重新載入 `scene.txt`。
-    * 自動偵測 `scene.txt` 的變更並重新載入。
-* **其他控制：**
-    * 可切換地面網格的顯示。
-    * 可切換軌道是否循環。
+- **3D 環境渲染：** 使用 PyOpenGL 進行基本的 3D 場景渲染。
+- **電車物理模擬：**
+  - 包含加速度、煞車、自然摩擦力。
+  - 最高速度限制。
+  - 可沿預定軌道行駛。
+- **自訂軌道與場景：**
+  - 透過 `scene.txt` 文件定義軌道（直線、彎道）和場景物件。
+  - 支援軌道坡度。
+  - 可放置建築物（立方體）、圓柱體和樹木等靜態物件。
+  - 支援物件紋理貼圖（需放置於 `textures` 資料夾）。
+- **駕駛艙視角：**
+  - 提供第一人稱駕駛視角。
+  - 包含基本的儀表板顯示（速度表、操作桿）。
+- **視角控制：** 使用滑鼠自由調整視角（可鎖定/解鎖）。
+- **HUD 顯示：**
+  - 可選小地圖（顯示軌道、物件和電車位置/方向）。
+  - 小地圖可套圖（預設檔名 map.png，一個像素等於模擬世界一個單位（公尺））。
+  - 可選座標顯示（顯示電車在世界中的 X, Y, Z 座標）。
+- **動態場景載入：**
+  - 可手動觸發（按 `R`）重新載入 `scene.txt`。
+  - 自動偵測 `scene.txt` 的變更並重新載入。
+- **其他控制：**
+  - 可切換地面網格的顯示。
+  - 可切換軌道是否循環。
+
+---
+
+## ABOUT
+
+用 AI 協助 Python 程式設計的簡單電車模擬器。  
+A simple train simulator for Python, created with AI assistance.
+
+### 專案緣起
+
+這個專案其實沒有什麼遠大的目標，純粹是因為我想測試 AI 協助程式設計的流程，再加上我本身很喜歡模擬類遊戲，所以就誕生了這個 3D 電車模擬器。希望這個小作品能帶給同樣喜歡模擬遊戲或學習 Python 的朋友一些樂趣或啟發。
+
+---
+
+### About This Project
+
+This project doesn't have a grand vision—it's simply a result of my curiosity about how AI can assist in programming, combined with my love for simulation games. That's how this 3D train simulator came to life. I hope this little project brings some fun or inspiration to others who enjoy simulation games or are learning Python.
+
+---
 
 ## 系統需求
 
-* Python 3.x
-* Pygame
-* PyOpenGL
-* NumPy
+- Python 3.x
+- Pygame
+- PyOpenGL
+- NumPy
+- Numba
 
 ---
 
 ## 根目錄 Python 檔案簡要功能說明表
 
-| 檔案名稱              | 功能簡述                                               |
-|----------------------|--------------------------------------------------------|
-| main.py              | 主程式入口，負責初始化、主迴圈、整合各模組            |
-| renderer.py          | 3D 場景、物件、電車駕駛艙、HUD 等繪製                 |
-| tram.py              | 電車物理模擬與控制邏輯                                 |
-| track.py             | 軌道資料結構，直線/彎道/坡度計算與 OpenGL 頂點生成      |
-| scene_parser.py      | 解析 scene.txt，建立場景與物件，支援紋理載入           |
-| camera.py            | 攝影機/第一人稱視角控制與計算                         |
-| minimap_renderer.py  | 小地圖繪製、地圖圖層、座標轉換                         |
-| scene_editor.py      | PyQt5 GUI 場景編輯器，可視化修改 scene.txt             |
-| texture_loader.py    | 紋理圖片載入與 OpenGL 快取管理                         |
+| 檔案名稱             | 功能簡述                                              |
+|----------------------|------------------------------------------------------|
+| main.py              | 主程式入口，負責初始化、主迴圈、整合各模組           |
+| renderer.py          | 3D 場景、物件、電車駕駛艙、HUD 等繪製                |
+| tram.py              | 電車物理模擬與控制邏輯                                |
+| track.py             | 軌道資料結構，直線/彎道/坡度計算與 OpenGL 頂點生成     |
+| scene_parser.py      | 解析 scene.txt，建立場景與物件，支援紋理載入          |
+| camera.py            | 攝影機/第一人稱視角控制與計算                        |
+| minimap_renderer.py  | 小地圖繪製、地圖圖層、座標轉換                        |
+| scene_editor.py      | PyQt5 GUI 場景編輯器，可視化修改 scene.txt            |
+| texture_loader.py    | 紋理圖片載入與 OpenGL 快取管理                        |
 
 ---
 
@@ -133,93 +153,125 @@ pip install pygame PyOpenGL numpy
     python main.py
     ```
 
-## 操作控制
+## 操作控制說明
 
-*   **`W` / `↑` (向上箭頭):** 加速電車
-*   **`S` / `↓` (向下箭頭):** 煞車
-*   **`滑鼠滾輪向上/下`:** 微調增加/減少當前速度
-*   **`滑鼠移動`:** (當滑鼠解鎖時) 調整視角方向
-*   **`Tab`:** 切換滑鼠鎖定/解鎖狀態 (影響視角控制和滑鼠指標可見性)
-*   **`Esc`:** 退出模擬器
-*   **`G`:** 切換地面網格的顯示/隱藏
-*   **`L`:** 切換軌道循環模式 (到達終點後是否回到起點)
-*   **`R`:** 手動重新載入 `scene.txt` 檔案
-*   **`M`:** 切換小地圖的顯示/隱藏
-*   **`I`:** 切換左上角座標資訊的顯示/隱藏
-*   **`Page Up`:** 放大 (Zoom In) 小地圖
-*   **`Page Down`:** 縮小 (Zoom Out) 小地圖
+### 基本駕駛
+- **W / ↑（向上箭頭）**：加速電車
+- **S / ↓（向下箭頭）**：煞車
+- **滑鼠滾輪上下**：微調增加/減少當前速度
+
+### 視角與滑鼠
+- **滑鼠移動**（滑鼠鎖定時）：調整視角方向（第一人稱）
+- **Tab**：切換滑鼠鎖定/解鎖狀態（解鎖時滑鼠可自由移動指標，鎖定時控制視角）
+- **點擊滑鼠左鍵**（滑鼠未鎖定時）：立即鎖定滑鼠並進入第一人稱視角
+- **Esc**：退出模擬器
+
+### 顯示與功能切換
+- **G**：切換地面網格顯示/隱藏
+- **L**：切換軌道循環模式（到達終點是否自動回到起點）
+- **R**：手動重新載入 scene.txt 檔案
+- **M**：切換小地圖顯示/隱藏
+- **I**：切換左上角座標/資訊顯示
+- **C**：切換顯示駕駛室
+
+### 小地圖縮放
+- **Page Up**：放大（Zoom In）小地圖
+- **Page Down**：縮小（Zoom Out）小地圖
+
+---
+
+#### 備註
+- 滑鼠預設鎖定於視窗中，按 Tab 或左鍵可切換鎖定狀態。
+- 駕駛艙視角（C 鍵）僅於支援的場景有效。
+- 重新載入 scene.txt（R 鍵）可即時反映場景檔案的變更。
 
 ## scene.txt 檔案格式說明（最新版）
 
-每一行代表一個指令，空白行與 `#` 開頭為註解。主要支援以下指令：
+scene.txt 每一行代表一個指令，空白行與 `#` 開頭為註解。下方為完整格式與參數說明範例：
 
-### 1. map
-```
+```plain
+# scene.txt 指令格式說明
+
+# 1. 地圖底圖
 map <file> <cx> <cz> <scale>
-```
-- file: 地圖影像檔名
-- cx, cz: 影像中心對應的世界座標 (float)
-- scale: 世界單位/像素 (float, 必須為正)
+# 參數說明：
+#   <file>   ：底圖檔名（如 map.png）
+#   <cx>     ：地圖中心 X 座標
+#   <cz>     ：地圖中心 Z 座標
+#   <scale>  ：地圖縮放比例
 
-### 2. start
-```
+# 2. 軌道起點
 start <x> <y> <z> <angle°>
-```
-- x, y, z: 世界座標 (float)
-- angle°: 起始角度（度，float）
+# 參數說明：
+#   <x>      ：起點 X 座標
+#   <y>      ：起點 Y 座標
+#   <z>      ：起點 Z 座標
+#   <angle°> ：起始朝向角度（度，0=+Z方向，順時針）
 
-### 3. straight
-```
-straight <length> [grad‰]
-```
-- length: 長度 (float)
-- grad‰: 坡度（千分比，float, 選填，預設 0）
+# 3. 天空盒
+skybox <base_name>
+# 參數說明：
+#   <base_name> ：天空盒貼圖前綴（會自動尋找 *_ft.png, *_bk.png 等六面）
 
-### 4. curve
-```
-curve <radius> <angle°> [grad‰]
-```
-- radius: 半徑 (float)
-- angle°: 旋轉角度（度，float）
-- grad‰: 坡度（千分比，float, 選填，預設 0）
+# 4. 天空圓頂
+skydome <texture_file>
+# 參數說明：
+#   <texture_file> ：天空圓頂貼圖檔名
 
-### 5. building
-```
-building <rel_x> <rel_y> <rel_z> <rx°> <rel_ry°> <rz°> <w> <d> <h> [tex] [uOf] [vOf] [tAng°] [uvMd] [uSc] [vSc]
-```
-- rel_x, rel_y, rel_z: 物件座標。**物件座標的參考點規則如下：**
-    - 如果物件指令出現在第一個軌道指令（如 straight/curve）之前，則以世界原點 (0,0,0) 為參考點。
-    - 如果物件指令出現在某段軌道指令（如 straight/curve）之後，則以該段軌道的起點為參考點。
-- rx°, rel_ry°, rz°: 旋轉角度（度，float）
-- w, d, h: 寬、深、⾼ (float)
-- tex: 紋理檔名（string, 預設 "building.png"）
-- uOf, vOf: 紋理 U/V offset (float, 預設 0)
-- tAng°: 紋理旋轉角度 (float, 預設 0)
-- uvMd: 紋理模式 (int, 0 或 1，預設 1)
-- uSc, vSc: 紋理縮放（float，uvMd=0 時有效，預設 1.0）
+# 5. 直線軌道
+straight <length> [<grad‰>]
+# 參數說明：
+#   <length>  ：直線長度
+#   <grad‰>   ：坡度（千分比，預設 0，可省略）
 
-### 6. cylinder
-```
-cylinder <rel_x> <rel_y> <rel_z> <rx°> <rel_ry°> <rz°> <rad> <h> [tex] [uOf] [vOf] [tAng°] [uvMd] [uSc] [vSc]
-```
-- rel_x, rel_y, rel_z: 物件座標，參考點規則同 building
-- rx°, rel_ry°, rz°: 旋轉角度（度，float）
-- rad: 半徑 (float)
-- h: 高度 (float)
-- tex: 紋理檔名（string, 預設 "metal.png"）
-- uOf, vOf, tAng°, uvMd, uSc, vSc: 同 building
+# 6. 彎道軌道
+curve <radius> <angle°> [<grad‰>]
+# 參數說明：
+#   <radius>  ：彎道半徑
+#   <angle°>  ：彎道角度（度，正值左彎，負值右彎）
+#   <grad‰>   ：坡度（千分比，預設 0，可省略）
 
-### 7. tree
-```
+# 7. 建築物
+building <rel_x> <rel_y> <rel_z> <rx°> <rel_ry°> <rz°> <w> <d> <h> [<tex>] [<uOf>] [<vOf>] [<tAng°>] [<uvMd>] [<uSc>] [<vSc>]
+# 參數說明：
+#   <rel_x/y/z> ：相對座標（以當前起點為原點）
+#   <rx°>       ：X 軸旋轉角度
+#   <rel_ry°>   ：Y 軸旋轉角度（相對於軌道方向）
+#   <rz°>       ：Z 軸旋轉角度
+#   <w/d/h>     ：寬/深/高
+#   <tex>       ：貼圖檔名（可省略）
+#   <uOf/vOf>   ：UV 偏移量（可省略）
+#   <tAng°>     ：貼圖旋轉角度（可省略）
+#   <uvMd>      ：UV 模式（可省略）
+#   <uSc/vSc>   ：UV 縮放（可省略）
+
+# 8. 圓柱體
+cylinder <rel_x> <rel_y> <rel_z> <rx°> <rel_ry°> <rz°> <rad> <h> [<tex>] [<uOf>] [<vOf>] [<tAng°>] [<uvMd>] [<uSc>] [<vSc>]
+# 參數說明：
+#   <rel_x/y/z> ：相對座標
+#   <rx°>       ：X 軸旋轉角度
+#   <rel_ry°>   ：Y 軸旋轉角度（相對於軌道方向）
+#   <rz°>       ：Z 軸旋轉角度
+#   <rad>       ：半徑
+#   <h>         ：高度
+#   <tex>       ：貼圖檔名（可省略，其餘同 building）
+
+# 9. 樹木
 tree <rel_x> <rel_y> <rel_z> <height>
+# 參數說明：
+#   <rel_x/y/z> ：相對座標
+#   <height>    ：樹高
+
+# 備註：
+# - 所有 rel_x/y/z 皆為相對於目前「起點」或上一段軌道結束點的座標。
+# - 帶 [] 的參數代表可省略。
+# - 指令順序會影響物件擺放與軌道結構。
 ```
-- rel_x, rel_y, rel_z: 物件座標，參考點規則同 building
-- height: 樹高 (float)
 
 ---
 
 #### 範例
-```
+```plain
 map map.png 0 0 1.0
 start 0 0 0 0
 straight 100
@@ -238,6 +290,7 @@ tree 20 0 5 8
 * 程式會自動載入 `scene.txt` 中指定的紋理，或使用預設紋理。
 
 ---
+
 
 
 
