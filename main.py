@@ -33,8 +33,11 @@ SCENE_CHECK_INTERVAL = 2.0 # Seconds for checking scene.txt updates
 # --- Global Font (Keep) ---
 hud_font = None
 
+# --- NEW: Global for active background ---
+active_background_info = None
+
 def main():
-    global hud_font
+    global hud_font, active_background_info # <--- Add active_background_info
 
     # --- Pygame Initialization (Keep) ---
     pygame.init()
@@ -53,54 +56,55 @@ def main():
         hud_font = None
 
     # --- Initialize Dependencies (Keep) ---
-    # Set loaders/modules BEFORE loading scene or initializing renderers
     scene_parser.set_texture_loader(texture_loader)
-    # scene_parser.set_renderer_module(renderer) # No longer needed
     renderer.init_renderer() # Initialize main 3D renderer states and common textures
 
-    # Pass font to main renderer (for coordinates) and minimap renderer (for labels)
+    # Pass font to main renderer and minimap renderer
     if hud_font:
-        renderer.set_hud_font(hud_font) # Main renderer still uses it
-        minimap_renderer.set_grid_label_font(renderer.grid_label_font) # Pass the created grid font
+        renderer.set_hud_font(hud_font)
+        # Pass the created grid/coord font from renderer to minimap_renderer
+        if renderer.grid_label_font:
+            minimap_renderer.set_grid_label_font(renderer.grid_label_font)
+        if renderer.coord_label_font:
+            minimap_renderer.set_coord_label_font(renderer.coord_label_font)
     else:
-        print("警告: HUD 字體未載入，坐標和網格標籤顯示將不可用。")
+        print("警告: HUD 字體未載入，部分 UI 顯示將不可用。")
 
     # --- Load Initial Scene and Perform Post-Load Steps ---
     scene = None
     if scene_parser.load_scene(force_reload=True): # Initial load
         scene = scene_parser.get_current_scene()
-        if scene and scene.track:
-            print("初始場景載入成功，創建軌道緩衝區...")
-            scene.track.create_all_segment_buffers() # Create VBOs for the loaded track
-        # *** NEW: Bake minimap AFTER successful scene load and track buffer creation ***
-        minimap_renderer.bake_static_map_elements(scene)
-        print("初始小地圖已烘焙。")
+        if scene:
+            # --- NEW: Set initial background ---
+            active_background_info = scene.initial_background_info
+            print(f"初始背景設定為: {active_background_info}")
+
+            if scene.track:
+                print("初始場景載入成功，創建軌道緩衝區...")
+                scene.track.create_all_segment_buffers() # Create VBOs for the loaded track
+
+            # Bake minimap AFTER successful scene load and track buffer creation
+            minimap_renderer.bake_static_map_elements(scene)
+            print("初始小地圖已烘焙。")
     else:
         print("初始場景載入失敗，請檢查 scene.txt。場景將為空。")
         scene = scene_parser.get_current_scene() # Get the (likely empty) scene
-        # Bake empty scene? Or handle None scene in bake function?
+        active_background_info = None # No background if scene failed
         minimap_renderer.bake_static_map_elements(scene) # Bake with empty scene data
 
 
     # --- Create Objects (Keep tram/camera creation) ---
-    # Pass track reference, could be None if initial load failed
     tram_instance = Tram(scene.track if scene else None)
-    # Set initial tram position/orientation based on parsed scene data (KEEP LOGIC)
     if scene: # Check if scene loaded successfully
         tram_instance.position = np.copy(scene.start_position)
         start_angle_rad = math.radians(scene.start_angle_deg)
-        tram_instance.forward_vector_xz = (math.cos(start_angle_rad), math.sin(start_angle_rad)) # Ensure correct calculation for angle from +X
-        # Tram distance is updated automatically in its update based on position
-        # Need to ensure the tram starts *exactly* at the calculated start position
-        # which should correspond to distance 0 if start pos matches track start.
+        tram_instance.forward_vector_xz = (math.cos(start_angle_rad), math.sin(start_angle_rad))
         tram_instance.distance_on_track = 0.0 # Reset distance explicitly
         print(f"Tram initial pos: {tram_instance.position}, angle: {scene.start_angle_deg} deg, forward: {tram_instance.forward_vector_xz}")
     else:
-        # Default position if scene failed to load
         tram_instance.position = np.array([0.0, 0.0, 0.0])
         tram_instance.forward_vector_xz = (1.0, 0.0) # Default forward +X
         tram_instance.distance_on_track = 0.0
-
 
     camera_instance = Camera()
 
@@ -108,11 +112,11 @@ def main():
     running = True
     clock = pygame.time.Clock()
     last_scene_check_time = time.time()
-    show_ground_flag = True # Default ground to visible
+    show_ground_flag = False # Default ground to not visible
     show_minimap = True
-    show_hud_info = False   # <-- Optional: Rename flag for clarity
+    show_hud_info = False
     show_cab = True
-    
+
     # --- Main Loop ---
     while running:
         dt = clock.tick(TARGET_FPS) / 1000.0
@@ -141,24 +145,26 @@ def main():
                     pygame.event.set_grab(lock_state)
                 elif event.key == pygame.K_r:
                      print("手動觸發場景重新載入...")
-                     # Reload scene data
-                     if scene_parser.load_scene(force_reload=True):
+                     if scene_parser.load_scene(force_reload=True): # Reload scene data
                          scene = scene_parser.get_current_scene()
-                         # Create track buffers for the NEW scene
+                         # --- NEW: Update active background after reload ---
+                         active_background_info = scene.initial_background_info if scene else None
+                         print(f"手動重載後背景設定為: {active_background_info}")
+
                          if scene and scene.track:
                              print("手動重載成功，創建軌道緩衝區...")
                              scene.track.create_all_segment_buffers()
-                         # *** NEW: Bake minimap for the NEW scene ***
                          minimap_renderer.bake_static_map_elements(scene)
                          print("手動重載後小地圖已烘焙。")
 
                          # Reset tram based on NEW scene data
                          tram_instance.track = scene.track if scene else None
                          if scene:
-                              tram_instance.position = np.copy(scene.start_position)
-                              start_angle_rad = math.radians(scene.start_angle_deg)
-                              tram_instance.forward_vector_xz = (math.cos(start_angle_rad), math.sin(start_angle_rad))
-                              tram_instance.distance_on_track = 0.0 # Reset distance
+                             # 場景重載後不要重置
+#                               tram_instance.position = np.copy(scene.start_position)
+#                               start_angle_rad = math.radians(scene.start_angle_deg)
+#                               tram_instance.forward_vector_xz = (math.cos(start_angle_rad), math.sin(start_angle_rad))
+#                               tram_instance.distance_on_track = 0.0 # Reset distance
                               tram_instance.current_speed = 0.0 # Reset speed
                          else: # Reset to default if reload somehow resulted in empty scene
                               tram_instance.position = np.array([0.0, 0.0, 0.0])
@@ -169,92 +175,96 @@ def main():
                          print("場景已手動重新載入並重設電車。")
                      else:
                          print("手動重新載入失敗。")
-                         # scene might be empty now if load failed
-                         scene = scene_parser.get_current_scene()
+                         scene = scene_parser.get_current_scene() # Get potentially empty scene
+                         # --- NEW: Reset background on failed reload too ---
+                         active_background_info = scene.initial_background_info if scene else None
                          tram_instance.track = scene.track if scene else None
-                         # Bake minimap even if reload failed (will bake empty state)
                          minimap_renderer.bake_static_map_elements(scene)
 
-                elif event.key == pygame.K_c:
-                    show_cab = not show_cab
-                elif event.key == pygame.K_m:
-                    show_minimap = not show_minimap
-                    print(f"小地圖: {'開啟' if show_minimap else '關閉'}")
-                elif event.key == pygame.K_i:
-                    show_hud_info = not show_hud_info        # <-- Use new name
-                    print(f"資訊顯示: {'開啟' if show_hud_info else '關閉'}")       # <-- Updated message
-                elif event.key == pygame.K_PAGEUP:
-                    # *** MODIFIED: Call minimap zoom function ***
-                    minimap_renderer.zoom_simulator_minimap(1 / minimap_renderer.MINIMAP_ZOOM_FACTOR) # Zoom In
-                elif event.key == pygame.K_PAGEDOWN:
-                    # *** MODIFIED: Call minimap zoom function ***
-                    minimap_renderer.zoom_simulator_minimap(minimap_renderer.MINIMAP_ZOOM_FACTOR)    # Zoom Out
+                elif event.key == pygame.K_c: show_cab = not show_cab
+                elif event.key == pygame.K_m: show_minimap = not show_minimap; print(f"小地圖: {'開啟' if show_minimap else '關閉'}")
+                elif event.key == pygame.K_i: show_hud_info = not show_hud_info; print(f"資訊顯示: {'開啟' if show_hud_info else '關閉'}")
+                elif event.key == pygame.K_PAGEUP: minimap_renderer.zoom_simulator_minimap(1 / minimap_renderer.MINIMAP_ZOOM_FACTOR)
+                elif event.key == pygame.K_PAGEDOWN: minimap_renderer.zoom_simulator_minimap(minimap_renderer.MINIMAP_ZOOM_FACTOR)
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                 if not camera_instance.mouse_locked and event.button == 1: # Left click
-                     camera_instance.set_mouse_lock(True)
-                     pygame.mouse.set_visible(False)
-                     pygame.event.set_grab(True)
-
-            elif event.type == pygame.MOUSEWHEEL:
-                tram_instance.adjust_speed(event.y) # Keep tram speed adjust
-
+                 if not camera_instance.mouse_locked and event.button == 1:
+                     camera_instance.set_mouse_lock(True); pygame.mouse.set_visible(False); pygame.event.set_grab(True)
+            elif event.type == pygame.MOUSEWHEEL: tram_instance.adjust_speed(event.y)
             elif event.type == pygame.MOUSEMOTION:
-                if camera_instance.mouse_locked:
-                    dx, dy = event.rel
-                    camera_instance.update_angles(dx, dy)
+                if camera_instance.mouse_locked: dx, dy = event.rel; camera_instance.update_angles(dx, dy)
 
         # --- Keyboard Hold Handling (Keep) ---
         keys = pygame.key.get_pressed()
         if camera_instance.mouse_locked:
-            if keys[K_w] or keys[K_UP]:
-                tram_instance.accelerate()
-            if keys[K_s] or keys[K_DOWN]:
-                tram_instance.brake()
+            if keys[K_w] or keys[K_UP]: tram_instance.accelerate()
+            if keys[K_s] or keys[K_DOWN]: tram_instance.brake()
 
-        # --- Game Logic Update (Keep) ---
+        # --- Game Logic Update ---
         tram_instance.update(dt)
-        # Update camera based on tram state (Keep logic)
         camera_instance.update_position_orientation(tram_instance.position, tram_instance.forward_vector_xz)
+
+        # --- NEW: Update Active Background based on Tram Distance ---
+        if scene and scene.background_triggers:
+            current_dist = tram_instance.distance_on_track
+            found_info = scene.initial_background_info # Start with initial/default
+            # Iterate through sorted triggers
+            for trigger_dist, bg_info in scene.background_triggers: # Assumes sorted
+                if current_dist >= trigger_dist:
+                    found_info = bg_info # Update to the latest one we've passed
+                else:
+                    break # No need to check further triggers
+            # Only update if the found info is different from the active one
+            if found_info != active_background_info:
+                 print(f"里程 {current_dist:.2f} 觸發背景變更為: {found_info}")
+                 active_background_info = found_info
+
 
         # --- Periodic Scene File Check ---
         current_time = time.time()
         if current_time - last_scene_check_time > SCENE_CHECK_INTERVAL:
             if scene_parser.load_scene(): # load_scene returns True if reloaded
                 scene = scene_parser.get_current_scene()
-                # *** Perform post-load steps for the NEW scene ***
+                # --- NEW: Update active background on auto-reload ---
+                active_background_info = scene.initial_background_info if scene else None
+                print(f"自動重載後背景設定為: {active_background_info}")
+
                 if scene and scene.track:
                     print("自動重載成功，創建軌道緩衝區...")
                     scene.track.create_all_segment_buffers()
-                # *** Bake minimap for the NEW scene ***
                 minimap_renderer.bake_static_map_elements(scene)
                 print("自動重載後小地圖已烘焙。")
-
-                # Update tram track reference
-                tram_instance.track = scene.track if scene else None
-                # Optionally reset tram position on auto-reload? Current code doesn't.
+                tram_instance.track = scene.track if scene else None # Update tram's track reference
+                # Optionally reset tram position? Current code doesn't.
                 print("場景自動重新載入完成。")
             last_scene_check_time = current_time
 
 
         # --- OpenGL Rendering ---
-        # Clear buffers (Keep)
-        glClearColor(0.5, 0.7, 1.0, 1.0) # Sky blue background
+        # Clear buffers (Set clear color *before* drawing background)
+        glClearColor(0.5, 0.7, 1.0, 1.0) # Default Sky blue
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        # Set 3D Projection (Keep)
+        # Set 3D Projection
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
-        # Use GROUND_SIZE from renderer, ensure it's accessible or define here
-        far_clip = renderer.GROUND_SIZE * 2 if hasattr(renderer, 'GROUND_SIZE') else 500.0
+        far_clip = renderer.GROUND_SIZE * 4 if hasattr(renderer, 'GROUND_SIZE') else 1000.0 # Use larger far clip for background
         gluPerspective(45, (SCREEN_WIDTH / SCREEN_HEIGHT), 0.1, far_clip)
 
-        # Set ModelView Matrix (Keep)
+        # Set ModelView Matrix
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
 
-        # Apply Camera View (Keep)
+        # Apply Camera View (Get camera position *before* applying lookat)
+#         camera_pos_for_background = camera_instance.base_position # Use base position for background translation
         camera_instance.apply_view()
+
+        # --- Draw Background (Skybox/Skydome) FIRST ---
+        if active_background_info:
+            renderer.draw_background(active_background_info, camera_instance, tram_instance)
+            # Potentially force depth clear after background if using glDisable(GL_DEPTH_TEST)
+            # glClear(GL_DEPTH_BUFFER_BIT) # Uncomment if background uses disable depth test
+
 
         # --- Draw 3D Scene (Keep) ---
         renderer.draw_ground(show_ground_flag)
@@ -265,37 +275,42 @@ def main():
 
         # --- Draw Tram Cab (Keep) ---
         if show_cab:
+            # Ensure correct depth testing for the cab
+            glEnable(GL_DEPTH_TEST) # Make sure depth test is on for cab
             renderer.draw_tram_cab(tram_instance, camera_instance)
 
         # --- Draw HUD ---
-        # *** MODIFIED: Call minimap renderer's draw function ***
         if show_minimap:
             minimap_renderer.draw_simulator_minimap(scene, tram_instance, SCREEN_WIDTH, SCREEN_HEIGHT)
-
-        # Draw Coordinates (Keep)
-        if show_hud_info and hud_font:    # <-- Check new flag name
-            renderer.draw_info(tram_instance, SCREEN_WIDTH, SCREEN_HEIGHT) # <-- MODIFIED CALL
-
+        if show_hud_info and hud_font:
+            renderer.draw_info(tram_instance, SCREEN_WIDTH, SCREEN_HEIGHT)
 
         # --- Swap Buffers (Keep) ---
         pygame.display.flip()
 
     # --- Cleanup ---
     print("正在退出...")
-    # Clean up track buffers from the last loaded scene
     if scene and scene.track:
          scene.track.clear()
-    # *** NEW: Clean up minimap renderer resources ***
     minimap_renderer.cleanup_minimap_renderer()
-    # Texture cache is cleaned by scene_parser on load, but maybe clear once more?
-    # texture_loader.clear_texture_cache() # Already done in load_scene
+    # Texture cache cleanup is handled by scene_parser.load_scene,
+    # but maybe one final clear is good practice?
+    if texture_loader:
+         texture_loader.clear_texture_cache()
+         # Clear skybox cache too
+         if hasattr(renderer, 'skybox_texture_cache'):
+             for tex_id in renderer.skybox_texture_cache.values():
+                 try:
+                     if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
+                 except: pass # Ignore errors during cleanup
+             renderer.skybox_texture_cache.clear()
+             print("Skybox 紋理快取已清除。")
 
     # Keep profiler cleanup if used
     # print("profiler,disable()")
     # profiler.disable()
     # stats = pstats.Stats(profiler).sort_stats('cumulative')
-    # stats.print_stats(20)
-    # stats.dump_stats('profile_results.prof')
+    # stats.print_stats(20); stats.dump_stats('profile_results.prof')
 
     pygame.font.quit()
     pygame.quit()

@@ -4,7 +4,7 @@ import numpy as math
 import numpy as np
 from OpenGL.GL import * # 需要引入 OpenGL 函數
 
-INTERPOLATION_STEPS = 4 # 每單位角度或長度的內插步數 (影響平滑度和效能)
+INTERPOLATION_STEPS = 5 # 每單位角度或長度的內插步數 (影響平滑度和效能)
 TRACK_WIDTH = 1.5       # 軌道寬度
 BALLAST_WIDTH = 2.5     # 道碴寬度
 BALLAST_HEIGHT = 0.1    # 道碴高度
