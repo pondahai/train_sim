@@ -2,15 +2,19 @@
 import sys
 import os
 import time # 用於計算 dt
+# --- 新增：導入剪貼簿 ---
+from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QSplitter,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
     QVBoxLayout, QSizePolicy, QMenuBar, QAction, QMessageBox, QStatusBar,
     QDockWidget # 用於可停靠視窗
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QTimer # QTimer 用於預覽更新
+# --- 新增：導入 KeySequence ---
+from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QTimer, QStandardPaths # QTimer 用於預覽更新
 from PyQt5.QtOpenGL import QGLWidget
-from PyQt5.QtGui import QFont, QFontMetrics, QCursor # QCursor 用於滑鼠鎖定
+# --- 新增：導入 Clipboard 和 KeySequence ---
+from PyQt5.QtGui import QFont, QFontMetrics, QCursor, QKeySequence, QClipboard # QCursor 用於滑鼠鎖定
 from OpenGL.GL import *
 from OpenGL.GLU import *
 import pygame
@@ -438,7 +442,9 @@ class SceneTableWidget(QTableWidget):
         self._filepath = SCENE_FILE
         self._command_hints = scene_parser.COMMAND_HINTS
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        # --- 修改：啟用擴展選擇模式 ---
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        # ---------------------------
         self.verticalHeader().setVisible(True)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         # Connections
@@ -509,10 +515,19 @@ class SceneTableWidget(QTableWidget):
                     self.setVerticalHeaderItem(row, QTableWidgetItem(str(row + 1)))
                     parts = line.strip().split()
                     for col, part in enumerate(parts):
-                        self.setItem(row, col, QTableWidgetItem(part))
+                        # --- 假設這裡的 item 已經是可編輯的 (根據你的確認) ---
+                        item = QTableWidgetItem(part)
+                        # 如果需要，在這裡添加 flags 設定
+                        # flags = item.flags() | Qt.ItemIsEditable
+                        # item.setFlags(flags)
+                        self.setItem(row, col, item)
                     # Fill remaining cells in the row with empty items
                     for col in range(len(parts), max_cols):
-                        self.setItem(row, col, QTableWidgetItem(""))
+                        # --- 假設這裡的 item 也已經是可編輯的 ---
+                        item = QTableWidgetItem("")
+                        # flags = item.flags() | Qt.ItemIsEditable
+                        # item.setFlags(flags)
+                        self.setItem(row, col, item)
             finally:
                 self.blockSignals(False)
 
@@ -577,42 +592,163 @@ class SceneTableWidget(QTableWidget):
                 return False # Found non-empty cell
         return True # All cells are empty or whitespace
 
+    # --- 新增：重新編號垂直表頭 ---
+    def renumber_vertical_headers(self):
+        """Updates the vertical header numbers after row insertion/deletion."""
+        for r in range(self.rowCount()):
+            self.setVerticalHeaderItem(r, QTableWidgetItem(str(r + 1)))
+    # -----------------------------
+
+    # --- 新增：複製選中行 ---
+    def copy_selected_rows(self):
+        """Copies the content of selected rows to the clipboard."""
+        selected_indexes = self.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+
+        # Sort selected rows by index
+        rows_to_copy = sorted([index.row() for index in selected_indexes])
+
+        clipboard_text = ""
+        for row in rows_to_copy:
+            row_data = []
+            for col in range(self.columnCount()):
+                item = self.item(row, col)
+                row_data.append(item.text() if item else "")
+            # Join columns with Tab, add newline for next row
+            clipboard_text += "\t".join(row_data) + "\n"
+
+        if clipboard_text:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(clipboard_text)
+            # print(f"Copied {len(rows_to_copy)} rows to clipboard.") # Debug
+    # ------------------------
+
+    # --- 新增：貼上行 (插入模式) ---
+    def paste_rows(self):
+        """Pastes rows from the clipboard, inserting them below the current selection."""
+        clipboard = QApplication.clipboard()
+        clipboard_text = clipboard.text()
+        if not clipboard_text:
+            return
+
+        # Determine insertion point
+        current_row = self.currentRow() # Gets the row of the cell with focus
+        selected_indexes = self.selectionModel().selectedRows()
+
+        insert_row_index = -1
+        if selected_indexes:
+             # Insert below the last selected row
+             insert_row_index = max(index.row() for index in selected_indexes) + 1
+        elif current_row >= 0:
+             # Insert below the current row if no full rows are selected
+             insert_row_index = current_row + 1
+        else:
+             # Insert at the end if nothing is selected
+             insert_row_index = self.rowCount()
+
+        # Parse clipboard text into rows and columns
+        lines = clipboard_text.strip('\n').split('\n')
+        pasted_data = [line.split('\t') for line in lines]
+
+        if not pasted_data:
+            return
+
+        self.blockSignals(True) # Block signals during paste
+        try:
+            col_count = self.columnCount()
+            num_pasted = 0
+            for i, row_parts in enumerate(pasted_data):
+                actual_insert_pos = insert_row_index + i
+                self.insertRow(actual_insert_pos)
+                for col, part in enumerate(row_parts):
+                    if col < col_count: # Only paste up to the table's column count
+                        item = QTableWidgetItem(part)
+                        # --- 確保貼上的 Item 也是可編輯的 ---
+                        # 假設原始的可編輯性是期望的，如果需要強制，則取消註解
+                        # flags = item.flags() | Qt.ItemIsEditable
+                        # item.setFlags(flags)
+                        # ---------------------------------
+                        self.setItem(actual_insert_pos, col, item)
+                # Fill remaining cells if pasted data has fewer columns
+                for col in range(len(row_parts), col_count):
+                     item = QTableWidgetItem("")
+                     # flags = item.flags() | Qt.ItemIsEditable
+                     # item.setFlags(flags)
+                     self.setItem(actual_insert_pos, col, item)
+                num_pasted += 1
+        finally:
+            self.blockSignals(False)
+
+        if num_pasted > 0:
+            self.renumber_vertical_headers() # Update row numbers
+            self._data_modified = True
+            self.sceneDataChanged.emit() # Trigger preview update after paste
+            # print(f"Pasted {num_pasted} rows at index {insert_row_index}.") # Debug
+            # Optionally, select the newly pasted rows
+            self.clearSelection()
+            selection_range = QtWidgets.QTableWidgetSelectionRange(insert_row_index, 0, insert_row_index + num_pasted - 1, self.columnCount() - 1)
+            self.setRangeSelected(selection_range, True)
+            item_to_scroll = self.item(insert_row_index, 0)
+            if item_to_scroll:
+                self.scrollToItem(item_to_scroll, QAbstractItemView.PositionAtCenter)
+    # --------------------------
+
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
 
-        if key in (Qt.Key_Return, Qt.Key_Enter) and not modifiers: # Enter/Return without modifiers
+        # --- 修改：處理複製、貼上、刪除 ---
+        if event.matches(QKeySequence.Copy):
+            self.copy_selected_rows()
+            event.accept()
+            return
+        elif event.matches(QKeySequence.Paste):
+            self.paste_rows()
+            event.accept()
+            return
+        elif key in (Qt.Key_Return, Qt.Key_Enter) and not modifiers: # Enter/Return without modifiers
             current_row = self.currentRow()
             if current_row >= 0:
                 self.insertRow(current_row + 1)
-                # Renumber vertical headers
-                for r in range(current_row + 1, self.rowCount()):
-                    self.setVerticalHeaderItem(r, QTableWidgetItem(str(r + 1)))
+                self.renumber_vertical_headers() # 更新行號
                 self.setCurrentCell(current_row + 1, 0) # Move cursor to new row
                 self._data_modified = True
-                self.sceneDataChanged.emit() # Notify change
+                self.sceneDataChanged.emit() # Trigger preview update
                 event.accept()
                 return
         elif key == Qt.Key_Delete and not modifiers: # Delete without modifiers
             selected_ranges = self.selectedRanges()
-            # Check if exactly one row is selected
-            if len(selected_ranges) == 1:
-                selection_range = selected_ranges[0]
-                if selection_range.leftColumn() == 0 and \
-                   selection_range.rightColumn() == self.columnCount() - 1 and \
-                   selection_range.rowCount() == 1:
-                    row_to_delete = selection_range.topRow()
-                    # Only delete if the row is completely empty
-                    if self.is_row_empty(row_to_delete):
-                        self.removeRow(row_to_delete)
-                        # Renumber vertical headers
-                        for r in range(row_to_delete, self.rowCount()):
-                            self.setVerticalHeaderItem(r, QTableWidgetItem(str(r + 1)))
-                        self._data_modified = True
-                        self.sceneDataChanged.emit() # Notify change
-                        # print(f"Deleted empty row {row_to_delete + 1}")
-                        event.accept()
-                        return
+            rows_to_delete = set()
+            # Check if whole rows are selected
+            for r in selected_ranges:
+                if r.leftColumn() == 0 and r.rightColumn() == self.columnCount() - 1:
+                    for i in range(r.topRow(), r.bottomRow() + 1):
+                        rows_to_delete.add(i)
+
+            if rows_to_delete:
+                # Sort rows in descending order to delete from bottom up
+                sorted_rows = sorted(list(rows_to_delete), reverse=True)
+                self.blockSignals(True)
+                try:
+                    num_deleted = 0
+                    for row_index in sorted_rows:
+                        # Check if the row is completely empty before deleting (optional check)
+                        # if self.is_row_empty(row_index):
+                        self.removeRow(row_index)
+                        num_deleted += 1
+                finally:
+                    self.blockSignals(False)
+
+                if num_deleted > 0:
+                    self.renumber_vertical_headers() # Update row numbers
+                    self._data_modified = True
+                    self.sceneDataChanged.emit() # Trigger preview update after delete
+                    # print(f"Deleted {num_deleted} rows.") # Debug
+                event.accept()
+                return
+        # ------------------------------------
+
         # Let the base class handle other key presses (like navigation)
         super().keyPressEvent(event)
 
@@ -657,7 +793,7 @@ class SceneTableWidget(QTableWidget):
         # Mark data as modified and flag that an update is needed
         # The actual sceneDataChanged signal is emitted when the row changes (_on_current_cell_changed)
         self._data_modified = True
-        self.needUpdate = True
+        self.needUpdate = True # Mark that an update *should* happen when row changes
 
 # --- Main Editor Window ---
 class SceneEditorWindow(QMainWindow):
@@ -670,10 +806,13 @@ class SceneEditorWindow(QMainWindow):
         pygame.init()
         pygame.font.init()
         try:
-            pygame.display.set_mode((64, 64), pygame.OPENGL | pygame.DOUBLEBUF, vsync=0)
-            pygame.display.set_caption("Pygame Helper (Editor)")
+            # --- 修改：移除 pygame.display 設定，以避免潛在衝突 ---
+#             pygame.display.set_mode((64, 64), pygame.OPENGL | pygame.DOUBLEBUF, vsync=0)
+#             pygame.display.set_caption("Pygame Helper (Editor)")
+            print("Pygame font/mixer initialized for editor (no display mode set).")
+            # -------------------------------------------------
         except pygame.error as e:
-            print(f"Warning: Could not set Pygame display mode: {e}")
+            print(f"Warning: Could not initialize Pygame subsystems: {e}")
         scene_parser.set_texture_loader(texture_loader) # Pass loader to parser
 
         # Font setup
@@ -753,13 +892,13 @@ class SceneEditorWindow(QMainWindow):
         # File Menu
         file_menu = menubar.addMenu('&File')
         save_action = QAction('&Save', self)
-        save_action.setShortcut('Ctrl+S')
+        save_action.setShortcut(QKeySequence.Save) # Use standard shortcut
         save_action.setStatusTip('Save scene file')
         save_action.triggered.connect(self.save_scene_file)
         file_menu.addAction(save_action)
 
         reload_action = QAction('&Reload', self)
-        reload_action.setShortcut('Ctrl+R')
+        reload_action.setShortcut(QKeySequence.Refresh) # Use standard shortcut (F5 or Ctrl+R)
         reload_action.setStatusTip('Reload scene file from disk')
         reload_action.triggered.connect(self.ask_reload_scene)
         file_menu.addAction(reload_action)
@@ -767,10 +906,25 @@ class SceneEditorWindow(QMainWindow):
         file_menu.addSeparator()
 
         exit_action = QAction('&Exit', self)
-        exit_action.setShortcut('Ctrl+Q')
+        exit_action.setShortcut(QKeySequence.Quit) # Use standard shortcut (Ctrl+Q)
         exit_action.setStatusTip('Exit application')
         exit_action.triggered.connect(self.close) # Connect to QMainWindow.close
         file_menu.addAction(exit_action)
+
+        # --- 新增：Edit Menu (用於複製貼上) ---
+        edit_menu = menubar.addMenu('&Edit')
+        copy_action = QAction('&Copy Rows', self)
+        copy_action.setShortcut(QKeySequence.Copy)
+        copy_action.setStatusTip('Copy selected rows')
+        copy_action.triggered.connect(self.table_widget.copy_selected_rows) # Connect to table method
+        edit_menu.addAction(copy_action)
+
+        paste_action = QAction('&Paste Rows (Insert)', self)
+        paste_action.setShortcut(QKeySequence.Paste)
+        paste_action.setStatusTip('Paste rows from clipboard, inserting below selection')
+        paste_action.triggered.connect(self.table_widget.paste_rows) # Connect to table method
+        edit_menu.addAction(paste_action)
+        # ------------------------------------
 
         # View Menu (for toggling docks)
         view_menu = menubar.addMenu('&View')
@@ -897,6 +1051,11 @@ class SceneEditorWindow(QMainWindow):
             # 為新解析的場景創建軌道渲染所需的緩衝區
             if parsed_scene and parsed_scene.track:
                 try:
+                    # --- 清理舊軌道緩衝區 (如果存在) ---
+                    # 雖然 track.clear() 會做，但在創建前明確調用一次更安全
+                    # (假設 clear 會正確處理 VBO/VAO ID)
+                    # parsed_scene.track.clear() # 可能導致重複清理，暫時註釋
+                    # ------------------------------------
                     parsed_scene.track.create_all_segment_buffers()
                 except Exception as e:
                     print(f"  Error creating track buffers for preview: {e}")
@@ -904,6 +1063,7 @@ class SceneEditorWindow(QMainWindow):
             self.preview_widget.update_scene(parsed_scene, background_info_for_preview)
         except Exception as e:
             print(f"Error updating 3D preview widget: {e}")
+
 
     def ask_reload_scene(self):
         if self.table_widget.is_modified():
@@ -952,8 +1112,12 @@ class SceneEditorWindow(QMainWindow):
         if hasattr(renderer, 'skybox_texture_cache'):
              for tex_id in renderer.skybox_texture_cache.values():
                  try:
-                     if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
-                 except Exception as cleanup_error: print(f"Error cleaning up skybox texture {tex_id}: {cleanup_error}")
+                     # --- 修復：glIsTexture 可能在上下文丟失後出錯 ---
+                     # if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
+                     # 直接嘗試刪除，忽略可能的錯誤
+                     glDeleteTextures(1, [tex_id])
+                     # ------------------------------------------------
+                 except Exception as cleanup_error: print(f"Warn: Error cleaning up skybox texture {tex_id}: {cleanup_error}")
              renderer.skybox_texture_cache.clear()
              print("Skybox texture cache cleared.")
 
@@ -961,8 +1125,10 @@ class SceneEditorWindow(QMainWindow):
         # Quit Pygame subsystems if initialized
         if pygame.font.get_init():
             pygame.font.quit()
+        # --- 移除 pygame.display.quit()，因為我們沒有初始化顯示 ---
         if pygame.display.get_init():
             pygame.display.quit()
+        # -------------------------------------------------
         # pygame.quit() # Call this last if needed, might interfere with Qt event loop if called too early
 
         print("Editor cleanup complete.")
@@ -993,7 +1159,11 @@ if __name__ == '__main__':
     exit_code = app.exec_()
 
     # Optional: Final pygame quit after Qt loop finishes
+    # --- 修改：只退出已初始化的部分 ---
     if pygame.get_init():
         pygame.quit()
+    if pygame.font.get_init():
+        pygame.font.quit()
+    # ----------------------------------
 
     sys.exit(exit_code)

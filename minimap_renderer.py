@@ -5,6 +5,9 @@ from OpenGL.GLU import *
 import numpy as np
 import numpy as math # Keep consistent
 import os
+# --- 新增：導入 Pillow ---
+from PIL import Image
+# ------------------------
 
 # --- Import shared modules/constants ---
 from scene_parser import Scene
@@ -561,16 +564,59 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             filepath = os.path.join("textures", scene.map_filename)
             if os.path.exists(filepath):
                 try:
-                    surface = pygame.image.load(filepath).convert_alpha()
-                    texture_data = pygame.image.tostring(surface, "RGBA", True)
-                    editor_bg_width_px = surface.get_width()
-                    editor_bg_height_px = surface.get_height()
+                    # --- 使用 Pillow 載入圖像 ---
+                    print(f"嘗試使用 Pillow 載入圖像: {filepath}") # Debug
+                    img = Image.open(filepath)
+                    # 確保圖像為 RGBA 格式 (如果不是，轉換它)
+                    if img.mode != 'RGBA':
+                        print(f"圖像模式為 {img.mode}，轉換為 RGBA...") # Debug
+                        img = img.convert('RGBA')
+                    # 獲取圖像數據
+                    texture_data = img.tobytes("raw", "RGBA", 0, -1) # OpenGL 通常需要 Y 軸倒置的數據
+                    editor_bg_width_px, editor_bg_height_px = img.size
+                    print(f"Pillow 載入成功: 尺寸={img.size}, 模式={img.mode}") # Debug
+                    # -----------------------------
+#                     print(f"嘗試載入 Pygame Surface: {filepath}") # Debug
+#                     surface = pygame.image.load(filepath).convert_alpha()
+#                     print(f"Surface 載入成功: 尺寸={surface.get_size()}, 格式={pygame.PixelFormat(surface.get_bitsize(), surface.get_masks()).format}") # Debug
+#                     print("嘗試轉換 Surface 為 RGBA 字串...") # Debug
+#                     texture_data = pygame.image.tostring(surface, "RGBA", True)
+#                     print(f"字串轉換成功: 長度={len(texture_data)}") # Debug
+#                     editor_bg_width_px = surface.get_width()
+#                     editor_bg_height_px = surface.get_height()
+                    
                     if editor_bg_width_px > 0 and editor_bg_height_px > 0:
                          editor_bg_texture_id = glGenTextures(1)
                          glBindTexture(GL_TEXTURE_2D, editor_bg_texture_id)
-                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+
+                         # --- 新增：檢查載入前的錯誤 ---
+                         error_before = glGetError()
+                         if error_before != GL_NO_ERROR:
+                             print(f"警告: glTexImage2D 之前存在 OpenGL 錯誤: {gluErrorString(error_before)}")
+                         # ---------------------------
+
+                         # --- 新增：設定像素解包對齊方式 ---
+                         # 有些圖片的行寬不是4字節的倍數，可能導致問題，設為1最安全
+                         glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+                         # ---------------------------------
+
                          glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, editor_bg_width_px, editor_bg_height_px, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
+
+                         # --- 新增：檢查載入後的錯誤 ---
+                         error_after = glGetError()
+                         if error_after != GL_NO_ERROR:
+                             print(f"錯誤: glTexImage2D 執行時發生 OpenGL 錯誤: {gluErrorString(error_after)}")
+                             # 如果出錯，嘗試刪除無效的紋理 ID
+                             glDeleteTextures(1, [editor_bg_texture_id])
+                             editor_bg_texture_id = None # 標記為無效
+                         else:
+                             print(f"編輯器背景紋理 glTexImage2D 成功: ID={editor_bg_texture_id}")
+                         # ---------------------------
+
                          glBindTexture(GL_TEXTURE_2D, 0)
                          print(f"編輯器背景紋理已載入: ID={editor_bg_texture_id}, 尺寸={editor_bg_width_px}x{editor_bg_height_px}")
                     else: print("錯誤: 編輯器背景圖尺寸無效。")
