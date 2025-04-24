@@ -40,7 +40,8 @@ class TrackSegment:
         self.rail_left_vao = None
         self.rail_right_vao = None
         # ---------------------------
-
+        self.source_line_number = -1 # 初始化為無效值
+        
     def _generate_render_vertices(self):
         """
         根據 self.points 和 self.orientations 生成繪製用的頂點。

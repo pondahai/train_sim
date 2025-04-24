@@ -1,8 +1,10 @@
 # tram.py
 import numpy as np
 
+
 class Tram:
     def __init__(self, track):
+        
         self.track = track
         self.distance_on_track = 0.0
         self.current_speed = 0.0 # m/s

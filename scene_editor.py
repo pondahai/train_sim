@@ -30,13 +30,19 @@ import texture_loader
 from scene_parser import Scene
 from camera import Camera # 用於 3D 預覽攝影機
 
+# ## Keep profiler if used
+# import cProfile
+# import pstats
+# profiler = cProfile.Profile()
+# profiler.enable()
+
 # --- Constants ---
 SCENE_FILE = "scene.txt"
 EDITOR_WINDOW_TITLE = "Tram Scene Editor"
 INITIAL_WINDOW_WIDTH = 1200
 INITIAL_WINDOW_HEIGHT = 600
 EDITOR_COORD_COLOR = (205, 205, 20, 200)
-EDITOR_COORD_FONT_SIZE = 24
+EDITOR_COORD_FONT_SIZE = 18
 EDITOR_LABEL_OFFSET_X = 5
 EDITOR_LABEL_OFFSET_Y = 3
 
@@ -64,6 +70,7 @@ class MinimapGLWidget(QGLWidget):
         self._last_mouse_pos = QPoint()
         self.setFocusPolicy(Qt.StrongFocus)
         self._coord_font = None
+        self._highlight_line_numbers = set() # 使用集合
         try:
             if pygame.font.get_init():
                 self._coord_font = pygame.font.SysFont(None, EDITOR_COORD_FONT_SIZE)
@@ -108,7 +115,8 @@ class MinimapGLWidget(QGLWidget):
                 self._view_center_x,
                 self._view_center_z,
                 self._view_range,
-                w, h
+                w, h,
+                highlight_line_nums=self._highlight_line_numbers # 傳遞集合
             )
         except Exception as e:
             print(f"Error calling draw_editor_preview: {e}")
@@ -194,6 +202,19 @@ class MinimapGLWidget(QGLWidget):
             self._view_range = max(self._min_range, min(self._max_range, new_range))
             self.update() # Trigger repaint
 
+    def set_highlight_targets(self, line_numbers: set):
+        """Sets the line numbers to be highlighted."""
+        # 只在集合內容變化時才觸發更新
+        if self._highlight_line_numbers != line_numbers:
+            self._highlight_line_numbers = line_numbers.copy()
+            self.update() # Trigger repaint
+
+    def clear_highlight_targets(self):
+        """Clears all highlighting."""
+        if self._highlight_line_numbers: # 只在確實有高亮時才清除並更新
+            self._highlight_line_numbers.clear()
+            self.update() # Trigger repaint
+            
 # --- PreviewGLWidget ---
 class PreviewGLWidget(QGLWidget):
     """用於互動式 3D 場景預覽的 OpenGL Widget"""
@@ -886,6 +907,9 @@ class SceneEditorWindow(QMainWindow):
 
         # Connect table changes to update previews
         self.table_widget.sceneDataChanged.connect(self.update_previews)
+        
+        # 確保有這條連接，用於觸發高亮和參數提示更新
+        self.table_widget.currentCellChanged.connect(self._on_table_selection_changed)
 
     def _setup_menu(self):
         menubar = self.menuBar()
@@ -1126,15 +1150,61 @@ class SceneEditorWindow(QMainWindow):
         if pygame.font.get_init():
             pygame.font.quit()
         # --- 移除 pygame.display.quit()，因為我們沒有初始化顯示 ---
-        if pygame.display.get_init():
-            pygame.display.quit()
+#         if pygame.display.get_init():
+#             pygame.display.quit()
         # -------------------------------------------------
         # pygame.quit() # Call this last if needed, might interfere with Qt event loop if called too early
 
         print("Editor cleanup complete.")
         event.accept() # Allow window to close
 
+#         ## Keep profiler cleanup if used
+#         print("profiler,disable()")
+#         profiler.disable()
+#         stats = pstats.Stats(profiler).sort_stats('cumulative')
+#         stats.print_stats(20); stats.dump_stats('profile_results.prof')
 
+    def _on_table_selection_changed(self, current_row, current_column, previous_row, previous_column):
+        # --- 高亮邏輯 ---
+        if current_row >= 0:
+            # 當選中有效行時，設置高亮目標為當前物理行號 (表格行索引+1)
+            # 使用集合形式以保持擴展性
+            self.minimap_widget.set_highlight_targets({current_row + 1})
+        else:
+            # 如果沒有選中任何行 (例如表格清空後)
+            self.minimap_widget.clear_highlight_targets()
+
+        # --- 更新參數提示 (這部分邏輯從 SceneTableWidget 移過來或保持獨立) ---
+        # 建議將參數提示的更新邏輯也放在這裡，與高亮同步觸發
+        if current_row >= 0:
+            command_item = self.table_widget.item(current_row, 0)
+            command = command_item.text().lower().strip() if command_item else ""
+            hints = self.table_widget._command_hints.get(command, []) # 假設可以訪問 _command_hints
+            max_cols = self.table_widget.columnCount()
+            new_headers = [hints[i] if i < len(hints) else f"P{i}" for i in range(max_cols)]
+
+            # 優化：僅當 header 實際改變時才設置
+            current_actual_headers = [self.table_widget.horizontalHeaderItem(c).text() if self.table_widget.horizontalHeaderItem(c) else f"P{c}" for c in range(max_cols)]
+            if new_headers != current_actual_headers:
+                self.table_widget.setHorizontalHeaderLabels(new_headers)
+                self.table_widget._resize_columns_to_header_labels() # 調用表格的內部方法調整列寬
+        else:
+            # 清除參數提示 (設置為通用 P0, P1...)
+            self.table_widget.setHorizontalHeaderLabels([f"P{c}" for c in range(self.table_widget.columnCount())])
+            # 可能不需要在沒有選中時調整列寬
+
+        # --- 3D 預覽背景更新 (獨立考慮) ---
+        # 如果點擊行也需要更新 3D 預覽背景，可以在這裡觸發
+        # self.update_previews_background_only(current_row)
+        # 但注意，這可能需要 Scene 物件，而 Scene 物件通常在 sceneDataChanged 後才更新。
+        # 除非背景更新邏輯可以獨立於完整的 Scene 物件執行。
+        # 為簡單起見，目前點擊只觸發高亮和參數提示。
+
+        # --- (原有 _on_current_cell_changed 中的其他邏輯) ---
+        # 例如，如果之前有基於行變化的 sceneDataChanged 觸發，需要重新評估
+        # 目前 sceneDataChanged 是在 itemChanged 時觸發的 (needUpdate=True)
+        # 選中行變化本身不應標記數據已修改或觸發 sceneDataChanged
+    
 # --- Main Application Execution ---
 if __name__ == '__main__':
     try:

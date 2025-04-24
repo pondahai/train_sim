@@ -18,11 +18,12 @@ import minimap_renderer # *** NEW: Import the minimap module ***
 from camera import Camera
 from tram import Tram
 
-# Keep profiler if used
+## Keep profiler if used
 # import cProfile
 # import pstats
 # profiler = cProfile.Profile()
 # profiler.enable()
+
 
 # --- Settings (Keep) ---
 SCREEN_WIDTH = 1200
@@ -306,7 +307,7 @@ def main():
              renderer.skybox_texture_cache.clear()
              print("Skybox 紋理快取已清除。")
 
-    # Keep profiler cleanup if used
+    ## Keep profiler cleanup if used
     # print("profiler,disable()")
     # profiler.disable()
     # stats = pstats.Stats(profiler).sort_stats('cumulative')

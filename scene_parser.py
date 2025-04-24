@@ -209,12 +209,14 @@ def _parse_scene_content(lines_list, load_textures=True):
                         length = float(parts[1])
                         gradient = float(parts[2]) if len(parts) > 2 else 0.0
                         segment = StraightTrack(current_pos, current_angle_rad, length, gradient)
+                        segment.source_line_number = line_num
                     elif command == "curve":
                         if len(parts) < 3: print(f"警告: 第 {line_num} 行 'curve' 指令參數不足。"); continue
                         radius = float(parts[1])
                         angle_deg = float(parts[2])
                         gradient = float(parts[3]) if len(parts) > 3 else 0.0
                         segment = CurveTrack(current_pos, current_angle_rad, radius, angle_deg, gradient)
+                        segment.source_line_number = line_num
                 except ValueError:
                      print(f"警告: 第 {line_num} 行 '{command}' 指令的參數無效。"); continue
 
@@ -240,8 +242,9 @@ def _parse_scene_content(lines_list, load_textures=True):
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = relative_origin_pos[0] + world_offset_x; world_y = relative_origin_pos[1] + rel_y; world_z = relative_origin_pos[2] + world_offset_z
                 absolute_ry_deg = math.degrees(-origin_angle) + rel_ry_deg - 90
-                new_scene.buildings.append(("building", world_x, world_y, world_z, rx_deg, absolute_ry_deg, rz_deg, w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file))
-
+                obj_data_tuple = ("building", world_x, world_y, world_z, rx_deg, absolute_ry_deg, rz_deg, w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file)
+                new_scene.buildings.append((line_num, obj_data_tuple))
+                
             elif command == "cylinder":
                 # (Logic unchanged)
                 base_param_count = 8; min_parts = 1 + base_param_count
@@ -258,8 +261,9 @@ def _parse_scene_content(lines_list, load_textures=True):
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = relative_origin_pos[0] + world_offset_x; world_y = relative_origin_pos[1] + rel_y; world_z = relative_origin_pos[2] + world_offset_z
                 absolute_ry_deg = math.degrees(-origin_angle) + rel_ry_deg - 90
-                new_scene.cylinders.append(("cylinder", world_x, world_y, world_z, rx_deg, absolute_ry_deg, rz_deg, radius, height, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file))
-
+                obj_data_tuple = ("cylinder", world_x, world_y, world_z, rx_deg, absolute_ry_deg, rz_deg, radius, height, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file)
+                new_scene.cylinders.append((line_num, obj_data_tuple))
+                
             elif command == "tree":
                  # (Logic unchanged)
                 if len(parts) < 5: print(f"警告: 第 {line_num} 行 'tree' 指令參數不足。"); continue
@@ -268,7 +272,8 @@ def _parse_scene_content(lines_list, load_textures=True):
                 origin_angle = relative_origin_angle_rad; cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = relative_origin_pos[0] + world_offset_x; world_y = relative_origin_pos[1] + rel_y; world_z = relative_origin_pos[2] + world_offset_z
-                new_scene.trees.append((world_x, world_y, world_z, height))
+                obj_data_tuple = (world_x, world_y, world_z, height)
+                new_scene.trees.append((line_num, obj_data_tuple))
 
             else:
                 print(f"警告: 第 {line_num} 行無法識別的指令 '{command}'")

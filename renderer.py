@@ -33,7 +33,7 @@ CYLINDER_SLICES = 16 # Keep (maybe reduce default slightly?)
 hud_display_font = None
 grid_label_font = None
 coord_label_font = None
-MINIMAP_GRID_LABEL_FONT_SIZE = 24
+MINIMAP_GRID_LABEL_FONT_SIZE = 18
 MINIMAP_COORD_LABEL_FONT_SIZE = 18
 
 # --- Coordinate Display Parameters (Keep) ---
@@ -307,13 +307,17 @@ def draw_scene_objects(scene):
     # (Logic unchanged)
     glColor3f(1.0, 1.0, 1.0)
     # Buildings
-    for obj_data in scene.buildings:
+    for item in scene.buildings:
+        line_num, obj_data = item # 先解包出 行號 和 原始數據元組
+        # 再從原始數據元組解包出繪製所需變數
         (obj_type, x, y, z, rx, abs_ry, rz, w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file) = obj_data
         glPushMatrix(); glTranslatef(x, y, z); glRotatef(abs_ry, 0, 1, 0); glRotatef(rx, 1, 0, 0); glRotatef(rz, 0, 0, 1)
         draw_cube(w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)
         glPopMatrix()
     # Cylinders
-    for obj_data in scene.cylinders:
+    for item in scene.cylinders:
+        line_num, obj_data = item # 先解包出 行號 和 原始數據元組
+        # 再從原始數據元組解包出繪製所需變數
         (obj_type, x, y, z, rx, abs_ry, rz, radius, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file) = obj_data
         glPushMatrix(); glTranslatef(x, y, z); glRotatef(abs_ry, 0, 1, 0); glRotatef(rx, 1, 0, 0); glRotatef(rz, 0, 0, 1)
         glPushMatrix(); glRotatef(-90, 1, 0, 0)
@@ -321,7 +325,9 @@ def draw_scene_objects(scene):
         glPopMatrix(); glPopMatrix()
     # Trees
     glColor3f(1.0, 1.0, 1.0)
-    for tree_data in scene.trees:
+    for item in scene.trees:
+        line_num, tree_data = item # 先解包出 行號 和 原始數據元組
+        # 再從原始數據元組解包出繪製所需變數
         x, y, z, height = tree_data
         draw_tree(x, y, z, height)
 

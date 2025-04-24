@@ -17,6 +17,8 @@ import renderer # Needed for colors, sizes, grid constants, _draw_text_texture,
 import texture_loader
 from track import TRACK_WIDTH
 
+from numba import jit, njit # Keep numba imports
+
 # --- Minimap Constants ---
 # Constants for Simulator
 MINIMAP_SIZE = 500
@@ -93,7 +95,7 @@ def set_coord_label_font(font):
     coord_label_font = font
 
 # --- Coordinate Conversion (Keep identical, used by both draw modes) ---
-# @njit # Re-enable if performance requires and testing passes
+@njit # Re-enable if performance requires and testing passes
 def _world_to_map_coords_adapted(world_x, world_z, view_center_x, view_center_z, map_widget_center_x, map_widget_center_y, scale):
     """
     Internal helper: Converts world XZ to map widget coordinates.
@@ -109,7 +111,7 @@ def _world_to_map_coords_adapted(world_x, world_z, view_center_x, view_center_z,
 
 # --- Keep FBO Coord Conversion (Used only by bake) ---
 # Using your tested version
-# @njit # Consider adding back if confirmed stable
+@njit # Consider adding back if confirmed stable
 def _world_to_fbo_coords(world_x, world_z, fbo_world_cx, fbo_world_cz, fbo_world_width, fbo_world_height, fbo_tex_width_px, fbo_tex_height_px):
     """Converts world XZ coords to FBO pixel coords (YOUR TESTED VERSION)."""
     if fbo_world_width <= 1e-6 or fbo_world_height <= 1e-6: return 0, 0
@@ -224,6 +226,7 @@ def bake_static_map_elements(scene: Scene):
 
 # --- Keep _rotate_point_3d (Needed by minimap_renderer bake) ---
 # Make sure it's accessible (not private `__`)
+@njit
 def _rotate_point_3d(point, rx_deg, ry_deg, rz_deg):
     """Applies rotations (in degrees) to a 3D point."""
     # --- KEEPING LOGIC IDENTICAL ---
@@ -256,6 +259,7 @@ def _rotate_point_3d(point, rx_deg, ry_deg, rz_deg):
 
     return np.array([x3, y3, z3])
 
+@njit
 def _render_static_elements_to_fbo(scene: Scene):
     """ Renders grid, buildings, cylinders, trees into the currently bound FBO. """
     # --- KEEPING LOGIC IDENTICAL (using your tested _world_to_fbo_coords) ---
@@ -531,7 +535,7 @@ def draw_simulator_minimap(scene: Scene, tram: Tram, screen_width, screen_height
 
 
 # --- Editor Runtime Drawing (DYNAMIC RENDERING RESTORED) ---
-def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, widget_width, widget_height):
+def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, widget_width, widget_height, highlight_line_nums: set = set()):
     """ Draws the EDITOR minimap preview using DYNAMIC rendering (like original). """
     global editor_bg_texture_id, editor_bg_width_px, editor_bg_height_px, editor_current_map_filename
 
@@ -695,127 +699,156 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         # Buildings (Lines)
         glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
         glLineWidth(2.0)
-        for bldg in scene.buildings:
-            b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg;
+        for item in scene.buildings:
+            line_num, bldg_data = item # 解包行號和數據元組
+            b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg_data # 解包數據元組
             
-            
-            half_w,half_d = ww/2.,wd/2.
-            corners_local = [np.array([-half_w,0,-half_d]),np.array([half_w,0,-half_d]),np.array([half_w,0,half_d]),np.array([-half_w,0,half_d])]
-            angle_y_rad = math.radians(-abs_ry);
-            cos_y,sin_y = math.cos(angle_y_rad),math.sin(angle_y_rad)
-            map_coords = []
-            for corner in corners_local:
-                rotated_x = corner[0]*cos_y - corner[2]*sin_y;
-                rotated_z = corner[0]*sin_y + corner[2]*cos_y
-                world_corner_x = wx + rotated_x;
-                world_corner_z = wz + rotated_z
-                map_x,map_y = _world_to_map_coords_adapted(world_corner_x, world_corner_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-                map_coords.append((map_x, map_y))
-            if len(map_coords)==4:
-                glBegin(GL_LINE_LOOP);
-                [glVertex2f(mx,my) for mx,my in map_coords];
-                glEnd()
-            
-            # 求取矩形中心座標
-            sum_x = sum(coord[0] for coord in map_coords)
-            sum_y = sum(coord[1] for coord in map_coords)
-            center = (sum_x / 4, sum_y / 4)
-
-            # 顯示Y值
-            label_text=f"{wy:.1f}";
+            glPushAttrib(GL_CURRENT_BIT) # 保存當前顏色狀態
             try:
-                text_surface=coord_label_font.render(label_text,True,MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR);
-                dx=center[0] + 0;
-                dy=center[1];
-                renderer._draw_text_texture(text_surface,dx,dy);
-            except Exception as e:
-                pass
+                if line_num in highlight_line_nums:
+                    glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
+                    glLineWidth(3.0) # 可以加粗線條
+                else:
+                    glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
+                    glLineWidth(2.0) # 正常線條寬度
+            
+                half_w,half_d = ww/2.,wd/2.
+                corners_local = [np.array([-half_w,0,-half_d]),np.array([half_w,0,-half_d]),np.array([half_w,0,half_d]),np.array([-half_w,0,half_d])]
+                angle_y_rad = math.radians(-abs_ry);
+                cos_y,sin_y = math.cos(angle_y_rad),math.sin(angle_y_rad)
+                map_coords = []
+                for corner in corners_local:
+                    rotated_x = corner[0]*cos_y - corner[2]*sin_y;
+                    rotated_z = corner[0]*sin_y + corner[2]*cos_y
+                    world_corner_x = wx + rotated_x;
+                    world_corner_z = wz + rotated_z
+                    map_x,map_y = _world_to_map_coords_adapted(world_corner_x, world_corner_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                    map_coords.append((map_x, map_y))
+                if len(map_coords)==4:
+                    glBegin(GL_LINE_LOOP);
+                    [glVertex2f(mx,my) for mx,my in map_coords];
+#                     print("DEBUG: Before glEnd for Building loop")
+                    glEnd()
+                
+                # 求取矩形中心座標
+                sum_x = sum(coord[0] for coord in map_coords)
+                sum_y = sum(coord[1] for coord in map_coords)
+                center = (sum_x / 4, sum_y / 4)
+
+                # 顯示Y值
+                label_text=f"{wy:.1f}";
+                label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR
+                try:
+                    text_surface=coord_label_font.render(label_text,True,label_color);
+                    dx=center[0] + 0;
+                    dy=center[1];
+                    renderer._draw_text_texture(text_surface,dx,dy);
+                except Exception as e:
+                    pass
+                
+            finally:
+                glPopAttrib() # 恢復狀態
 
         # Cylinders (Circles/Boxes)
         glColor3fv(MINIMAP_DYNAMIC_CYLINDER_COLOR); num_circle_segments = 12
-        for cyl in scene.cylinders:
+        for item in scene.cylinders:
+            line_num, cyl = item # 解包行號和數據元組
             # 注意來自scene_parser那邊的剖析結果的變數排列
             c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, *_ = cyl;
-            # 以下是傾斜後的投影計算 已經修過修改符合現狀
-            is_tilted = abs(rx)>0.1 or abs(rz)>0.1
-            if is_tilted: # Draw tilted approx box (lines)
-                try:
-                    p_bl = np.array([0,ch/2,0]);
-                    p_tl = np.array([0,-ch/2,0])
-                    p_br = _rotate_point_3d(p_bl, -rx, ry, -rz);
-                    p_tr = _rotate_point_3d(p_tl, -rx, ry, -rz)
-                    p_bw = np.array([wx,wy,wz])+p_br;
-                    p_tw = np.array([wx,wy,wz])+p_tr
-                    p_bxz = np.array([p_bw[0],p_bw[2]]);
-                    p_txz = np.array([p_tw[0],p_tw[2]])
-                    axis_proj = p_txz - p_bxz;
-                    length_proj = np.linalg.norm(axis_proj)
-                    angle_map = math.arctan2(axis_proj[1], axis_proj[0]) if length_proj>1e-6 else 0
-                    center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-                    
-                    proj_len = length_proj
-                    proj_wid = 2*cr # Approx size in screen units
-
-                    scale_x_fbo = scale # / widget_width;
-                    scale_z_fbo = scale # / widget_height;
-                    ###############################################
-                    # 計算投影方向與偏移
-#                     if length_proj > 1e-6:
-#                         direction_x = axis_proj[0] / length_proj
-#                         direction_z = axis_proj[1] / length_proj
-#                     else:
-#                         direction_x, direction_z = 0.0, 0.0
-#                     #（沿投影方向移動0.5*ch）
-#                     delta_world_x = direction_x * 0.5 * ch
-#                     delta_world_z = direction_z * 0.5 * ch
-#                     delta_fbo_x = delta_world_x * scale_x_fbo
-#                     delta_fbo_y = delta_world_z * scale_z_fbo
-#     #                 print(f"delta_fbo_x {delta_fbo_x} delta_fbo_y {delta_fbo_y}")
-#                     # 調整中心坐標
-#                     center_map_x += delta_fbo_x
-#                     center_map_y += delta_fbo_y
-                    ###################################################
-
-
-                    proj_len_px = length_proj * scale_x_fbo;
-                    proj_wid_px = proj_wid * scale_z_fbo
-
-                    glPushMatrix();
-                    glTranslatef(center_map_x, center_map_y, 0);
-                    glRotatef(ry-math.degrees(angle_map), 0, 0, 1)
-                    # 往旋轉後的矩形中心點偏移
-                    glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
-                    
-                    glBegin(GL_LINE_LOOP);
-                    glVertex2f(-proj_len_px/2,-proj_wid_px/2);
-                    glVertex2f(-proj_len_px/2,proj_wid_px/2);
-                    glVertex2f(proj_len_px/2,proj_wid_px/2);
-                    glVertex2f(proj_len_px/2,-proj_wid_px/2);
-                    glEnd()
-                    glPopMatrix()
-                except Exception as e: pass # Ignore errors during dynamic draw?
-            else: # Draw circle (lines)
-                center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-                radius_map = cr * scale
-                if radius_map > 0.5: # Basic culling/detail check
-                    glBegin(GL_LINE_LOOP)
-                    for i in range(num_circle_segments):
-                        angle = 2*math.pi*i/num_circle_segments;
-                        glVertex2f(
-                            center_map_x+radius_map*math.cos(angle),
-                            center_map_y+radius_map*math.sin(angle)
-                            )
-                    glEnd()
-
-            # 顯示Y值
-            label_text=f"{wy:.1f}";
+            
+            glPushAttrib(GL_CURRENT_BIT) # 保存當前顏色狀態
             try:
-                text_surface=coord_label_font.render(label_text,True,MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR);
-                dx=center_map_x + 0;
-                dy=center_map_y;
-                renderer._draw_text_texture(text_surface,dx,dy);
-            except Exception as e:
-                pass
+                if line_num in highlight_line_nums:
+                    glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
+                    glLineWidth(3.0) # 可以加粗線條
+                else:
+                    glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
+                    glLineWidth(2.0) # 正常線條寬度
+                
+                # 以下是傾斜後的投影計算 已經修過修改符合現狀
+                is_tilted = abs(rx)>0.1 or abs(rz)>0.1
+                if is_tilted: # Draw tilted approx box (lines)
+                    try:
+                        p_bl = np.array([0,ch/2,0]);
+                        p_tl = np.array([0,-ch/2,0])
+                        p_br = _rotate_point_3d(p_bl, -rx, ry, -rz);
+                        p_tr = _rotate_point_3d(p_tl, -rx, ry, -rz)
+                        p_bw = np.array([wx,wy,wz])+p_br;
+                        p_tw = np.array([wx,wy,wz])+p_tr
+                        p_bxz = np.array([p_bw[0],p_bw[2]]);
+                        p_txz = np.array([p_tw[0],p_tw[2]])
+                        axis_proj = p_txz - p_bxz;
+                        length_proj = np.linalg.norm(axis_proj)
+                        angle_map = math.arctan2(axis_proj[1], axis_proj[0]) if length_proj>1e-6 else 0
+                        center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                        
+                        proj_len = length_proj
+                        proj_wid = 2*cr # Approx size in screen units
+
+                        scale_x_fbo = scale # / widget_width;
+                        scale_z_fbo = scale # / widget_height;
+                        ###############################################
+                        # 計算投影方向與偏移
+    #                     if length_proj > 1e-6:
+    #                         direction_x = axis_proj[0] / length_proj
+    #                         direction_z = axis_proj[1] / length_proj
+    #                     else:
+    #                         direction_x, direction_z = 0.0, 0.0
+    #                     #（沿投影方向移動0.5*ch）
+    #                     delta_world_x = direction_x * 0.5 * ch
+    #                     delta_world_z = direction_z * 0.5 * ch
+    #                     delta_fbo_x = delta_world_x * scale_x_fbo
+    #                     delta_fbo_y = delta_world_z * scale_z_fbo
+    #     #                 print(f"delta_fbo_x {delta_fbo_x} delta_fbo_y {delta_fbo_y}")
+    #                     # 調整中心坐標
+    #                     center_map_x += delta_fbo_x
+    #                     center_map_y += delta_fbo_y
+                        ###################################################
+
+
+                        proj_len_px = length_proj * scale_x_fbo;
+                        proj_wid_px = proj_wid * scale_z_fbo
+
+                        glPushMatrix();
+                        glTranslatef(center_map_x, center_map_y, 0);
+                        glRotatef(ry-math.degrees(angle_map), 0, 0, 1)
+                        # 往旋轉後的矩形中心點偏移
+                        glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
+                        
+                        glBegin(GL_LINE_LOOP);
+                        glVertex2f(-proj_len_px/2,-proj_wid_px/2);
+                        glVertex2f(-proj_len_px/2,proj_wid_px/2);
+                        glVertex2f(proj_len_px/2,proj_wid_px/2);
+                        glVertex2f(proj_len_px/2,-proj_wid_px/2);
+                        glEnd()
+                        glPopMatrix()
+                    except Exception as e: pass # Ignore errors during dynamic draw?
+                else: # Draw circle (lines)
+                    center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                    radius_map = cr * scale
+                    if radius_map > 0.5: # Basic culling/detail check
+                        glBegin(GL_LINE_LOOP)
+                        for i in range(num_circle_segments):
+                            angle = 2*math.pi*i/num_circle_segments;
+                            glVertex2f(
+                                center_map_x+radius_map*math.cos(angle),
+                                center_map_y+radius_map*math.sin(angle)
+                                )
+                        glEnd()
+
+                # 顯示Y值
+                label_text=f"{wy:.1f}";
+                label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR
+                try:
+                    text_surface=coord_label_font.render(label_text,True,label_color);
+                    dx=center_map_x + 0;
+                    dy=center_map_y;
+                    renderer._draw_text_texture(text_surface,dx,dy);
+                except Exception as e:
+                    pass
+                
+            finally:
+                glPopAttrib() # 恢復狀態
 
         # Trees (Points)
         glColor3fv(MINIMAP_DYNAMIC_TREE_COLOR)
@@ -826,31 +859,98 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         zoom_ratio = max(0, min(1, (dr-vr)/(dr-mr))) if (dr-mr)!=0 else 0;
         point_size = min_pt+(max_pt-min_pt)*zoom_ratio
         glPointSize(max(1.0, point_size))
+        
         glBegin(GL_POINTS)
-        for tree in scene.trees:
-            tx, ty, tz, th = tree; map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-            # Basic point culling
-            if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height: glVertex2f(map_x, map_y)
-        glEnd(); glPointSize(1.0)
+        for item in scene.trees:
+            line_num, tree = item # 解包行號和數據元組
+            if line_num not in highlight_line_nums: # 只處理非高亮的
+                tx, ty, tz, th = tree;
+                map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                # Basic point culling
+                if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
+                    glVertex2f(map_x, map_y)
+        glEnd() # 結束非高亮點的繪製
+        
+        # --- 繪製高亮的樹 ---
+        if highlight_line_nums: # 只有當有需要高亮的行時才執行
+            glColor3f(1.0, 1.0, 0.0) # 高亮顏色
+            glPointSize(max(1.0, point_size) * 1.5) # 高亮點可以稍微大一點 (示例)
 
+            glBegin(GL_POINTS)
+            for item in scene.trees:
+                line_num, tree_data = item
+                if line_num in highlight_line_nums: # 只處理高亮的
+                    tx, ty, tz, th = tree_data
+                    map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                    # Basic point culling
+                    if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
+                        glVertex2f(map_x, map_y)
+            glEnd() # 結束高亮點的繪製
+
+        # 恢復默認點大小
+        glPointSize(1.0)
+
+#                     glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
+#                     glLineWidth(3.0) # 可以加粗線條
+#                 else:
+#                     glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
+#                     glLineWidth(2.0) # 正常線條寬度
+            
+
+        
+#         print("DEBUG: Before glEnd for Trees")
+#         glEnd();
+#         glPointSize(1.0)
+
+
+#             glPushAttrib(GL_CURRENT_BIT) # 保存當前顏色狀態
+#             try:
+#             finally:
+#                 glPopAttrib() # 恢復狀態
 
     # --- 4. Draw Track Lines Dynamically ---
     if scene and scene.track:
         glLineWidth(2.0) # Match simulator track overlay width?
+        glPointSize(8)
         glColor3fv(MINIMAP_TRACK_COLOR)
+        
         for segment in scene.track.segments:
             if not segment.points or len(segment.points) < 2:
                 continue
+            
+            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT | GL_POINT_BIT) # 保存狀態
+            is_highlighted = False # Flag to track highlighting
+            try:
+                line_num = segment.source_line_number # 獲取行號
+                is_highlighted = line_num in highlight_line_nums
+                if is_highlighted:
+                    glColor3f(1.0, 1.0, 0.0) # 高亮顏色
+                    glLineWidth(4.0)        # 加粗線條
+                    glPointSize(10)         # 加大端點
+                else:
+                    glColor3fv(MINIMAP_TRACK_COLOR)
+                    glLineWidth(2.0)
+                    glPointSize(8)
+            
 #             print(f"segment: {dir(segment)}")
-            # 畫出軌道端點
-            map_x, map_y = _world_to_map_coords_adapted(segment.points[0][0], segment.points[0][2],
-                                                view_center_x, view_center_z,
-                                                widget_center_x_screen, widget_center_y_screen, scale)
-            glPointSize(8)
-            glBegin(GL_POINTS)
-            glColor3fv(MINIMAP_TRACK_COLOR)
-            glVertex2f(map_x, map_y)  # 
-            glEnd()        
+                # 畫出軌道端點
+                map_x, map_y = _world_to_map_coords_adapted(segment.points[0][0], segment.points[0][2],
+                                                    view_center_x, view_center_z,
+                                                    widget_center_x_screen, widget_center_y_screen, scale)
+#                 glPointSize(8)
+                glBegin(GL_POINTS)
+#                 glColor3fv(MINIMAP_TRACK_COLOR)
+                glVertex2f(map_x, map_y)  # 
+                glEnd()        
+
+                glBegin(GL_LINE_STRIP)
+                for point_world in segment.points:
+                    widget_x, widget_y = _world_to_map_coords_adapted(point_world[0], point_world[2], view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                    glVertex2f(widget_x, widget_y)
+                glEnd()
+
+            finally:
+                glPopAttrib() # 恢復狀態
 
             # 顯示端點info
             # 'ballast_vao', 'ballast_vbo', 'ballast_vertices',
@@ -866,20 +966,17 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             else:
                 track_info = f"S {segment.horizontal_length}"
             label_text=f"{track_info} y: {segment.points[0][1]:.1f}";
+            label_color = (255, 255, 0, 255) if is_highlighted else MINIMAP_GRID_LABEL_COLOR
             try:
-                text_surface=coord_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
+                text_surface=coord_label_font.render(label_text,True,label_color);
                 dx=map_x + 5;
                 dy=map_y;
                 renderer._draw_text_texture(text_surface,dx,dy);
             except Exception as e:
                 pass
             
-            glBegin(GL_LINE_STRIP)
-            for point_world in segment.points:
-                widget_x, widget_y = _world_to_map_coords_adapted(point_world[0], point_world[2], view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-                glVertex2f(widget_x, widget_y)
-            glEnd()
-
+                
+                
     # --- 5. Draw Grid Labels Dynamically ---
     # (Logic copied from simulator overlay drawing part)
     show_labels = grid_label_font and view_range < DEFAULT_MINIMAP_RANGE * 4.5
