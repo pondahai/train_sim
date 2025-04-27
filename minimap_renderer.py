@@ -49,9 +49,11 @@ MINIMAP_DYNAMIC_TREE_COLOR = (0.1, 0.8, 0.1) # Editor tree points
 # Constants for FBO Baking
 MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Simulator fallback BG
 MINIMAP_BAKE_GRID_COLOR = MINIMAP_DYNAMIC_GRID_COLOR # Use same color for baked grid
-MINIMAP_BAKE_BUILDING_COLOR = (*MINIMAP_DYNAMIC_BUILDING_COLOR, 0.1) # Use alpha for bake
-MINIMAP_BAKE_CYLINDER_COLOR = (*MINIMAP_DYNAMIC_CYLINDER_COLOR, 0.8)
-MINIMAP_BAKE_TREE_COLOR = (*MINIMAP_DYNAMIC_TREE_COLOR, 0.9)
+MINIMAP_BAKE_BUILDING_COLOR = (*MINIMAP_DYNAMIC_BUILDING_COLOR[:3], 1.0) # Use alpha for bake
+MINIMAP_BAKE_CYLINDER_COLOR = (*MINIMAP_DYNAMIC_CYLINDER_COLOR[:3], 1.0)
+MINIMAP_BAKE_TREE_COLOR = (*MINIMAP_DYNAMIC_TREE_COLOR[:3], 1.0)
+# MINIMAP_BAKE_BUILDING_COLOR = tuple(int(c * 255) for c in MINIMAP_DYNAMIC_BUILDING_COLOR) + (180,)#(MINIMAP_DYNAMIC_BUILDING_COLOR, 0.8) # Use alpha for bake
+# MINIMAP_BAKE_CYLINDER_COLOR = tuple(int(c * 255) for c in MINIMAP_DYNAMIC_CYLINDER_COLOR) + (180,)#(MINIMAP_DYNAMIC_CYLINDER_COLOR, 0.8)
 
 
 # --- State Variables ---
@@ -125,26 +127,29 @@ def _world_to_fbo_coords(world_x, world_z, fbo_world_cx, fbo_world_cz, fbo_world
     # Return with Y flipped again
     return float(fbo_px_x), float(fbo_tex_height_px - fbo_px_y) # Ensure float
 
-# --- FBO Baking Logic (Keep as before) ---
 def bake_static_map_elements(scene: Scene):
-    """ Renders static elements to composite_map_texture for SIMULATOR use. """
+    """ Renders static elements to composite_map_texture for SIMULATOR use.
+        Creates a 1:1 pixel-to-world-unit texture. The scene.map_world_scale
+        is ONLY used to scale the original background image to fit this target texture.
+    """
     global composite_fbo, composite_map_texture_id, composite_texture_width_px, composite_texture_height_px
     global composite_map_world_cx, composite_map_world_cz, composite_map_world_width, composite_map_world_height, composite_map_world_scale
     global original_bg_texture_id_bake, original_bg_width_px_bake, original_bg_height_px_bake
 
-    print("開始烘焙靜態小地圖元素 (供模擬器使用)...")
+    print("開始烘焙靜態小地圖元素 (供模擬器使用, 強制 1:1 比例)...")
     # --- Cleanup previous bake ---
-    # Call limited cleanup only affecting bake resources
     _cleanup_bake_resources()
 
     if not scene or not scene.map_filename: print("警告: 無法烘焙，場景或地圖檔未定義。"); return
-    if scene.map_world_scale <= 1e-6: print(f"警告: 地圖縮放比例無效 ({scene.map_world_scale})。"); return
+    # Check scene scale validity, as it's used for initial background scaling
+    if scene.map_world_scale <= 1e-6: print(f"警告: 場景中的地圖縮放比例無效 ({scene.map_world_scale})，無法用於校準背景。"); return
 
     # --- 1. Load Original Background Texture (for bake) ---
     filepath = os.path.join("textures", scene.map_filename)
     if not os.path.exists(filepath): print(f"錯誤: 找不到背景圖 '{filepath}'，無法烘焙。"); return
     else:
         try:
+            # Using Pillow for broader format support might be better here, but stick to Pygame for now
             surface = pygame.image.load(filepath).convert_alpha()
             texture_data = pygame.image.tostring(surface, "RGBA", True)
             original_bg_width_px_bake = surface.get_width()
@@ -153,33 +158,59 @@ def bake_static_map_elements(scene: Scene):
 
             original_bg_texture_id_bake = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, original_bg_texture_id_bake)
+            # Use GL_LINEAR for scaling the background smoothly
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1) # Safety for non-multiple-of-4 widths
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, original_bg_width_px_bake, original_bg_height_px_bake, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
             glBindTexture(GL_TEXTURE_2D, 0)
-            print(f"烘焙用背景紋理已載入: ID={original_bg_texture_id_bake}, 尺寸={original_bg_width_px_bake}x{original_bg_height_px_bake}")
+            print(f"烘焙用背景紋理已載入: ID={original_bg_texture_id_bake}, 原始尺寸={original_bg_width_px_bake}x{original_bg_height_px_bake}")
         except Exception as e:
             print(f"載入烘焙用背景紋理 '{filepath}' 時出錯: {e}")
             if original_bg_texture_id_bake: glDeleteTextures(1, [original_bg_texture_id_bake]); original_bg_texture_id_bake = None
             original_bg_width_px_bake = 0; original_bg_height_px_bake = 0
             return
 
-    # --- 2. Determine Composite Texture Properties ---
-    composite_texture_width_px = original_bg_width_px_bake
-    composite_texture_height_px = original_bg_height_px_bake
+    # --- 2. Determine Composite Texture Properties (CRITICAL CHANGE) ---
+    # Calculate the target world dimensions covered by the scaled background
+    target_world_width = original_bg_width_px_bake * scene.map_world_scale
+    target_world_height = original_bg_height_px_bake * scene.map_world_scale
+
+    # The composite texture's pixel dimensions will match these world dimensions (1:1)
+    composite_texture_width_px = int(round(target_world_width))
+    composite_texture_height_px = int(round(target_world_height))
+
+    # Ensure dimensions are at least 1 pixel
+    if composite_texture_width_px <= 0 or composite_texture_height_px <= 0:
+        print(f"錯誤: 計算出的合成紋理尺寸無效 ({composite_texture_width_px}x{composite_texture_height_px})，請檢查原始圖片尺寸和 scene.map_world_scale。")
+        if original_bg_texture_id_bake: glDeleteTextures(1, [original_bg_texture_id_bake]); original_bg_texture_id_bake = None
+        return
+
+    # The composite texture's world dimensions are its pixel dimensions
+    composite_map_world_width = float(composite_texture_width_px)
+    composite_map_world_height = float(composite_texture_height_px)
+
+    # Store the world center from the scene
     composite_map_world_cx = scene.map_world_center_x
     composite_map_world_cz = scene.map_world_center_z
-    composite_map_world_scale = scene.map_world_scale
-    composite_map_world_width = composite_texture_width_px * composite_map_world_scale
-    composite_map_world_height = composite_texture_height_px * composite_map_world_scale
-    print(f"烘焙紋理設定: 尺寸={composite_texture_width_px}x{composite_texture_height_px}, 世界中心=({composite_map_world_cx:.1f},{composite_map_world_cz:.1f}), 世界範圍=({composite_map_world_width:.1f}x{composite_map_world_height:.1f})")
+
+    # The effective scale of THIS composite texture is always 1.0
+    composite_map_world_scale = 1.0 # Store for potential future reference/debugging
+
+    print(f"烘焙紋理設定 (1:1 比例): 目標像素尺寸={composite_texture_width_px}x{composite_texture_height_px}")
+    print(f"  對應世界範圍: 寬={composite_map_world_width:.1f}, 高={composite_map_world_height:.1f}")
+    print(f"  世界中心=({composite_map_world_cx:.1f},{composite_map_world_cz:.1f})")
+    print(f"  (原始背景圖經 scene scale {scene.map_world_scale:.3f} 校準)")
+
 
     # --- 3. Create FBO and Composite Texture ---
     try:
         composite_map_texture_id = glGenTextures(1)
         glBindTexture(GL_TEXTURE_2D, composite_map_texture_id)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        # Keep MIN_FILTER linear, maybe MAG_FILTER too for smoother look when zoomed in? Use Linear for both.
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        # Create empty texture with the target 1:1 dimensions
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, composite_texture_width_px, composite_texture_height_px, 0, GL_RGBA, GL_UNSIGNED_BYTE, None)
         glBindTexture(GL_TEXTURE_2D, 0)
 
@@ -190,7 +221,7 @@ def bake_static_map_elements(scene: Scene):
         if status != GL_FRAMEBUFFER_COMPLETE:
             print(f"錯誤: FBO 不完整! 狀態碼: {status}")
             glBindFramebuffer(GL_FRAMEBUFFER, 0); _cleanup_bake_resources(); return
-        print(f"FBO 已創建 (ID={composite_fbo}) 並綁定紋理 (ID={composite_map_texture_id})")
+        print(f"FBO 已創建 (ID={composite_fbo}) 並綁定 1:1 紋理 (ID={composite_map_texture_id})")
     except Exception as e: print(f"創建 FBO 或烘焙紋理時出錯: {e}"); _cleanup_bake_resources(); return
 
     # --- 4. Render to FBO ---
@@ -198,21 +229,34 @@ def bake_static_map_elements(scene: Scene):
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glMatrixMode(GL_MODELVIEW); glPushMatrix()
     try:
         glBindFramebuffer(GL_FRAMEBUFFER, composite_fbo)
+        # Set viewport and projection to match the FBO's pixel dimensions
         glViewport(0, 0, composite_texture_width_px, composite_texture_height_px)
-        glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0, composite_texture_width_px, 0, composite_texture_height_px, -1, 1)
+        glMatrixMode(GL_PROJECTION); glLoadIdentity();
+        # Ortho projection maps directly to pixel coordinates of the FBO
+        glOrtho(0, composite_texture_width_px, 0, composite_texture_height_px, -1, 1)
         glMatrixMode(GL_MODELVIEW); glLoadIdentity()
         glDisable(GL_DEPTH_TEST); glDisable(GL_LIGHTING); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
+        # Clear with fallback color first
         r, g, b, a = MINIMAP_BG_FALLBACK_COLOR; glClearColor(r, g, b, a); glClear(GL_COLOR_BUFFER_BIT)
 
-        # --- A. Render Original Background ---
+        # --- A. Render Original Background (Scaled to fit FBO) ---
         if original_bg_texture_id_bake is not None:
             glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D, original_bg_texture_id_bake); glColor4f(1.0, 1.0, 1.0, 1.0)
-            glBegin(GL_QUADS); glTexCoord2f(0, 0); glVertex2f(0, 0); glTexCoord2f(1, 0); glVertex2f(composite_texture_width_px, 0); glTexCoord2f(1, 1); glVertex2f(composite_texture_width_px, composite_texture_height_px); glTexCoord2f(0, 1); glVertex2f(0, composite_texture_height_px); glEnd()
-            glBindTexture(GL_TEXTURE_2D, 0); glDisable(GL_TEXTURE_2D); print("原始背景圖已繪製到 FBO。")
+            # Draw quad covering the entire FBO using standard UVs. OpenGL handles the scaling.
+            glBegin(GL_QUADS)
+            glTexCoord2f(0, 0); glVertex2f(0, 0) # Bottom-Left FBO pixel
+            glTexCoord2f(1, 0); glVertex2f(composite_texture_width_px, 0) # Bottom-Right
+            glTexCoord2f(1, 1); glVertex2f(composite_texture_width_px, composite_texture_height_px) # Top-Right
+            glTexCoord2f(0, 1); glVertex2f(0, composite_texture_height_px) # Top-Left
+            glEnd()
+            glBindTexture(GL_TEXTURE_2D, 0); glDisable(GL_TEXTURE_2D);
+            print("原始背景圖已(經校準縮放)繪製到 FBO。")
 
-        # --- B. Render Static Elements ---
-        _render_static_elements_to_fbo(scene) # Uses _world_to_fbo_coords
+        # --- B. Render Static Elements (Now onto the 1:1 FBO) ---
+        # _render_static_elements_to_fbo uses the global composite_* variables,
+        # which now correctly reflect the 1:1 scale. _world_to_fbo_coords will work correctly.
+        _render_static_elements_to_fbo(scene)
 
     except Exception as e: print(f"在 FBO 渲染過程中發生錯誤: {e}")
     finally:
@@ -222,7 +266,7 @@ def bake_static_map_elements(scene: Scene):
     if original_bg_texture_id_bake is not None:
         glDeleteTextures(1, [original_bg_texture_id_bake]); original_bg_texture_id_bake = None; print("烘焙用背景紋理已釋放。")
 
-    print(f"靜態小地圖元素已成功烘焙到紋理 ID={composite_map_texture_id} (供模擬器使用)")
+    print(f"靜態小地圖元素已成功烘焙到 1:1 紋理 ID={composite_map_texture_id} (供模擬器使用)")
 
 # --- Keep _rotate_point_3d (Needed by minimap_renderer bake) ---
 # Make sure it's accessible (not private `__`)
@@ -259,7 +303,6 @@ def _rotate_point_3d(point, rx_deg, ry_deg, rz_deg):
 
     return np.array([x3, y3, z3])
 
-@njit
 def _render_static_elements_to_fbo(scene: Scene):
     """ Renders grid, buildings, cylinders, trees into the currently bound FBO. """
     # --- KEEPING LOGIC IDENTICAL (using your tested _world_to_fbo_coords) ---
@@ -278,7 +321,7 @@ def _render_static_elements_to_fbo(scene: Scene):
     world_min_z = world_cz - world_h/2.0;
     world_max_z = world_cz + world_h/2.0
     glDisable(GL_TEXTURE_2D);
-    glLineWidth(2)
+    glLineWidth(1)
 
     # Grid Lines
     glColor4fv((*MINIMAP_BAKE_GRID_COLOR[:3], 0.5)) # Use specific bake color/alpha
@@ -294,7 +337,8 @@ def _render_static_elements_to_fbo(scene: Scene):
 
     # Buildings (Filled Quads)
     glColor4fv(MINIMAP_BAKE_BUILDING_COLOR)
-    for bldg in scene.buildings:
+    for item in scene.buildings:
+        line_num, bldg = item
         b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg;
         half_w, half_d = ww/2.0, wd/2.0
         corners_local = [np.array([-half_w,0,-half_d]), np.array([half_w,0,-half_d]), np.array([half_w,0,half_d]), np.array([-half_w,0,half_d])]
@@ -313,7 +357,8 @@ def _render_static_elements_to_fbo(scene: Scene):
 
     # Cylinders (Filled Circles or Boxes)
     glColor4fv(MINIMAP_BAKE_CYLINDER_COLOR); num_circle_segments = 16
-    for cyl in scene.cylinders:
+    for item in scene.cylinders:
+        line_num, cyl = item
         # 注意來自scene_parser那邊的剖析結果的變數排列
         c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, *_ = cyl;
         # 以下是傾斜後的投影計算 已經修過修改符合現狀
@@ -400,7 +445,8 @@ def _render_static_elements_to_fbo(scene: Scene):
     # Trees (Points or Small Circles)
     glColor4fv(MINIMAP_BAKE_TREE_COLOR); tree_radius_px = 2; glPointSize(tree_radius_px*3)
     glBegin(GL_POINTS) # Using points for simplicity in bake
-    for tree in scene.trees:
+    for item in scene.trees:
+        line_num, tree = item
         tx, ty, tz, th = tree; fbo_x, fbo_y = _world_to_fbo_coords(tx, tz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
         if 0 <= fbo_x <= fbo_w and 0 <= fbo_y <= fbo_h: glVertex2f(fbo_x, fbo_y)
     glEnd(); glPointSize(1.0)
@@ -662,36 +708,67 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             glDisable(GL_TEXTURE_2D)
             bg_drawn = True
 
-    # If no texture drawn, draw solid fallback color
-    if not bg_drawn:
-        glPushAttrib(GL_CURRENT_BIT)
-        r,g,b,a = EDITOR_BG_COLOR; glColor4f(r,g,b,a)
-        glRectf(0, 0, widget_width, widget_height)
-        glPopAttrib()
+        # If no texture drawn, draw solid fallback color
+        if not bg_drawn:
+            glPushAttrib(GL_CURRENT_BIT)
+            r,g,b,a = EDITOR_BG_COLOR; glColor4f(r,g,b,a)
+            glRectf(0, 0, widget_width, widget_height)
+            glPopAttrib()
 
-    # --- 2. Draw Grid Lines Dynamically ---
-    # (Using logic from original _render_map_view)
-    if view_range < DEFAULT_MINIMAP_RANGE * 3.0: # Condition from original
-        glColor4fv((*MINIMAP_DYNAMIC_GRID_COLOR[:3], 0.5)) # Use dynamic color/alpha
-        glLineWidth(2)
-        # Calculate world boundaries visible
-        world_half_range_x = (widget_width / scale) / 2.0
-        world_half_range_z = (widget_height / scale) / 2.0
-        world_view_left = view_center_x - world_half_range_x; world_view_right = view_center_x + world_half_range_x
-        world_view_bottom_z = view_center_z - world_half_range_z; world_view_top_z = view_center_z + world_half_range_z
-        start_grid_x = math.floor(world_view_left / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
-        start_grid_z = math.floor(world_view_bottom_z / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
+        # --- 2. Draw Grid Lines Dynamically ---
+        # (Using logic from original _render_map_view)
+        if view_range < DEFAULT_MINIMAP_RANGE * 3.0: # Condition from original
+            glColor4fv((*MINIMAP_DYNAMIC_GRID_COLOR[:3], 0.5)) # Use dynamic color/alpha
+            glLineWidth(2)
+            # Calculate world boundaries visible
+            world_half_range_x = (widget_width / scale) / 2.0
+            world_half_range_z = (widget_height / scale) / 2.0
+            world_view_left = view_center_x - world_half_range_x;
+            world_view_right = view_center_x + world_half_range_x
+            world_view_bottom_z = view_center_z - world_half_range_z;
+            world_view_top_z = view_center_z + world_half_range_z
+            start_grid_x = math.floor(world_view_left / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
+            start_grid_z = math.floor(world_view_bottom_z / MINIMAP_GRID_SCALE) * MINIMAP_GRID_SCALE
 
-        current_grid_x = start_grid_x
-        while current_grid_x <= world_view_right:
-            map_x, _ = _world_to_map_coords_adapted(current_grid_x, view_center_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-            glBegin(GL_LINES); glVertex2f(map_x, 0); glVertex2f(map_x, widget_height); glEnd() # Draw across widget height
-            current_grid_x += MINIMAP_GRID_SCALE
-        current_grid_z = start_grid_z
-        while current_grid_z <= world_view_top_z:
-            _, map_y = _world_to_map_coords_adapted(view_center_x, current_grid_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-            glBegin(GL_LINES); glVertex2f(0, map_y); glVertex2f(widget_width, map_y); glEnd() # Draw across widget width
-            current_grid_z += MINIMAP_GRID_SCALE
+            # --- Draw Vertical Lines ---
+            current_grid_x = start_grid_x
+            while True: # Loop potentially infinitely in world space
+                map_x, _ = _world_to_map_coords_adapted(current_grid_x, view_center_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                
+                # Check if the line's SCREEN coordinate is beyond the right edge of the widget
+                # The X-axis is flipped in _world_to_map_coords_adapted, so as world_x increases, map_x decreases.
+                # We need to check if map_x is less than 0 (went off the left edge visually).
+                if map_x < 0: # Check if line moved off the *left* edge of the widget
+                     break # Stop drawing vertical lines
+
+                # Check if the line's SCREEN coordinate is still to the right of the *right* edge
+                # Only draw if it's potentially visible (within or entering the widget)
+                if map_x <= widget_width:
+                    glBegin(GL_LINES)
+                    glVertex2f(map_x, 0)
+                    glVertex2f(map_x, widget_height)
+                    glEnd()
+
+                current_grid_x += MINIMAP_GRID_SCALE # Move to the next line in world coordinates
+
+            # --- Draw Horizontal Lines ---
+            current_grid_z = start_grid_z
+            while True: # Loop potentially infinitely in world space
+                _, map_y = _world_to_map_coords_adapted(view_center_x, current_grid_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+
+                # Check if the line's SCREEN coordinate is beyond the top edge of the widget
+                if map_y > widget_height: # Check if line moved off the *top* edge
+                     break # Stop drawing horizontal lines
+
+                # Check if the line's SCREEN coordinate is still below the *bottom* edge
+                # Only draw if it's potentially visible (within or entering the widget)
+                if map_y >= 0:
+                     glBegin(GL_LINES)
+                     glVertex2f(0, map_y)
+                     glVertex2f(widget_width, map_y)
+                     glEnd()
+
+                current_grid_z += MINIMAP_GRID_SCALE # Move to the next line
 
     # --- 3. Draw Static Objects Dynamically ---
     # (Using logic from original _render_map_view)
@@ -700,8 +777,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
         glLineWidth(2.0)
         for item in scene.buildings:
-            line_num, bldg_data = item # 解包行號和數據元組
-            b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg_data # 解包數據元組
+            line_num, bldg = item # 解包行號和數據元組
+            b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg # 解包數據元組
             
             glPushAttrib(GL_CURRENT_BIT) # 保存當前顏色狀態
             try:
