@@ -49,9 +49,9 @@ MINIMAP_DYNAMIC_TREE_COLOR = (0.1, 0.8, 0.1) # Editor tree points
 # Constants for FBO Baking
 MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Simulator fallback BG
 MINIMAP_BAKE_GRID_COLOR = MINIMAP_DYNAMIC_GRID_COLOR # Use same color for baked grid
-MINIMAP_BAKE_BUILDING_COLOR = (*MINIMAP_DYNAMIC_BUILDING_COLOR[:3], 1.0) # Use alpha for bake
-MINIMAP_BAKE_CYLINDER_COLOR = (*MINIMAP_DYNAMIC_CYLINDER_COLOR[:3], 1.0)
-MINIMAP_BAKE_TREE_COLOR = (*MINIMAP_DYNAMIC_TREE_COLOR[:3], 1.0)
+MINIMAP_BAKE_BUILDING_COLOR = (*MINIMAP_DYNAMIC_BUILDING_COLOR[:3], 0.5) # Use alpha for bake
+MINIMAP_BAKE_CYLINDER_COLOR = (*MINIMAP_DYNAMIC_CYLINDER_COLOR[:3], 0.5)
+MINIMAP_BAKE_TREE_COLOR = (*MINIMAP_DYNAMIC_TREE_COLOR[:3], 0.5)
 # MINIMAP_BAKE_BUILDING_COLOR = tuple(int(c * 255) for c in MINIMAP_DYNAMIC_BUILDING_COLOR) + (180,)#(MINIMAP_DYNAMIC_BUILDING_COLOR, 0.8) # Use alpha for bake
 # MINIMAP_BAKE_CYLINDER_COLOR = tuple(int(c * 255) for c in MINIMAP_DYNAMIC_CYLINDER_COLOR) + (180,)#(MINIMAP_DYNAMIC_CYLINDER_COLOR, 0.8)
 
@@ -351,7 +351,7 @@ def _render_static_elements_to_fbo(scene: Scene):
             map_x, map_y = _world_to_fbo_coords(world_corner_x, world_corner_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
             fbo_coords.append((map_x, map_y))
         if len(fbo_coords)==4:
-            glBegin(GL_LINE_LOOP);
+            glBegin(GL_QUADS); #GL_LINE_LOOP
             [glVertex2f(mx, my) for mx, my in fbo_coords];
             glEnd()
 
@@ -415,9 +415,10 @@ def _render_static_elements_to_fbo(scene: Scene):
                 glTranslatef(center_fbo_x, center_fbo_y, 0);
                 glRotatef(ry-math.degrees(angle_map_rad), 0, 0, 1)
                 #
-                glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
+#                 glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
+                glTranslatef(-proj_len_px/2, 0, 0);
                 
-                glBegin(GL_LINE_LOOP);
+                glBegin(GL_QUADS); #GL_LINE_LOOP
                 glVertex2f(-proj_len_px/2,-proj_wid_px/2);
                 glVertex2f(-proj_len_px/2,proj_wid_px/2);
                 glVertex2f(proj_len_px/2,proj_wid_px/2);
@@ -890,7 +891,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                         glTranslatef(center_map_x, center_map_y, 0);
                         glRotatef(ry-math.degrees(angle_map), 0, 0, 1)
                         # 往旋轉後的矩形中心點偏移
-                        glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
+#                         glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
+                        glTranslatef(-proj_len_px/2, 0, 0);
                         
                         glBegin(GL_LINE_LOOP);
                         glVertex2f(-proj_len_px/2,-proj_wid_px/2);
