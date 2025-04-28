@@ -526,7 +526,7 @@ class SceneTableWidget(QTableWidget):
                     max_cols = max(max_cols, len(stripped_line.split()))
             max_cols = max(1, max_cols) # Ensure at least one column
 
-            self.setColumnCount(max_cols)
+            self.setColumnCount(max_cols+8)
             self.setHorizontalHeaderLabels([f"P{i}" for i in range(max_cols)]) # Initial generic headers
             self.setRowCount(len(lines))
 
@@ -755,9 +755,9 @@ class SceneTableWidget(QTableWidget):
                     num_deleted = 0
                     for row_index in sorted_rows:
                         # Check if the row is completely empty before deleting (optional check)
-                        # if self.is_row_empty(row_index):
-                        self.removeRow(row_index)
-                        num_deleted += 1
+                        if self.is_row_empty(row_index):
+                            self.removeRow(row_index)
+                            num_deleted += 1
                 finally:
                     self.blockSignals(False)
 
