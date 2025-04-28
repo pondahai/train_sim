@@ -261,8 +261,11 @@ def draw_cylinder(radius, height, texture_id=None,
     else: glDisable(GL_TEXTURE_2D)
     quadric = gluNewQuadric()
     if quadric:
-        gluQuadricTexture(quadric, GL_TRUE); gluQuadricNormals(quadric, GLU_SMOOTH)
-        glMatrixMode(GL_TEXTURE); glPushMatrix(); glLoadIdentity()
+        gluQuadricTexture(quadric, GL_TRUE);
+        gluQuadricNormals(quadric, GLU_SMOOTH)
+        glMatrixMode(GL_TEXTURE);
+        glPushMatrix();
+        glLoadIdentity()
         glTranslatef(u_offset, v_offset, 0)
         if uv_mode == 0:
             safe_uscale = uscale if uscale > 1e-6 else 1e-6
@@ -270,11 +273,21 @@ def draw_cylinder(radius, height, texture_id=None,
             glScalef(1.0 / safe_uscale, 1.0 / safe_vscale, 1.0)
         glMatrixMode(GL_MODELVIEW)
         gluCylinder(quadric, radius, radius, height, CYLINDER_SLICES, 1)
-        glMatrixMode(GL_TEXTURE); glLoadIdentity(); glMatrixMode(GL_MODELVIEW) # Reset texture matrix for caps
-        glPushMatrix(); glRotatef(180, 1, 0, 0); gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1); glPopMatrix()
-        glPushMatrix(); glTranslatef(0, 0, height); gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1); glPopMatrix()
+        glMatrixMode(GL_TEXTURE);
+        glLoadIdentity();
+        glMatrixMode(GL_MODELVIEW) # Reset texture matrix for caps
+        glPushMatrix();
+        glRotatef(180, 1, 0, 0);
+        gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1);
+        glPopMatrix()
+        glPushMatrix();
+        glTranslatef(0, 0, height);
+        gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1);
+        glPopMatrix()
         gluDeleteQuadric(quadric)
-        glMatrixMode(GL_TEXTURE); glPopMatrix(); glMatrixMode(GL_MODELVIEW) # Restore texture matrix
+        glMatrixMode(GL_TEXTURE);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW) # Restore texture matrix
     else: print("Error creating GLU quadric object for cylinder.")
     glBindTexture(GL_TEXTURE_2D, 0)
     glEnable(GL_TEXTURE_2D)
@@ -319,10 +332,16 @@ def draw_scene_objects(scene):
         line_num, obj_data = item # 先解包出 行號 和 原始數據元組
         # 再從原始數據元組解包出繪製所需變數
         (obj_type, x, y, z, rx, abs_ry, rz, radius, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file) = obj_data
-        glPushMatrix(); glTranslatef(x, y, z); glRotatef(abs_ry, 0, 1, 0); glRotatef(rx, 1, 0, 0); glRotatef(rz, 0, 0, 1)
-        glPushMatrix(); glRotatef(-90, 1, 0, 0)
+        glPushMatrix();
+        glTranslatef(x, y, z);
+        glRotatef(abs_ry, 0, 1, 0);
+        glRotatef(rz, 0, 0, 1)
+        glRotatef(rx, 1, 0, 0);
+        glPushMatrix();
+        glRotatef(-90, 1, 0, 0)
         draw_cylinder(radius, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)
-        glPopMatrix(); glPopMatrix()
+        glPopMatrix();
+        glPopMatrix()
     # Trees
     glColor3f(1.0, 1.0, 1.0)
     for item in scene.trees:
@@ -461,30 +480,32 @@ def draw_info(tram, screen_width, screen_height):
 # --- Keep Test Drawing Functions if needed ---
 # (Unchanged)
 def test_draw_cube_centered(width, depth, height, texture_id=None):
-    if texture_id is not None and glIsTexture(texture_id): glBindTexture(GL_TEXTURE_2D, texture_id); glEnable(GL_TEXTURE_2D)
-    else: glDisable(GL_TEXTURE_2D)
-    w2, d2, h2 = width / 2.0, depth / 2.0, height / 2.0
-    glBegin(GL_QUADS)
-    glNormal3f(0, -1, 0); glTexCoord2f(1, 1); glVertex3f( w2, -h2, -d2); glTexCoord2f(0, 1); glVertex3f(-w2, -h2, -d2); glTexCoord2f(0, 0); glVertex3f(-w2, -h2,  d2); glTexCoord2f(1, 0); glVertex3f( w2, -h2,  d2)
-    glNormal3f(0, 1, 0); glTexCoord2f(1, 1); glVertex3f( w2, h2,  d2); glTexCoord2f(0, 1); glVertex3f(-w2, h2,  d2); glTexCoord2f(0, 0); glVertex3f(-w2, h2, -d2); glTexCoord2f(1, 0); glVertex3f( w2, h2, -d2)
-    glNormal3f(0, 0, 1); glTexCoord2f(1, 1); glVertex3f( w2,  h2, d2); glTexCoord2f(0, 1); glVertex3f(-w2,  h2, d2); glTexCoord2f(0, 0); glVertex3f(-w2, -h2, d2); glTexCoord2f(1, 0); glVertex3f( w2, -h2, d2)
-    glNormal3f(0, 0, -1); glTexCoord2f(1, 1); glVertex3f( w2, -h2, -d2); glTexCoord2f(0, 1); glVertex3f(-w2, -h2, -d2); glTexCoord2f(0, 0); glVertex3f(-w2,  h2, -d2); glTexCoord2f(1, 0); glVertex3f( w2,  h2, -d2)
-    glNormal3f(-1, 0, 0); glTexCoord2f(1, 1); glVertex3f(-w2,  h2,  d2); glTexCoord2f(0, 1); glVertex3f(-w2,  h2, -d2); glTexCoord2f(0, 0); glVertex3f(-w2, -h2, -d2); glTexCoord2f(1, 0); glVertex3f(-w2, -h2,  d2)
-    glNormal3f(1, 0, 0); glTexCoord2f(1, 1); glVertex3f( w2,  h2, -d2); glTexCoord2f(0, 1); glVertex3f( w2,  h2,  d2); glTexCoord2f(0, 0); glVertex3f( w2, -h2,  d2); glTexCoord2f(1, 0); glVertex3f( w2, -h2, -d2)
-    glEnd(); glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D)
+    return
+#     if texture_id is not None and glIsTexture(texture_id): glBindTexture(GL_TEXTURE_2D, texture_id); glEnable(GL_TEXTURE_2D)
+#     else: glDisable(GL_TEXTURE_2D)
+#     w2, d2, h2 = width / 2.0, depth / 2.0, height / 2.0
+#     glBegin(GL_QUADS)
+#     glNormal3f(0, -1, 0); glTexCoord2f(1, 1); glVertex3f( w2, -h2, -d2); glTexCoord2f(0, 1); glVertex3f(-w2, -h2, -d2); glTexCoord2f(0, 0); glVertex3f(-w2, -h2,  d2); glTexCoord2f(1, 0); glVertex3f( w2, -h2,  d2)
+#     glNormal3f(0, 1, 0); glTexCoord2f(1, 1); glVertex3f( w2, h2,  d2); glTexCoord2f(0, 1); glVertex3f(-w2, h2,  d2); glTexCoord2f(0, 0); glVertex3f(-w2, h2, -d2); glTexCoord2f(1, 0); glVertex3f( w2, h2, -d2)
+#     glNormal3f(0, 0, 1); glTexCoord2f(1, 1); glVertex3f( w2,  h2, d2); glTexCoord2f(0, 1); glVertex3f(-w2,  h2, d2); glTexCoord2f(0, 0); glVertex3f(-w2, -h2, d2); glTexCoord2f(1, 0); glVertex3f( w2, -h2, d2)
+#     glNormal3f(0, 0, -1); glTexCoord2f(1, 1); glVertex3f( w2, -h2, -d2); glTexCoord2f(0, 1); glVertex3f(-w2, -h2, -d2); glTexCoord2f(0, 0); glVertex3f(-w2,  h2, -d2); glTexCoord2f(1, 0); glVertex3f( w2,  h2, -d2)
+#     glNormal3f(-1, 0, 0); glTexCoord2f(1, 1); glVertex3f(-w2,  h2,  d2); glTexCoord2f(0, 1); glVertex3f(-w2,  h2, -d2); glTexCoord2f(0, 0); glVertex3f(-w2, -h2, -d2); glTexCoord2f(1, 0); glVertex3f(-w2, -h2,  d2)
+#     glNormal3f(1, 0, 0); glTexCoord2f(1, 1); glVertex3f( w2,  h2, -d2); glTexCoord2f(0, 1); glVertex3f( w2,  h2,  d2); glTexCoord2f(0, 0); glVertex3f( w2, -h2,  d2); glTexCoord2f(1, 0); glVertex3f( w2, -h2, -d2)
+#     glEnd(); glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D)
 
 def test_draw_cylinder_y_up_centered(radius, height, texture_id=None, slices=CYLINDER_SLICES):
-    if texture_id is not None and glIsTexture(texture_id): glBindTexture(GL_TEXTURE_2D, texture_id); glEnable(GL_TEXTURE_2D)
-    else: glDisable(GL_TEXTURE_2D)
-    quadric = gluNewQuadric();
-    if not quadric: print("Error creating quadric"); return
-    gluQuadricTexture(quadric, GL_TRUE); gluQuadricNormals(quadric, GLU_SMOOTH)
-    half_height = height / 2.0
-    glPushMatrix(); glRotatef(-90, 1, 0, 0); glTranslatef(0, 0, -half_height)
-    gluCylinder(quadric, radius, radius, height, slices, 1)
-    gluDisk(quadric, 0, radius, slices, 1)
-    glPushMatrix(); glTranslatef(0, 0, height); gluDisk(quadric, 0, radius, slices, 1); glPopMatrix()
-    glPopMatrix(); gluDeleteQuadric(quadric); glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D)
+    return
+#     if texture_id is not None and glIsTexture(texture_id): glBindTexture(GL_TEXTURE_2D, texture_id); glEnable(GL_TEXTURE_2D)
+#     else: glDisable(GL_TEXTURE_2D)
+#     quadric = gluNewQuadric();
+#     if not quadric: print("Error creating quadric"); return
+#     gluQuadricTexture(quadric, GL_TRUE); gluQuadricNormals(quadric, GLU_SMOOTH)
+#     half_height = height / 2.0
+#     glPushMatrix(); glRotatef(-90, 1, 0, 0); glTranslatef(0, 0, -half_height)
+#     gluCylinder(quadric, radius, radius, height, slices, 1)
+#     gluDisk(quadric, 0, radius, slices, 1)
+#     glPushMatrix(); glTranslatef(0, 0, height); gluDisk(quadric, 0, radius, slices, 1); glPopMatrix()
+#     glPopMatrix(); gluDeleteQuadric(quadric); glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D)
 
 # --- REMOVED: _render_map_view function ---
 # --- REMOVED: draw_minimap function ---
