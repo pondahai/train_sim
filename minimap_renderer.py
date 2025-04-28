@@ -46,6 +46,11 @@ MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_BU
 MINIMAP_DYNAMIC_CYLINDER_COLOR = (0.5, 0.9, 0.5) # Editor cylinder lines/circles
 MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_CYLINDER_COLOR) + (180,)
 MINIMAP_DYNAMIC_TREE_COLOR = (0.1, 0.8, 0.1) # Editor tree points
+
+MINIMAP_DYNAMIC_SPHERE_COLOR = (0.9, 0.7, 0.2) # 範例顏色：橙色
+MINIMAP_BAKE_SPHERE_COLOR = (*MINIMAP_DYNAMIC_SPHERE_COLOR[:3], 0.5) # 用於烘焙的半透明顏色
+MINIMAP_DYNAMIC_SPHERE_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_SPHERE_COLOR) + (180,) # 標籤顏色
+
 # Constants for FBO Baking
 MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Simulator fallback BG
 MINIMAP_BAKE_GRID_COLOR = MINIMAP_DYNAMIC_GRID_COLOR # Use same color for baked grid
@@ -450,7 +455,36 @@ def _render_static_elements_to_fbo(scene: Scene):
         line_num, tree = item
         tx, ty, tz, th = tree; fbo_x, fbo_y = _world_to_fbo_coords(tx, tz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
         if 0 <= fbo_x <= fbo_w and 0 <= fbo_y <= fbo_h: glVertex2f(fbo_x, fbo_y)
-    glEnd(); glPointSize(1.0)
+    glEnd();
+    
+    # --- Bake Spheres (Filled Circles) ---
+    glColor4fv(MINIMAP_BAKE_SPHERE_COLOR) # 使用烘焙顏色
+    num_circle_segments_bake = 16 # 烘焙時可以用更高精度
+    for item in scene.spheres:
+        line_num, sphere_data = item
+        try:
+            s_type, wx, wy, wz, srx, sabs_ry, srz, cr, *rest = sphere_data
+        except ValueError:
+             print(f"警告: 解包 sphere 數據 (FBO烘焙) 時出錯 (來源行: {line_num})")
+             continue
+
+        # 轉換到 FBO 像素座標
+        center_fbo_x, center_fbo_y = _world_to_fbo_coords(wx, wz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+        # 計算 FBO 上的像素半徑 (假設 X/Z 縮放一致或取平均)
+        radius_px = cr * (fbo_w / world_w) # 或者 min(fbo_w/world_w, fbo_h/world_h)
+
+        if radius_px > 0.5: # 簡單剔除
+            glBegin(GL_TRIANGLE_FAN)
+            glVertex2f(center_fbo_x, center_fbo_y) # 中心點
+            for i in range(num_circle_segments_bake + 1): # +1確保閉合
+                angle = 2 * math.pi * i / num_circle_segments_bake
+                glVertex2f(center_fbo_x + radius_px * math.cos(angle),
+                           center_fbo_y + radius_px * math.sin(angle))
+            glEnd()    
+    
+    
+    
+    glPointSize(1.0)
 
     print("靜態元素 FBO 繪製完成。")
 
@@ -965,6 +999,54 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
                         glVertex2f(map_x, map_y)
             glEnd() # 結束高亮點的繪製
+
+        # --- Draw Spheres (Circles) Dynamically ---
+        num_circle_segments = 12 # 圓的邊數 (可以根據縮放調整)
+        for item in scene.spheres:
+            line_num, sphere_data = item
+            # 解包獲取必要資訊 (世界座標 wx, wy, wz 和半徑 cr)
+            try:
+                s_type, wx, wy, wz, srx, sabs_ry, srz, cr, *rest = sphere_data
+            except ValueError:
+                 print(f"警告: 解包 sphere 數據 (動態小地圖) 時出錯 (來源行: {line_num})")
+                 continue
+
+            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # 保存顏色和線寬狀態
+            try:
+                # --- 高亮處理 ---
+                is_highlighted = line_num in highlight_line_nums
+                if is_highlighted:
+                    glColor3f(1.0, 1.0, 0.0) # 高亮黃色
+                    glLineWidth(3.0)
+                else:
+                    glColor3fv(MINIMAP_DYNAMIC_SPHERE_COLOR)
+                    glLineWidth(2.0)
+
+                # --- 繪製圓形 ---
+                center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                radius_map = cr * scale
+                if radius_map > 0.5: # 簡單的細節剔除
+                    glBegin(GL_LINE_LOOP)
+                    for i in range(num_circle_segments):
+                        angle = 2 * math.pi * i / num_circle_segments
+                        glVertex2f(center_map_x + radius_map * math.cos(angle),
+                                   center_map_y + radius_map * math.sin(angle))
+                    glEnd()
+
+                # --- 繪製 Y 座標標籤 ---
+                label_text = f"{wy:.1f}"
+                label_color = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_SPHERE_LABEL_COLOR
+                try:
+                    if coord_label_font: # 確保字體存在
+                        text_surface = coord_label_font.render(label_text, True, label_color)
+                        # 計算繪製位置 (例如在圓心右側)
+                        dx = center_map_x + radius_map + 2 # 加一點偏移
+                        dy = center_map_y - text_surface.get_height() / 2
+                        renderer._draw_text_texture(text_surface, dx, dy)
+                except Exception as e:
+                    pass # 忽略繪製標籤錯誤
+            finally:
+                glPopAttrib() # 恢復顏色和線寬
 
         # 恢復默認點大小
         glPointSize(1.0)

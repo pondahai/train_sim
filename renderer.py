@@ -292,7 +292,73 @@ def draw_cylinder(radius, height, texture_id=None,
     glBindTexture(GL_TEXTURE_2D, 0)
     glEnable(GL_TEXTURE_2D)
 
+def draw_sphere(radius, texture_id=None, slices=16, stacks=16,
+                u_offset=0.0, v_offset=0.0, tex_angle_deg=0.0, uv_mode=1,
+                uscale=1.0, vscale=1.0):
+    """繪製一個球體"""
+    # 啟用/禁用紋理
+    if texture_id is not None and glIsTexture(texture_id):
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        glEnable(GL_TEXTURE_2D)
+        # 球體貼圖通常需要重複或邊緣鉗制
+        # GL_REPEAT 在極點附近可能效果不好，先用 GL_CLAMP_TO_EDGE
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+    else:
+        glDisable(GL_TEXTURE_2D)
 
+    # 創建 GLU quadric 物件
+    quadric = gluNewQuadric()
+    if quadric:
+        gluQuadricTexture(quadric, GL_TRUE) # 啟用紋理座標生成
+        gluQuadricNormals(quadric, GLU_SMOOTH) # 生成平滑法線
+
+        # --- 處理紋理變換 (如果需要) ---
+        # 注意：gluSphere 的 UV 生成方式固定，簡單的偏移/旋轉/縮放可能效果不如預期
+        # 這裡可以嘗試應用紋理矩陣，但效果可能需要實驗調整
+        apply_texture_matrix = abs(u_offset) > 1e-6 or abs(v_offset) > 1e-6 or abs(tex_angle_deg) > 1e-6 or uv_mode == 0
+        if apply_texture_matrix:
+            glMatrixMode(GL_TEXTURE)
+            glPushMatrix()
+            glLoadIdentity()
+            # 將中心移到 (0.5, 0.5) 以便旋轉和縮放
+            glTranslatef(0.5, 0.5, 0.0)
+            if uv_mode == 0: # 世界單位模式
+                # gluSphere 生成的 UV 在 0-1 範圍，直接縮放可能意義不大
+                # 或許應該理解為每單位世界半徑對應多少 UV 範圍？這裡先簡單縮放
+                safe_uscale = uscale if abs(uscale) > 1e-6 else 1e-6
+                safe_vscale = vscale if abs(vscale) > 1e-6 else 1e-6
+                glScalef(1.0 / safe_uscale, 1.0 / safe_vscale, 1.0)
+            glRotatef(tex_angle_deg, 0, 0, 1) # 紋理 Z 軸旋轉
+            glTranslatef(u_offset, v_offset, 0) # 應用偏移
+            # 將中心移回原點
+            glTranslatef(-0.5, -0.5, 0.0)
+            glMatrixMode(GL_MODELVIEW) # 切換回模型視圖矩陣
+
+        # --- 繪製球體 ---
+        # 可能需要旋轉 gluSphere 以匹配常見的球形貼圖方向（如等距柱狀投影）
+        # 通常是繞 X 軸旋轉 -90 度
+        glPushMatrix()
+        glRotatef(-90.0, 1.0, 0.0, 0.0)
+        gluSphere(quadric, radius, slices, stacks)
+        glPopMatrix()
+
+        # --- 恢復紋理矩陣 (如果應用了) ---
+        if apply_texture_matrix:
+            glMatrixMode(GL_TEXTURE)
+            glPopMatrix()
+            glMatrixMode(GL_MODELVIEW) # 確保切換回模型視圖
+
+        gluDeleteQuadric(quadric) # 釋放物件
+    else:
+        print("Error: 無法創建 GLU quadric 物件繪製球體。")
+
+    # 恢復紋理狀態
+    glBindTexture(GL_TEXTURE_2D, 0)
+    # 確保 TEXTURE_2D 在函數結束時是啟用的 (如果之前是)
+    # 或者由調用者負責管理總體狀態
+    # glEnable(GL_TEXTURE_2D) # 如果希望保持啟用
+    
 # --- draw_tree (unchanged) ---
 def draw_tree(x, y, z, height):
     # (Logic unchanged)
@@ -350,7 +416,34 @@ def draw_scene_objects(scene):
         x, y, z, height = tree_data
         draw_tree(x, y, z, height)
 
+    # Spheres
+    glColor3f(1.0, 1.0, 1.0) # 設置預設顏色或從物件數據讀取
+    for item in scene.spheres:
+        line_num, obj_data_tuple = item # 解包行號和數據
+        # 從數據元組解包繪製所需變數 (確保順序與 scene_parser 中打包時一致)
+        try:
+            (obj_type, x, y, z,
+             rx, abs_ry, rz, # 使用絕對 Y 旋轉
+             radius, tex_id,
+             u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
+             tex_file) = obj_data_tuple
+        except ValueError:
+             print(f"警告: 解包 sphere 數據時出錯 (來源行: {line_num})")
+             continue # 跳過這個物件
 
+        glPushMatrix()
+        glTranslatef(x, y, z)
+        # 應用旋轉 (與 building/cylinder 保持一致的順序)
+        glRotatef(abs_ry, 0, 1, 0) # 1. 繞世界 Y 軸旋轉
+        glRotatef(rx, 1, 0, 0)     # 2. 繞自身 X 軸旋轉
+        glRotatef(rz, 0, 0, 1)     # 3. 繞自身 Z 軸旋轉
+
+        # 調用新的繪製函數
+        draw_sphere(radius, tex_id, 16, 16, # 使用預設精度
+                    u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)
+
+        glPopMatrix()
+    
 # --- draw_tram_cab (unchanged) ---
 def draw_tram_cab(tram, camera):
     # (Logic unchanged)

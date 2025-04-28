@@ -27,7 +27,8 @@ COMMAND_HINTS = {
     "curve": ["    cmd    ", "radius", "angle°", "grad‰"],
     "building": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "w", "d", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
     "cylinder": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "rad", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
-    "tree": ["    cmd    ", "rel_x", "rel_y", "rel_z", "height"]
+    "tree": ["    cmd    ", "rel_x", "rel_y", "rel_z", "height"],
+    "sphere": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "radius", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
     # Add other commands if they exist
 }
 
@@ -45,6 +46,7 @@ class Scene:
         # (type, world_x, world_y, world_z, rx, rz, abs_ry, radius, h, tex_id, # Note rx, rz, abs_ry order
         #  u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file) <-- Added tex_file
         self.cylinders = []
+        self.spheres = []
         # Store the explicit start position/angle if provided
         self.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
         self.start_angle_deg = 0.0 # Store in degrees for potential reference
@@ -274,6 +276,80 @@ def _parse_scene_content(lines_list, load_textures=True):
                 world_x = relative_origin_pos[0] + world_offset_x; world_y = relative_origin_pos[1] + rel_y; world_z = relative_origin_pos[2] + world_offset_z
                 obj_data_tuple = (world_x, world_y, world_z, height)
                 new_scene.trees.append((line_num, obj_data_tuple))
+                
+            elif command == "sphere":
+                # Sphere 參數：rel_x, rel_y, rel_z, rx°, rel_ry°, rz°, radius, [tex_file], [u_off], [v_off], [tex_angle], [uv_mode], [u_scale], [v_scale]
+                base_param_count = 7 # x, y, z, rx, ry, rz, radius
+                min_parts = 1 + base_param_count
+                if len(parts) < min_parts:
+                    print(f"警告: 第 {line_num} 行 'sphere' 指令參數不足 (需要至少 {min_parts} 個)。"); continue
+
+                try:
+                    # 解析基本參數 (位置, 旋轉, 半徑)
+                    rel_x, rel_y, rel_z = map(float, parts[1:4])
+                    rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7])
+                    radius = float(parts[7])
+                    if radius <= 0:
+                        print(f"警告: 第 {line_num} 行 'sphere' 半徑 ({radius}) 必須為正數。"); continue
+                except ValueError:
+                    print(f"警告: 第 {line_num} 行 'sphere' 指令的基本參數無效。"); continue
+
+                # --- 開始解析可選紋理參數 (重用 building/cylinder 的邏輯) ---
+                # 假設第 8 個參數 (索引 8) 開始是可選紋理參數
+                tex_param_start_index = 8
+                tex_file = parts[tex_param_start_index] if len(parts) > tex_param_start_index else "default_sphere.png" # 可以設定一個預設球體紋理
+                try:
+                    u_offset = float(parts[tex_param_start_index + 1]) if len(parts) > tex_param_start_index + 1 else 0.0
+                    v_offset = float(parts[tex_param_start_index + 2]) if len(parts) > tex_param_start_index + 2 else 0.0
+                    tex_angle_deg = float(parts[tex_param_start_index + 3]) if len(parts) > tex_param_start_index + 3 else 0.0
+                    uv_mode = int(parts[tex_param_start_index + 4]) if len(parts) > tex_param_start_index + 4 else 1 # 預設模式 1 (物件比例)
+                    uscale = float(parts[tex_param_start_index + 5]) if len(parts) > tex_param_start_index + 5 and uv_mode == 0 else 1.0
+                    vscale = float(parts[tex_param_start_index + 6]) if len(parts) > tex_param_start_index + 6 and uv_mode == 0 else 1.0
+                except ValueError:
+                    print(f"警告: 第 {line_num} 行 'sphere' 紋理參數無效。將使用預設值。")
+                    tex_file = "default_sphere.png" # 確保重置
+                    u_offset, v_offset, tex_angle_deg = 0.0, 0.0, 0.0
+                    uv_mode, uscale, vscale = 1, 1.0, 1.0
+                # 驗證 uv_mode 和 scale (重用 building/cylinder 的邏輯)
+                if uv_mode == 0 and (uscale <= 0 or vscale <= 0):
+                    print(f"警告: 第 {line_num} 行 'sphere' uv_mode=0 時 uscale/vscale ({uscale}/{vscale}) 需為正數。已重設為 1.0。")
+                    uscale = vscale = 1.0
+                if uv_mode not in [0, 1]:
+                    print(f"警告: 第 {line_num} 行 'sphere' uv_mode ({uv_mode}) 無效。已重設為 1。")
+                    uv_mode = 1
+                # --- 結束解析可選紋理參數 ---
+
+                # 載入紋理 (如果需要)
+                tex_id = None
+                if load_textures and texture_loader:
+                    tex_id = texture_loader.load_texture(tex_file)
+                    # 可以選擇性地添加 tex_id 為 None 時的警告
+
+                # --- 轉換座標和旋轉 (重用 building/cylinder 的邏輯) ---
+                origin_angle = relative_origin_angle_rad
+                cos_a = math.cos(origin_angle)
+                sin_a = math.sin(origin_angle)
+                # 計算世界偏移
+                world_offset_x = rel_z * cos_a + rel_x * sin_a
+                world_offset_z = rel_z * sin_a - rel_x * cos_a
+                # 計算絕對世界座標
+                world_x = relative_origin_pos[0] + world_offset_x
+                world_y = relative_origin_pos[1] + rel_y
+                world_z = relative_origin_pos[2] + world_offset_z
+                # 計算絕對世界 Y 軸旋轉角度
+                absolute_ry_deg = math.degrees(-origin_angle) + rel_ry_deg - 90 # 保持與 building/cylinder 一致
+                # --- 結束轉換 ---
+
+                # 打包數據元組 (類型, 世界座標, 世界旋轉, 半徑, 紋理資訊, 原始檔名)
+                obj_data_tuple = (
+                    "sphere", world_x, world_y, world_z,
+                    rx_deg, absolute_ry_deg, rz_deg, # 使用絕對旋轉
+                    radius, tex_id,
+                    u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
+                    tex_file # 儲存原始檔名以備後用
+                )
+                # 添加到場景列表
+                new_scene.spheres.append((line_num, obj_data_tuple))
 
             else:
                 print(f"警告: 第 {line_num} 行無法識別的指令 '{command}'")
