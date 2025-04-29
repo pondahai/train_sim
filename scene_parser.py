@@ -48,7 +48,7 @@ class Scene:
         #  u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file) <-- Added tex_file
         self.cylinders = []
         self.spheres = []
-        self.hills = [] # [(line_num, (center_x, center_z, peak_height, base_radius, tex_id, uscale, vscale, tex_file)), ...]
+        self.hills = [] # [(line_num, (center_x, peak_height, center_z, base_radius, tex_id, uscale, vscale, tex_file)), ...]
         # Store the explicit start position/angle if provided
         self.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
         self.start_angle_deg = 0.0 # Store in degrees for potential reference
@@ -382,7 +382,7 @@ def _parse_scene_content(lines_list, load_textures=True):
 
             elif command == "hill":
                 # Hill 參數: center_x center_z peak_height base_radius [texture_file] [tex_u_scale] [tex_v_scale]
-                base_param_count = 4 # cx, cz, height, radius
+                base_param_count = 4 # cx, height, radius, cz
                 min_parts = 1 + base_param_count
                 if len(parts) < min_parts:
                     print(f"警告: 第 {line_num} 行 'hill' 指令參數不足 (需要至少 {min_parts} 個)。"); continue
@@ -420,7 +420,7 @@ def _parse_scene_content(lines_list, load_textures=True):
 
                 # 打包數據元組 (中心座標, 高度, 半徑, 紋理資訊, 原始檔名)
                 hill_data = (
-                    center_x, center_z, peak_height, base_radius,
+                    center_x, peak_height, center_z, base_radius,
                     tex_id, uscale, vscale, tex_file # 包含檔名
                 )
                 # 添加到場景列表

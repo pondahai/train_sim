@@ -501,7 +501,7 @@ def _render_static_elements_to_fbo(scene: Scene):
     for item in scene.hills:
         line_num, hill_data = item
         try:
-            cx, cz, height, radius, *_ = hill_data # 只需要中心和半徑
+            cx, height, cz, radius, *_ = hill_data # 只需要中心和半徑
         except ValueError:
              # print(f"警告: 解包 hill 數據 (FBO烘焙) 時出錯 (來源行: {line_num})") # 可選警告
              continue
@@ -1089,7 +1089,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             line_num, hill_data = item
             try:
                 # 解包數據 (需要中心, 高度, 半徑)
-                cx, cz, peak_height, base_radius, *_ = hill_data
+                cx, peak_height, cz, base_radius, *_ = hill_data
             except ValueError:
                 # print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_num})") # 可選警告
                 continue

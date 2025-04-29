@@ -469,7 +469,7 @@ def draw_tree(x, y, z, height, texture_id=None): # 函數簽名保持不變
 #     glPopMatrix(); glPopMatrix()
 #     glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
 
-def draw_hill(center_x, center_z, peak_height, base_radius, resolution=20, texture_id=None, uscale=10.0, vscale=10.0):
+def draw_hill(center_x, peak_height, center_z, base_radius, resolution=20, texture_id=None, uscale=10.0, vscale=10.0):
     """
     繪製一個基於餘弦插值的山丘。
 
@@ -639,14 +639,14 @@ def draw_scene_objects(scene):
         line_num, hill_data = item # 解包行號和數據
         try:
             # 解包 hill_data (與 scene_parser 中打包時一致)
-            (cx, cz, height, radius, tex_id, uscale, vscale, tex_file) = hill_data
+            (cx, height, cz, radius, tex_id, uscale, vscale, tex_file) = hill_data
         except ValueError:
              print(f"警告: 解包 hill 數據時出錯 (來源行: {line_num})")
              continue # 跳過這個物件
 
         # 不需要 Push/Pop Matrix，因為 draw_hill 使用絕對座標
         # 可以直接調用繪製函數
-        draw_hill(cx, cz, height, radius,
+        draw_hill(cx, height, cz, radius,
                   resolution=10, # 可以將解析度設為可配置或常數
                   texture_id=tex_id,
                   uscale=uscale, vscale=vscale)
