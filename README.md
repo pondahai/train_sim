@@ -314,7 +314,7 @@ sphere <rel_x> <rel_y> <rel_z> <rx°> <rel_ry°> <rz°> <radius> [<tex>] [<uOf>]
 #   <tex> (預設 "default_sphere.png")
 
 # 11. 山丘 (基於中心點生成)
-hill <cx> <cz> <height> <radius> [<tex>] [<uSc>] [<vSc>]
+hill <cx> <height> <cz> <radius> [<tex>] [<uSc>] [<vSc>]
 # 參數說明：
 #   <cx>, <cz>  ：山峰最高點的世界座標 X, Z。
 #   <height>    ：山峰相對於 Y=0 的高度。
