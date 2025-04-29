@@ -51,6 +51,13 @@ MINIMAP_DYNAMIC_SPHERE_COLOR = (0.9, 0.7, 0.2) # 範例顏色：橙色
 MINIMAP_BAKE_SPHERE_COLOR = (*MINIMAP_DYNAMIC_SPHERE_COLOR[:3], 0.5) # 用於烘焙的半透明顏色
 MINIMAP_DYNAMIC_SPHERE_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_SPHERE_COLOR) + (180,) # 標籤顏色
 
+# 
+MINIMAP_DYNAMIC_HILL_COLOR = (0.6, 0.45, 0.3) # 示例：棕色 (用於編輯器中心點和輪廓)
+MINIMAP_DYNAMIC_HILL_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_HILL_COLOR) + (180,) # 編輯器標籤顏色
+MINIMAP_BAKE_HILL_COLOR = (*MINIMAP_DYNAMIC_HILL_COLOR[:3], 0.6) # 用於烘焙的半透明棕色 (基底輪廓)
+MINIMAP_HIGHLIGHT_HILL_COLOR = (1.0, 1.0, 0.0) # 示例：高亮黃色
+MINIMAP_HIGHLIGHT_HILL_LABEL_COLOR = (255, 255, 0, 255) # 高亮標籤顏色
+
 # Constants for FBO Baking
 MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Simulator fallback BG
 MINIMAP_BAKE_GRID_COLOR = MINIMAP_DYNAMIC_GRID_COLOR # Use same color for baked grid
@@ -453,7 +460,7 @@ def _render_static_elements_to_fbo(scene: Scene):
     glBegin(GL_POINTS) # Using points for simplicity in bake
     for item in scene.trees:
         line_num, tree = item
-        tx, ty, tz, th = tree; fbo_x, fbo_y = _world_to_fbo_coords(tx, tz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+        tx, ty, tz, th, _tex_id, _tex_file = tree; fbo_x, fbo_y = _world_to_fbo_coords(tx, tz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
         if 0 <= fbo_x <= fbo_w and 0 <= fbo_y <= fbo_h: glVertex2f(fbo_x, fbo_y)
     glEnd();
     
@@ -485,6 +492,33 @@ def _render_static_elements_to_fbo(scene: Scene):
     
     
     glPointSize(1.0)
+
+    # --- Bake Hills (Base Outline Circles) ---
+    glColor4fv(MINIMAP_BAKE_HILL_COLOR) # 使用半透明的烘焙顏色
+    glLineWidth(1.5) # 可以稍微加粗一點輪廓線
+    num_circle_segments_bake = 24 # 烘焙時可以用稍高精度
+    glBegin(GL_LINE_LOOP) # 繪製線圈
+    for item in scene.hills:
+        line_num, hill_data = item
+        try:
+            cx, cz, height, radius, *_ = hill_data # 只需要中心和半徑
+        except ValueError:
+             # print(f"警告: 解包 hill 數據 (FBO烘焙) 時出錯 (來源行: {line_num})") # 可選警告
+             continue
+
+        # 計算中心點和半徑在 FBO 像素座標系的值
+        center_fbo_x, center_fbo_y = _world_to_fbo_coords(cx, cz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+        # 半徑需要乘以 FBO 像素/世界單位 比例 (假設 FBO 的 X/Y 比例相同)
+        radius_px = radius * (fbo_w / world_w) # 使用寬度比例
+
+        if radius_px > 0.5: # 簡單剔除太小的圓
+            # 繪製圓形線圈
+            for i in range(num_circle_segments_bake): # 不需要 +1，因為是 LINE_LOOP
+                angle = 2 * math.pi * i / num_circle_segments_bake
+                glVertex2f(center_fbo_x + radius_px * math.cos(angle),
+                           center_fbo_y + radius_px * math.sin(angle))
+    glEnd() # 結束所有山丘輪廓的繪製
+    glLineWidth(1.0) # 恢復默認線寬
 
     print("靜態元素 FBO 繪製完成。")
 
@@ -977,7 +1011,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         for item in scene.trees:
             line_num, tree = item # 解包行號和數據元組
             if line_num not in highlight_line_nums: # 只處理非高亮的
-                tx, ty, tz, th = tree;
+                tx, ty, tz, th, _tex_id, _tex_file = tree;
                 map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                 # Basic point culling
                 if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
@@ -993,7 +1027,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             for item in scene.trees:
                 line_num, tree_data = item
                 if line_num in highlight_line_nums: # 只處理高亮的
-                    tx, ty, tz, th = tree_data
+                    tx, ty, tz, th, _tex_id, _tex_file = tree_data
                     map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                     # Basic point culling
                     if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
@@ -1047,6 +1081,72 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     pass # 忽略繪製標籤錯誤
             finally:
                 glPopAttrib() # 恢復顏色和線寬
+
+        # --- Draw Hills Dynamically (Editor Preview) ---
+        num_circle_segments_editor = 16 # 編輯器預覽用稍低精度即可
+        hill_center_point_size = 6.0 # 中心點標記大小
+        for item in scene.hills:
+            line_num, hill_data = item
+            try:
+                # 解包數據 (需要中心, 高度, 半徑)
+                cx, cz, peak_height, base_radius, *_ = hill_data
+            except ValueError:
+                # print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_num})") # 可選警告
+                continue
+
+            # --- 計算 Widget 座標 ---
+            center_map_x, center_map_y = _world_to_map_coords_adapted(cx, cz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+            radius_map = base_radius * scale # 基底在 Widget 上的半徑
+
+            # --- 檢查是否在可見範圍內 (簡單檢查中心點) ---
+            is_visible = 0 <= center_map_x <= widget_width and 0 <= center_map_y <= widget_height
+
+            if is_visible:
+                # --- 檢查高亮狀態 ---
+                is_highlighted = line_num in highlight_line_nums
+
+                # --- 保存和設置繪製狀態 ---
+                glPushAttrib(GL_CURRENT_BIT | GL_POINT_BIT | GL_LINE_BIT)
+                try:
+                    if is_highlighted:
+                        glColor3fv(MINIMAP_HIGHLIGHT_HILL_COLOR)
+                        glPointSize(hill_center_point_size * 1.5) # 高亮點稍大
+                        glLineWidth(2.5) # 高亮輪廓稍粗
+                        label_color = MINIMAP_HIGHLIGHT_HILL_LABEL_COLOR
+                    else:
+                        glColor3fv(MINIMAP_DYNAMIC_HILL_COLOR)
+                        glPointSize(hill_center_point_size)
+                        glLineWidth(1.5)
+                        label_color = MINIMAP_DYNAMIC_HILL_LABEL_COLOR
+
+                    # --- 繪製中心點 ---
+                    glBegin(GL_POINTS)
+                    glVertex2f(center_map_x, center_map_y)
+                    glEnd()
+
+                    # --- 繪製基底圓形輪廓 ---
+                    if radius_map > 1.0: # 只繪製有意義大小的輪廓
+                        glBegin(GL_LINE_LOOP)
+                        for i in range(num_circle_segments_editor):
+                            angle = 2 * math.pi * i / num_circle_segments_editor
+                            glVertex2f(center_map_x + radius_map * math.cos(angle),
+                                       center_map_y + radius_map * math.sin(angle))
+                        glEnd()
+
+                    # --- 繪製高度標籤 ---
+                    label_text = f"{peak_height:.1f}m" # 格式化高度
+                    try:
+                        if coord_label_font: # 確保字體已設置
+                            text_surface = coord_label_font.render(label_text, True, label_color)
+                            # 計算標籤位置 (例如，中心點右上方)
+                            dx = center_map_x + 5 # 稍微偏右
+                            dy = center_map_y + 5 # 稍微偏上
+                            renderer._draw_text_texture(text_surface, dx, dy)
+                    except Exception as e:
+                        pass # 忽略繪製標籤錯誤
+                finally:
+                    glPopAttrib() # 恢復繪製狀態
+
 
         # 恢復默認點大小
         glPointSize(1.0)

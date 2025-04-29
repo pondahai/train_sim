@@ -22,6 +22,8 @@ CAB_COLOR = (0.2, 0.3, 0.7) # Keep
 DASHBOARD_COLOR = (0.8, 0.8, 0.85) # Keep
 LEVER_COLOR = (0.8, 0.1, 0.1) # Keep
 NEEDLE_COLOR = (0.0, 0.0, 0.0) # Keep
+TREE_FALLBACK_COLOR = (0.1, 0.6, 0.15) # 一個樹木的綠色
+ALPHA_TEST_THRESHOLD = 0.5 # 常用的值，您可以調整 (0.0 到 1.0)
 CYLINDER_SLICES = 16 # Keep (maybe reduce default slightly?)
 
 # --- Minimap Parameters REMOVED ---
@@ -360,29 +362,209 @@ def draw_sphere(radius, texture_id=None, slices=16, stacks=16,
     # glEnable(GL_TEXTURE_2D) # 如果希望保持啟用
     
 # --- draw_tree (unchanged) ---
-def draw_tree(x, y, z, height):
-    # (Logic unchanged)
-    trunk_height = height * 0.6; leaves_height = height * 0.4
-    glPushMatrix(); glTranslatef(x, y, z)
-    # Trunk
-    if tree_bark_tex and glIsTexture(tree_bark_tex): glBindTexture(GL_TEXTURE_2D, tree_bark_tex); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
-    else: glDisable(GL_TEXTURE_2D); glColor3f(0.5, 0.35, 0.05)
-    quadric = gluNewQuadric();
-    if quadric: gluQuadricTexture(quadric, GL_TRUE); gluQuadricNormals(quadric, GLU_SMOOTH); glPushMatrix(); glRotatef(-90, 1, 0, 0); gluCylinder(quadric, TREE_TRUNK_RADIUS, TREE_TRUNK_RADIUS * 0.8, trunk_height, CYLINDER_SLICES//2, 1); glPopMatrix(); gluDeleteQuadric(quadric)
-    else: print("Error creating quadric for tree trunk.")
-    # Leaves
-    if tree_leaves_tex and glIsTexture(tree_leaves_tex): glBindTexture(GL_TEXTURE_2D, tree_leaves_tex); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
-    else: glDisable(GL_TEXTURE_2D); glColor3f(0.1, 0.5, 0.1)
-    glPushMatrix(); glTranslatef(0, trunk_height, 0)
-    quadric = gluNewQuadric();
-    if quadric: gluQuadricTexture(quadric, GL_TRUE); gluQuadricNormals(quadric, GLU_SMOOTH); glPushMatrix(); glRotatef(-90, 1, 0, 0); gluCylinder(quadric, TREE_LEAVES_RADIUS, 0, leaves_height * 1.5, CYLINDER_SLICES, 5); glPopMatrix(); gluDeleteQuadric(quadric)
-    else: print("Error creating quadric for tree leaves.")
-    glPopMatrix(); glPopMatrix()
-    glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
+def draw_tree(x, y, z, height, texture_id=None): # 函數簽名保持不變
+    """
+    使用兩個交叉的垂直平面繪製樹木，並應用 Alpha Testing。
+    如果提供了有效的 texture_id，則使用其 Alpha 通道進行測試。
+    否則，繪製純色。
+    不需要排序，但透明邊緣會比較硬。
+    """
+    # 基本的輸入驗證
+    if height <= 0:
+        return
+
+    # 計算樹木平面尺寸 (保持與之前一致)
+    width = height * 0.6
+    half_width = width / 2.0
+
+    # --- 保存相關的 OpenGL 狀態 ---
+    # 保存啟用狀態、深度緩衝區狀態、Alpha 測試狀態、光照、當前顏色等
+    glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_LIGHTING_BIT | GL_CURRENT_BIT | GL_TEXTURE_BIT | GL_POLYGON_BIT | GL_ALPHA_TEST) # <-- 添加 GL_ALPHA_TEST
+
+    try: # 使用 try...finally 確保狀態能恢復
+        # --- 判斷是否有有效紋理 ---
+        has_texture = texture_id is not None and glIsTexture(texture_id)
+
+        if has_texture:
+            # --- 設置 Alpha Testing 狀態 ---
+            glEnable(GL_ALPHA_TEST)
+            # 設置 Alpha 函數：只有當像素的 Alpha 值大於閾值時才通過
+            glAlphaFunc(GL_GREATER, ALPHA_TEST_THRESHOLD)
+
+            # --- 設置紋理狀態 ---
+            glEnable(GL_TEXTURE_2D)
+            glBindTexture(GL_TEXTURE_2D, texture_id)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+            glColor4f(1.0, 1.0, 1.0, 1.0) # 使用白色確保紋理顏色
+
+            # Alpha Testing 時，通常不需要禁用光照（除非你特意想要無光照效果）
+            # glEnable(GL_LIGHTING) # 可以保持光照啟用
+
+            # Alpha Testing 時，必須啟用深度寫入，像不透明物體一樣處理
+            glDepthMask(GL_TRUE)
+            # 不需要啟用 GL_BLEND
+            # glDisable(GL_BLEND)
+
+        else:
+            # 沒有紋理，禁用紋理和 Alpha 測試，繪製純色
+            glDisable(GL_TEXTURE_2D)
+            glDisable(GL_ALPHA_TEST) # 確保禁用
+            r, g, b = TREE_FALLBACK_COLOR
+            glColor3f(r, g, b)
+            # 繪製純色時，保持深度寫入開啟
+            glDepthMask(GL_TRUE)
+            # 繪製純色時，通常啟用光照
+            glEnable(GL_LIGHTING)
 
 
+        # --- 繪製兩個交叉的面片 (繪製邏輯不變) ---
+        glPushMatrix()
+        glTranslatef(x, y, z)
+        glBegin(GL_QUADS)
+        # 面片 1: 沿 X 軸
+        if has_texture: glTexCoord2f(0.0, 0.0); glVertex3f(-half_width, 0,      0)
+        else: glVertex3f(-half_width, 0,      0)
+        if has_texture: glTexCoord2f(1.0, 0.0); glVertex3f( half_width, 0,      0)
+        else: glVertex3f( half_width, 0,      0)
+        if has_texture: glTexCoord2f(1.0, 1.0); glVertex3f( half_width, height, 0)
+        else: glVertex3f( half_width, height, 0)
+        if has_texture: glTexCoord2f(0.0, 1.0); glVertex3f(-half_width, height, 0)
+        else: glVertex3f(-half_width, height, 0)
+        # 面片 2: 沿 Z 軸
+        if has_texture: glTexCoord2f(0.0, 0.0); glVertex3f(0,      0,      -half_width)
+        else: glVertex3f(0,      0,      -half_width)
+        if has_texture: glTexCoord2f(1.0, 0.0); glVertex3f(0,      0,       half_width)
+        else: glVertex3f(0,      0,       half_width)
+        if has_texture: glTexCoord2f(1.0, 1.0); glVertex3f(0,      height,  half_width)
+        else: glVertex3f(0,      height,  half_width)
+        if has_texture: glTexCoord2f(0.0, 1.0); glVertex3f(0,      height, -half_width)
+        else: glVertex3f(0,      height, -half_width)
+        glEnd()
+        glPopMatrix()
+
+    finally:
+        # --- 恢復之前保存的 OpenGL 狀態 ---
+        glPopAttrib()
+        # 確保紋理單元狀態乾淨
+        glBindTexture(GL_TEXTURE_2D, 0)
+
+# def draw_tree(x, y, z, height):
+#     # (Logic unchanged)
+#     trunk_height = height * 0.6; leaves_height = height * 0.4
+#     glPushMatrix(); glTranslatef(x, y, z)
+#     # Trunk
+#     if tree_bark_tex and glIsTexture(tree_bark_tex): glBindTexture(GL_TEXTURE_2D, tree_bark_tex); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
+#     else: glDisable(GL_TEXTURE_2D); glColor3f(0.5, 0.35, 0.05)
+#     quadric = gluNewQuadric();
+#     if quadric: gluQuadricTexture(quadric, GL_TRUE); gluQuadricNormals(quadric, GLU_SMOOTH); glPushMatrix(); glRotatef(-90, 1, 0, 0); gluCylinder(quadric, TREE_TRUNK_RADIUS, TREE_TRUNK_RADIUS * 0.8, trunk_height, CYLINDER_SLICES//2, 1); glPopMatrix(); gluDeleteQuadric(quadric)
+#     else: print("Error creating quadric for tree trunk.")
+#     # Leaves
+#     if tree_leaves_tex and glIsTexture(tree_leaves_tex): glBindTexture(GL_TEXTURE_2D, tree_leaves_tex); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
+#     else: glDisable(GL_TEXTURE_2D); glColor3f(0.1, 0.5, 0.1)
+#     glPushMatrix(); glTranslatef(0, trunk_height, 0)
+#     quadric = gluNewQuadric();
+#     if quadric: gluQuadricTexture(quadric, GL_TRUE); gluQuadricNormals(quadric, GLU_SMOOTH); glPushMatrix(); glRotatef(-90, 1, 0, 0); gluCylinder(quadric, TREE_LEAVES_RADIUS, 0, leaves_height * 1.5, CYLINDER_SLICES, 5); glPopMatrix(); gluDeleteQuadric(quadric)
+#     else: print("Error creating quadric for tree leaves.")
+#     glPopMatrix(); glPopMatrix()
+#     glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
+
+def draw_hill(center_x, center_z, peak_height, base_radius, resolution=20, texture_id=None, uscale=10.0, vscale=10.0):
+    """
+    繪製一個基於餘弦插值的山丘。
+
+    Args:
+        center_x, center_z: 山峰中心的 XZ 座標。
+        peak_height: 山峰相對於基底 (y=0) 的高度。
+        base_radius: 山丘基底的半徑。
+        resolution: 山丘網格的精細度 (例如 20x20 個四邊形)。
+        texture_id: 應用於山丘的紋理 ID (如果為 None 則不使用紋理)。
+        uscale, vscale: 紋理在 U 和 V 方向上的重複次數。
+    """
+    # --- 參數驗證 ---
+    if peak_height <= 0 or base_radius <= 0 or resolution < 2:
+        return
+
+    # --- 紋理設定 ---
+    if texture_id is not None and glIsTexture(texture_id):
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        glEnable(GL_TEXTURE_2D)
+        # 設置紋理環繞方式，REPEAT 比較常用於地形
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+        glColor4f(1.0, 1.0, 1.0, 1.0) # 確保紋理顏色不受glColor影響
+    else:
+        glDisable(GL_TEXTURE_2D)
+        # 如果沒有紋理，可以設置一個預設顏色，例如棕色或綠色
+        glColor3f(0.4, 0.5, 0.3) # 示例：深綠色
+
+    # --- 網格生成與繪製 ---
+    # 我們使用 GL_TRIANGLE_STRIP 來繪製，效率較高
+    for i in range(resolution): # 沿著 Z 方向 (或者說半徑方向的一個維度)
+        glBegin(GL_TRIANGLE_STRIP)
+        for j in range(resolution + 1): # 沿著 X 方向 (或者說半徑方向的另一個維度)
+            for k in range(2): # 每個網格點處理兩次，形成條帶 (i,j) 和 (i+1, j)
+                current_i = i + k
+                # 計算當前點在 [-1, 1] x [-1, 1] 範圍內的標準化座標
+                nx = (j / resolution) * 2.0 - 1.0
+                nz = (current_i / resolution) * 2.0 - 1.0
+
+                # 縮放到實際的世界座標 (相對於中心點)
+                world_dx = nx * base_radius
+                world_dz = nz * base_radius
+
+                # 計算到中心的水平距離
+                distance = math.sqrt(world_dx**2 + world_dz**2)
+
+                # 計算高度 (使用餘弦插值)
+                height = 0.0
+                if distance <= base_radius:
+                    height = peak_height * 0.5 * (math.cos(math.pi * distance / base_radius) + 1.0)
+
+                # 計算實際世界座標
+                world_x = center_x + world_dx
+                world_z = center_z + world_dz
+                world_y = height # 高度直接是 Y 座標 (假設基底在 Y=0)
+
+                # --- 計算近似法向量 ---
+                # 為了簡化，我們先給一個朝上的法向量，之後可以改進
+                # 更精確的方法是計算數值導數或使用解析導數（如果插值函數可導）
+                # 這裡使用一個簡單的近似：根據坡度稍微傾斜法向量
+                normal_x = 0.0
+                normal_y = 1.0
+                normal_z = 0.0
+                if distance > 1e-6 and distance <= base_radius:
+                     # 導數的近似值 (未歸一化)
+                     slope_factor = -peak_height * 0.5 * math.pi / base_radius * math.sin(math.pi * distance / base_radius)
+                     # 將斜率分配到 x 和 z 方向
+                     normal_x = - (world_dx / distance) * slope_factor
+                     normal_z = - (world_dz / distance) * slope_factor
+                     # y 分量保持為 1 (近似)，然後歸一化
+                     norm = math.sqrt(normal_x**2 + 1.0**2 + normal_z**2)
+                     if norm > 1e-6:
+                         normal_x /= norm
+                         normal_y /= norm
+                         normal_z /= norm
+
+                glNormal3f(normal_x, normal_y, normal_z)
+
+                # --- 計算紋理座標 ---
+                # 將 [-radius, +radius] 映射到 [0, U] 和 [0, V]
+                u = (world_dx / (2.0 * base_radius) + 0.5) * uscale
+                v = (world_dz / (2.0 * base_radius) + 0.5) * vscale
+                glTexCoord2f(u, v)
+
+                # --- 繪製頂點 ---
+                glVertex3f(world_x, world_y, world_z)
+        glEnd() # 結束當前的 TRIANGLE_STRIP
+
+    # --- 恢復狀態 ---
+    glBindTexture(GL_TEXTURE_2D, 0) # 解綁紋理
+    # 繪製結束後不需要禁用 GL_TEXTURE_2D，交給調用者管理
+    
 # --- draw_scene_objects (unchanged) ---
 def draw_scene_objects(scene):
+#     glEnable(GL_BLEND)
     # (Logic unchanged)
     glColor3f(1.0, 1.0, 1.0)
     # Buildings
@@ -409,12 +591,19 @@ def draw_scene_objects(scene):
         glPopMatrix();
         glPopMatrix()
     # Trees
-    glColor3f(1.0, 1.0, 1.0)
+# 注意：我們這裡不再設置全局 glColor，因為 draw_tree 內部會處理顏色
+#     glColor3f(1.0, 1.0, 1.0)
     for item in scene.trees:
         line_num, tree_data = item # 先解包出 行號 和 原始數據元組
         # 再從原始數據元組解包出繪製所需變數
-        x, y, z, height = tree_data
-        draw_tree(x, y, z, height)
+        # --- 修改：解包新的數據元組結構 ---
+        try:
+            # 結構: (world_x, world_y, world_z, height, tex_id, tex_file)
+            x, y, z, height, tex_id, tex_file = tree_data
+        except ValueError:
+            print(f"警告: 解包 tree 數據時出錯 (來源行: {line_num})")
+            continue # 跳過這個損壞的數據
+        draw_tree(x, y, z, height, texture_id=tex_id)
 
     # Spheres
     glColor3f(1.0, 1.0, 1.0) # 設置預設顏色或從物件數據讀取
@@ -443,7 +632,26 @@ def draw_scene_objects(scene):
                     u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)
 
         glPopMatrix()
-    
+
+    # --- Draw Hills ---
+    glColor3f(1.0, 1.0, 1.0) # 重設顏色，draw_hill 內部會處理紋理或顏色
+    for item in scene.hills:
+        line_num, hill_data = item # 解包行號和數據
+        try:
+            # 解包 hill_data (與 scene_parser 中打包時一致)
+            (cx, cz, height, radius, tex_id, uscale, vscale, tex_file) = hill_data
+        except ValueError:
+             print(f"警告: 解包 hill 數據時出錯 (來源行: {line_num})")
+             continue # 跳過這個物件
+
+        # 不需要 Push/Pop Matrix，因為 draw_hill 使用絕對座標
+        # 可以直接調用繪製函數
+        draw_hill(cx, cz, height, radius,
+                  resolution=10, # 可以將解析度設為可配置或常數
+                  texture_id=tex_id,
+                  uscale=uscale, vscale=vscale)
+        
+#     glDisable(GL_BLEND)
 # --- draw_tram_cab (unchanged) ---
 def draw_tram_cab(tram, camera):
     # (Logic unchanged)

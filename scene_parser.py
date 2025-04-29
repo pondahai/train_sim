@@ -27,8 +27,9 @@ COMMAND_HINTS = {
     "curve": ["    cmd    ", "radius", "angle°", "grad‰"],
     "building": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "w", "d", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
     "cylinder": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "rad", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
-    "tree": ["    cmd    ", "rel_x", "rel_y", "rel_z", "height"],
+    "tree": ["    cmd    ", "rel_x", "rel_y", "rel_z", "height", "tex?"],
     "sphere": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "radius", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
+    "hill": ["    cmd    ", "cx", "height", "cz", "radius", "tex?", "uSc?", "vSc?"], # <--- 新增這一行
     # Add other commands if they exist
 }
 
@@ -47,6 +48,7 @@ class Scene:
         #  u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file) <-- Added tex_file
         self.cylinders = []
         self.spheres = []
+        self.hills = [] # [(line_num, (center_x, center_z, peak_height, base_radius, tex_id, uscale, vscale, tex_file)), ...]
         # Store the explicit start position/angle if provided
         self.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
         self.start_angle_deg = 0.0 # Store in degrees for potential reference
@@ -72,6 +74,7 @@ class Scene:
         self.buildings = []
         self.trees = []
         self.cylinders = []
+        self.hills = []
         self.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
         self.start_angle_deg = 0.0
         # --- Reset Minimap Info ---
@@ -268,13 +271,39 @@ def _parse_scene_content(lines_list, load_textures=True):
                 
             elif command == "tree":
                  # (Logic unchanged)
-                if len(parts) < 5: print(f"警告: 第 {line_num} 行 'tree' 指令參數不足。"); continue
-                try: rel_x, rel_y, rel_z = map(float, parts[1:4]); height = float(parts[4])
-                except ValueError: print(f"警告: 第 {line_num} 行 'tree' 指令的參數無效。"); continue
-                origin_angle = relative_origin_angle_rad; cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
-                world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
-                world_x = relative_origin_pos[0] + world_offset_x; world_y = relative_origin_pos[1] + rel_y; world_z = relative_origin_pos[2] + world_offset_z
-                obj_data_tuple = (world_x, world_y, world_z, height)
+                if len(parts) < 5:
+                    print(f"警告: 第 {line_num} 行 'tree' 指令參數不足。");
+                    continue
+                try:
+                    rel_x, rel_y, rel_z = map(float, parts[1:4]);
+                    height = float(parts[4])
+                    if height <= 0:
+                        print(f"警告: 第 {line_num} 行 'tree' 高度 ({height}) 必須為正數。");
+                        continue
+                except ValueError:
+                    print(f"警告: 第 {line_num} 行 'tree' 指令的基本參數無效。");
+                    continue
+                # --- 新增：解析可選的紋理檔名 ---
+                # 假設第 5 個參數 (索引 5) 是紋理檔名
+                tex_file = parts[5] if len(parts) > 5 else "tree_leaves.png" # 可以用預設的樹葉紋理或新的 "tree_billboard.png"
+
+                # --- 新增：載入紋理 (如果需要) ---
+                tex_id = None
+                if load_textures and texture_loader:
+                    tex_id = texture_loader.load_texture(tex_file)
+                    if tex_id is None: # 載入失敗
+                        # print(f"提示: 第 {line_num} 行 'tree' 無法載入紋理 '{tex_file}'。將不使用紋理。")
+                        pass # 改為靜默處理，draw_tree 會處理 tex_id is None 的情況
+                # --- 座標轉換 (保持不變) ---
+                origin_angle = relative_origin_angle_rad;
+                cos_a = math.cos(origin_angle);
+                sin_a = math.sin(origin_angle)
+                world_offset_x = rel_z * cos_a + rel_x * sin_a;
+                world_offset_z = rel_z * sin_a - rel_x * cos_a
+                world_x = relative_origin_pos[0] + world_offset_x;
+                world_y = relative_origin_pos[1] + rel_y;
+                world_z = relative_origin_pos[2] + world_offset_z
+                obj_data_tuple = (world_x, world_y, world_z, height, tex_id, tex_file)
                 new_scene.trees.append((line_num, obj_data_tuple))
                 
             elif command == "sphere":
@@ -351,8 +380,57 @@ def _parse_scene_content(lines_list, load_textures=True):
                 # 添加到場景列表
                 new_scene.spheres.append((line_num, obj_data_tuple))
 
+            elif command == "hill":
+                # Hill 參數: center_x center_z peak_height base_radius [texture_file] [tex_u_scale] [tex_v_scale]
+                base_param_count = 4 # cx, cz, height, radius
+                min_parts = 1 + base_param_count
+                if len(parts) < min_parts:
+                    print(f"警告: 第 {line_num} 行 'hill' 指令參數不足 (需要至少 {min_parts} 個)。"); continue
+
+                try:
+                    center_x = float(parts[1])
+                    peak_height = float(parts[2])
+                    center_z = float(parts[3])
+                    base_radius = float(parts[4])
+                    if peak_height <= 0 or base_radius <= 0:
+                        print(f"警告: 第 {line_num} 行 'hill' 高度 ({peak_height}) 和半徑 ({base_radius}) 必須為正數。"); continue
+                except ValueError:
+                    print(f"警告: 第 {line_num} 行 'hill' 指令的基本參數無效。"); continue
+
+                # 解析可選紋理和縮放參數
+                tex_param_start_index = 5
+                tex_file = parts[tex_param_start_index] if len(parts) > tex_param_start_index else "grass.png" # 預設山丘紋理
+                try:
+                    # 注意索引：第6個參數是 uscale，第7個是 vscale
+                    uscale = float(parts[tex_param_start_index + 1]) if len(parts) > tex_param_start_index + 1 else 10.0 # 預設紋理重複 10x10 次
+                    vscale = float(parts[tex_param_start_index + 2]) if len(parts) > tex_param_start_index + 2 else 10.0
+                except ValueError:
+                    print(f"警告: 第 {line_num} 行 'hill' 紋理縮放參數無效。將使用預設值。")
+                    uscale, vscale = 10.0, 10.0 # 重設為預設值
+
+                # 驗證 scale (必須為正)
+                if uscale <= 0: print(f"警告: 第 {line_num} 行 'hill' uscale ({uscale}) 必須為正數。已重設為 10.0。"); uscale = 10.0
+                if vscale <= 0: print(f"警告: 第 {line_num} 行 'hill' vscale ({vscale}) 必須為正數。已重設為 10.0。"); vscale = 10.0
+
+                # 載入紋理 (如果需要)
+                tex_id = None
+                if load_textures and texture_loader:
+                    tex_id = texture_loader.load_texture(tex_file)
+                    # 可以選擇性地添加 tex_id 為 None 時的警告
+
+                # 打包數據元組 (中心座標, 高度, 半徑, 紋理資訊, 原始檔名)
+                hill_data = (
+                    center_x, center_z, peak_height, base_radius,
+                    tex_id, uscale, vscale, tex_file # 包含檔名
+                )
+                # 添加到場景列表
+                new_scene.hills.append((line_num, hill_data))
+
             else:
+                # ... (原有的未知指令警告) ...
                 print(f"警告: 第 {line_num} 行無法識別的指令 '{command}'")
+
+
 
         except Exception as e: # Catch potential errors
              print(f"警告: 處理第 {line_num} 行時發生內部錯誤 ('{line}'): {e}")
