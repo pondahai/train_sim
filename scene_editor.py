@@ -116,7 +116,9 @@ class MinimapGLWidget(QGLWidget):
                 self._view_center_z,
                 self._view_range,
                 w, h,
-                highlight_line_nums=self._highlight_line_numbers # 傳遞集合
+                self._is_dragging,
+                highlight_line_nums=self._highlight_line_numbers, # 傳遞集合
+                
             )
         except Exception as e:
             print(f"Error calling draw_editor_preview: {e}")
@@ -187,6 +189,7 @@ class MinimapGLWidget(QGLWidget):
         if event.button() == Qt.LeftButton and self._is_dragging:
             self._is_dragging = False
             self.setCursor(Qt.ArrowCursor)
+            self.update()
 
     def wheelEvent(self, event):
         delta = event.angleDelta().y()

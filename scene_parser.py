@@ -382,7 +382,7 @@ def _parse_scene_content(lines_list, load_textures=True):
 
             elif command == "hill":
                 # Hill 參數: center_x center_z peak_height base_radius [texture_file] [tex_u_scale] [tex_v_scale]
-                base_param_count = 4 # cx, height, radius, cz
+                base_param_count = 4 # cx, height, cz, radius
                 min_parts = 1 + base_param_count
                 if len(parts) < min_parts:
                     print(f"警告: 第 {line_num} 行 'hill' 指令參數不足 (需要至少 {min_parts} 個)。"); continue

@@ -21,7 +21,7 @@ from numba import jit, njit # Keep numba imports
 
 # --- Minimap Constants ---
 # Constants for Simulator
-MINIMAP_SIZE = 500
+MINIMAP_SIZE = 300
 MINIMAP_PADDING = 10
 DEFAULT_MINIMAP_RANGE = 200.0
 MINIMAP_MIN_RANGE = 10.0
@@ -650,7 +650,7 @@ def draw_simulator_minimap(scene: Scene, tram: Tram, screen_width, screen_height
 
 
 # --- Editor Runtime Drawing (DYNAMIC RENDERING RESTORED) ---
-def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, widget_width, widget_height, highlight_line_nums: set = set()):
+def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, widget_width, widget_height, is_dragging, highlight_line_nums: set = set()):
     """ Draws the EDITOR minimap preview using DYNAMIC rendering (like original). """
     global editor_bg_texture_id, editor_bg_width_px, editor_bg_height_px, editor_current_map_filename
 
@@ -885,10 +885,11 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text=f"{wy:.1f}";
                 label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR
                 try:
-                    text_surface=coord_label_font.render(label_text,True,label_color);
-                    dx=center[0] + 0;
-                    dy=center[1];
-                    renderer._draw_text_texture(text_surface,dx,dy);
+                    if True and not is_dragging:
+                        text_surface=coord_label_font.render(label_text,True,label_color);
+                        dx=center[0] + 0;
+                        dy=center[1];
+                        renderer._draw_text_texture(text_surface,dx,dy);
                 except Exception as e:
                     pass
                 
@@ -987,10 +988,11 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text=f"{wy:.1f}";
                 label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR
                 try:
-                    text_surface=coord_label_font.render(label_text,True,label_color);
-                    dx=center_map_x + 0;
-                    dy=center_map_y;
-                    renderer._draw_text_texture(text_surface,dx,dy);
+                    if True and not is_dragging:
+                        text_surface=coord_label_font.render(label_text,True,label_color);
+                        dx=center_map_x + 0;
+                        dy=center_map_y;
+                        renderer._draw_text_texture(text_surface,dx,dy);
                 except Exception as e:
                     pass
                 
@@ -1071,7 +1073,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text = f"{wy:.1f}"
                 label_color = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_SPHERE_LABEL_COLOR
                 try:
-                    if coord_label_font: # 確保字體存在
+                    if coord_label_font and not is_dragging: # 確保字體存在
                         text_surface = coord_label_font.render(label_text, True, label_color)
                         # 計算繪製位置 (例如在圓心右側)
                         dx = center_map_x + radius_map + 2 # 加一點偏移
@@ -1136,7 +1138,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     # --- 繪製高度標籤 ---
                     label_text = f"{peak_height:.1f}m" # 格式化高度
                     try:
-                        if coord_label_font: # 確保字體已設置
+                        if coord_label_font and not is_dragging: # 確保字體已設置
                             text_surface = coord_label_font.render(label_text, True, label_color)
                             # 計算標籤位置 (例如，中心點右上方)
                             dx = center_map_x + 5 # 稍微偏右
@@ -1170,7 +1172,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 #                 glPopAttrib() # 恢復狀態
 
     # --- 4. Draw Track Lines Dynamically ---
-    if scene and scene.track:
+    if scene and scene.track and not is_dragging:
         glLineWidth(2.0) # Match simulator track overlay width?
         glPointSize(8)
         glColor3fv(MINIMAP_TRACK_COLOR)

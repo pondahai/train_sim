@@ -26,8 +26,8 @@ from tram import Tram
 
 
 # --- Settings (Keep) ---
-SCREEN_WIDTH = 1200
-SCREEN_HEIGHT = 600
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 400
 TARGET_FPS = 60
 SCENE_CHECK_INTERVAL = 2.0 # Seconds for checking scene.txt updates
 
