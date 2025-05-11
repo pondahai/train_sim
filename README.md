@@ -288,7 +288,7 @@ curve <radius> <angle°> [<grad‰>]
 #   <grad‰>   ：坡度（千分比），可選，預設 0。
 
 
-# 6.1. 視覺分岔軌道 (依附於前一個 straight 或 curve 指令的末端)
+# 7. 視覺分岔軌道 (依附於前一個 straight 或 curve 指令的末端)
 # 注意：此指令不影響電車實際行駛路徑，僅為視覺效果。
 vbranch <type> <param1> <param2> [<grad‰>] [<direction_modifier>]
 # 參數說明：
@@ -319,7 +319,7 @@ vbranch <type> <param1> <param2> [<grad‰>] [<direction_modifier>]
 
 # --- 物件指令 (座標相對於上一個 start 或軌道段的結束點) ---
 
-# 7. 建築物 (立方體)
+# 8. 建築物 (立方體)
 building <rel_x> <rel_y> <rel_z> <rx°> <rel_ry°> <rz°> <w> <d> <h> [<tex>] [<uOf>] [<vOf>] [<tAng°>] [<uvMd>] [<uSc>] [<vSc>]
 # 參數說明：
 #   <rel_x/y/z> ：相對於當前原點的座標 (x:左右, y:上下, z:前後)。
@@ -333,24 +333,24 @@ building <rel_x> <rel_y> <rel_z> <rx°> <rel_ry°> <rz°> <w> <d> <h> [<tex>] [<
 #   <uvMd>      ：UV 模式 (0:世界單位, 1:物件比例, 預設 1)。
 #   <uSc/vSc>   ：UV 縮放 (模式 0 時有效, 預設 1.0)。
 
-# 8. 圓柱體
+# 9. 圓柱體
 cylinder <rel_x> <rel_y> <rel_z> <rx°> <rel_ry°> <rz°> <rad> <h> [<tex>] [<uOf>] [<vOf>] [<tAng°>] [<uvMd>] [<uSc>] [<vSc>]
 # 參數說明：(同 building，除了 <rad>/<h> 代表半徑/高度)
 #   <tex> (預設 "metal.png")
 
-# 9. 樹木 (使用交叉面片 Billboard)
+# 10. 樹木 (使用交叉面片 Billboard)
 tree <rel_x> <rel_y> <rel_z> <height> [<tex>]
 # 參數說明：
 #   <rel_x/y/z> ：相對於當前原點的座標。
 #   <height>    ：樹的高度。
 #   <tex>       ：樹木貼圖檔名 (建議使用帶 Alpha 通道的 PNG，預設 "tree_billboard.png" 或 "tree_leaves.png")。
 
-# 10. 球體
+# 11. 球體
 sphere <rel_x> <rel_y> <rel_z> <rx°> <rel_ry°> <rz°> <radius> [<tex>] [<uOf>] [<vOf>] [<tAng°>] [<uvMd>] [<uSc>] [<vSc>]
 # 參數說明：(同 building，除了 <radius> 代表球體半徑)
 #   <tex> (預設 "default_sphere.png")
 
-# 11. 山丘 (基於中心點生成)
+# 12. 山丘 (基於中心點生成)
 hill <cx> <height> <cz> <radius> [<tex>] [<uSc>] [<vSc>]
 # 參數說明：
 #   <cx>, <cz>  ：山峰最高點的世界座標 X, Z。
