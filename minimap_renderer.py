@@ -7,6 +7,7 @@ import numpy as math # Keep consistent
 import os
 # --- 新增：導入 Pillow ---
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None # 移除限制
 # ------------------------
 
 # --- Import shared modules/constants ---
@@ -15,7 +16,7 @@ from tram import Tram
 import renderer # Needed for colors, sizes, grid constants, _draw_text_texture, 
 # Import texture loader directly for editor preview background loading
 import texture_loader
-from track import TRACK_WIDTH
+from track import TRACK_WIDTH, TrackSegment # --- MODIFICATION: Import TrackSegment for type hinting if needed ---
 
 from numba import jit, njit # Keep numba imports
 
@@ -32,9 +33,10 @@ MINIMAP_PLAYER_SIZE = 12
 # Constants for Editor Preview (mostly shared, some might differ)
 EDITOR_BG_COLOR = (0.15, 0.15, 0.18, 1.0) # Editor preview BG fallback if no map texture
 # Constants used by BOTH (Simulator Overlay & Editor Dynamic Draw)
-MINIMAP_TRACK_COLOR = (1.0, 0.0, 0.0) # White track
+MINIMAP_TRACK_COLOR = (1.0, 0.0, 0.0)
+MINIMAP_BRANCH_TRACK_COLOR = (1.0, 0.5, 0.0)
 MINIMAP_GRID_SCALE = 50.0
-MINIMAP_GRID_LABEL_COLOR = (255, 255, 0, 180)
+MINIMAP_GRID_LABEL_COLOR = (255, 155, 0, 180)
 # MINIMAP_GRID_LABEL_FONT_SIZE = 24
 MINIMAP_GRID_LABEL_OFFSET = 2
 #
@@ -347,6 +349,34 @@ def _render_static_elements_to_fbo(scene: Scene):
         if current_grid_z >= world_min_z: x1, y1 = _world_to_fbo_coords(world_min_x, current_grid_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h); x2, y2 = _world_to_fbo_coords(world_max_x, current_grid_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h); glBegin(GL_LINES); glVertex2f(x1, y1); glVertex2f(x2, y2); glEnd()
         current_grid_z += MINIMAP_GRID_SCALE
 
+    # --- START OF MODIFICATION: Add Track rendering to FBO bake ---
+    if scene and scene.track:
+        
+        glLineWidth(1.0) # Thinner lines for baked track
+
+        for segment in scene.track.segments:
+            # Draw main segment points
+            if segment.points and len(segment.points) >= 2:
+                glColor3fv(MINIMAP_TRACK_COLOR) # Use the defined track color
+                glBegin(GL_LINE_STRIP)
+                for point_world in segment.points:
+                    map_x, map_y = _world_to_fbo_coords(point_world[0], point_world[2], world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+                    glVertex2f(map_x, map_y)
+                glEnd()
+            
+            # Draw visual branches of the segment
+            if hasattr(segment, 'visual_branches') and segment.visual_branches:
+                glColor3fv(MINIMAP_BRANCH_TRACK_COLOR) # Use the defined track color
+                for branch_def in segment.visual_branches:
+                    if branch_def.get('points') and len(branch_def['points']) >= 2:
+                        glBegin(GL_LINE_STRIP)
+                        for point_world_branch in branch_def['points']:
+                            map_x_b, map_y_b = _world_to_fbo_coords(point_world_branch[0], point_world_branch[2], world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+                            glVertex2f(map_x_b, map_y_b)
+                        glEnd()
+    # --- END OF MODIFICATION ---
+
+
     # Buildings (Filled Quads)
     glColor4fv(MINIMAP_BAKE_BUILDING_COLOR)
     for item in scene.buildings:
@@ -497,7 +527,7 @@ def _render_static_elements_to_fbo(scene: Scene):
     glColor4fv(MINIMAP_BAKE_HILL_COLOR) # 使用半透明的烘焙顏色
     glLineWidth(1.5) # 可以稍微加粗一點輪廓線
     num_circle_segments_bake = 24 # 烘焙時可以用稍高精度
-    glBegin(GL_LINE_LOOP) # 繪製線圈
+
     for item in scene.hills:
         line_num, hill_data = item
         try:
@@ -512,12 +542,13 @@ def _render_static_elements_to_fbo(scene: Scene):
         radius_px = radius * (fbo_w / world_w) # 使用寬度比例
 
         if radius_px > 0.5: # 簡單剔除太小的圓
+            glBegin(GL_LINE_LOOP) # Draw each hill's outline as a separate loop
             # 繪製圓形線圈
             for i in range(num_circle_segments_bake): # 不需要 +1，因為是 LINE_LOOP
                 angle = 2 * math.pi * i / num_circle_segments_bake
                 glVertex2f(center_fbo_x + radius_px * math.cos(angle),
                            center_fbo_y + radius_px * math.sin(angle))
-    glEnd() # 結束所有山丘輪廓的繪製
+            glEnd() # 結束所有山丘輪廓的繪製
     glLineWidth(1.0) # 恢復默認線寬
 
     print("靜態元素 FBO 繪製完成。")
@@ -849,7 +880,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             line_num, bldg = item # 解包行號和數據元組
             b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg # 解包數據元組
             
-            glPushAttrib(GL_CURRENT_BIT) # 保存當前顏色狀態
+            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # 保存當前顏色狀態
             try:
                 if line_num in highlight_line_nums:
                     glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
@@ -885,7 +916,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text=f"{wy:.1f}";
                 label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR
                 try:
-                    if True and not is_dragging:
+                    if coord_label_font and not is_dragging:
                         text_surface=coord_label_font.render(label_text,True,label_color);
                         dx=center[0] + 0;
                         dy=center[1];
@@ -902,8 +933,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             line_num, cyl = item # 解包行號和數據元組
             # 注意來自scene_parser那邊的剖析結果的變數排列
             c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, *_ = cyl;
-            
-            glPushAttrib(GL_CURRENT_BIT) # 保存當前顏色狀態
+            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # --- MODIFICATION: Added GL_LINE_BIT ---
             try:
                 if line_num in highlight_line_nums:
                     glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
@@ -988,7 +1018,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text=f"{wy:.1f}";
                 label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR
                 try:
-                    if True and not is_dragging:
+                    if coord_label_font and not is_dragging: # --- MODIFICATION: Added coord_label_font check ---
                         text_surface=coord_label_font.render(label_text,True,label_color);
                         dx=center_map_x + 0;
                         dy=center_map_y;
@@ -1037,7 +1067,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             glEnd() # 結束高亮點的繪製
 
         # --- Draw Spheres (Circles) Dynamically ---
-        num_circle_segments = 12 # 圓的邊數 (可以根據縮放調整)
+        num_circle_segments_sphere = 12 # 圓的邊數 (可以根據縮放調整)
         for item in scene.spheres:
             line_num, sphere_data = item
             # 解包獲取必要資訊 (世界座標 wx, wy, wz 和半徑 cr)
@@ -1063,8 +1093,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 radius_map = cr * scale
                 if radius_map > 0.5: # 簡單的細節剔除
                     glBegin(GL_LINE_LOOP)
-                    for i in range(num_circle_segments):
-                        angle = 2 * math.pi * i / num_circle_segments
+                    for i in range(num_circle_segments_sphere):
+                        angle = 2 * math.pi * i / num_circle_segments_sphere
                         glVertex2f(center_map_x + radius_map * math.cos(angle),
                                    center_map_y + radius_map * math.sin(angle))
                     glEnd()
@@ -1085,7 +1115,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 glPopAttrib() # 恢復顏色和線寬
 
         # --- Draw Hills Dynamically (Editor Preview) ---
-        num_circle_segments_editor = 16 # 編輯器預覽用稍低精度即可
+        num_circle_segments_editor_hill = 16 # 編輯器預覽用稍低精度即可
         hill_center_point_size = 6.0 # 中心點標記大小
         for item in scene.hills:
             line_num, hill_data = item
@@ -1129,8 +1159,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     # --- 繪製基底圓形輪廓 ---
                     if radius_map > 1.0: # 只繪製有意義大小的輪廓
                         glBegin(GL_LINE_LOOP)
-                        for i in range(num_circle_segments_editor):
-                            angle = 2 * math.pi * i / num_circle_segments_editor
+                        for i in range(num_circle_segments_editor_hill):
+                            angle = 2 * math.pi * i / num_circle_segments_editor_hill
                             glVertex2f(center_map_x + radius_map * math.cos(angle),
                                        center_map_y + radius_map * math.sin(angle))
                         glEnd()
@@ -1153,91 +1183,119 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         # 恢復默認點大小
         glPointSize(1.0)
 
-#                     glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
-#                     glLineWidth(3.0) # 可以加粗線條
-#                 else:
-#                     glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
-#                     glLineWidth(2.0) # 正常線條寬度
-            
+    # --- START OF MODIFICATION: Draw Track Lines Dynamically (including vbranches) ---
+    if scene and scene.track and not is_dragging: # Keep not is_dragging to reduce visual noise during drag
+        default_track_line_width = 1.0  # --- MODIFICATION: Thinner default track lines ---
+        highlight_track_line_width = 2.0 # --- MODIFICATION: Thicker highlight ---
+        default_point_size = 4.0 # --- MODIFICATION: Smaller points ---
+        highlight_point_size = 6.0 # --- MODIFICATION: Slightly larger highlighted points ---
 
-        
-#         print("DEBUG: Before glEnd for Trees")
-#         glEnd();
-#         glPointSize(1.0)
-
-
-#             glPushAttrib(GL_CURRENT_BIT) # 保存當前顏色狀態
-#             try:
-#             finally:
-#                 glPopAttrib() # 恢復狀態
-
-    # --- 4. Draw Track Lines Dynamically ---
-    if scene and scene.track and not is_dragging:
-        glLineWidth(2.0) # Match simulator track overlay width?
-        glPointSize(8)
-        glColor3fv(MINIMAP_TRACK_COLOR)
-        
         for segment in scene.track.segments:
-            if not segment.points or len(segment.points) < 2:
-                continue
-            
-            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT | GL_POINT_BIT) # 保存狀態
-            is_highlighted = False # Flag to track highlighting
-            try:
-                line_num = segment.source_line_number # 獲取行號
-                is_highlighted = line_num in highlight_line_nums
-                if is_highlighted:
-                    glColor3f(1.0, 1.0, 0.0) # 高亮顏色
-                    glLineWidth(4.0)        # 加粗線條
-                    glPointSize(10)         # 加大端點
-                else:
-                    glColor3fv(MINIMAP_TRACK_COLOR)
-                    glLineWidth(2.0)
-                    glPointSize(8)
-            
-#             print(f"segment: {dir(segment)}")
-                # 畫出軌道端點
-                map_x, map_y = _world_to_map_coords_adapted(segment.points[0][0], segment.points[0][2],
-                                                    view_center_x, view_center_z,
-                                                    widget_center_x_screen, widget_center_y_screen, scale)
-#                 glPointSize(8)
-                glBegin(GL_POINTS)
-#                 glColor3fv(MINIMAP_TRACK_COLOR)
-                glVertex2f(map_x, map_y)  # 
-                glEnd()        
+            # --- Draw Main Segment ---
+            if segment.points and len(segment.points) >= 2:
+                glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT | GL_POINT_BIT)
+                is_highlighted_main = False
+                try:
+                    line_num_main = segment.source_line_number 
+                    is_highlighted_main = line_num_main in highlight_line_nums
+                    if is_highlighted_main:
+                        glColor3f(1.0, 1.0, 0.0) 
+                        glLineWidth(highlight_track_line_width)        
+                        glPointSize(highlight_point_size)         
+                    else:
+                        glColor3fv(MINIMAP_TRACK_COLOR)
+                        glLineWidth(default_track_line_width)
+                        glPointSize(default_point_size)
+                
+                    # Draw start point of main segment
+                    map_x_main_start, map_y_main_start = _world_to_map_coords_adapted(
+                        segment.points[0][0], segment.points[0][2],
+                        view_center_x, view_center_z,
+                        widget_center_x_screen, widget_center_y_screen, scale)
+                    glBegin(GL_POINTS)
+                    glVertex2f(map_x_main_start, map_y_main_start)
+                    glEnd()        
 
-                glBegin(GL_LINE_STRIP)
-                for point_world in segment.points:
-                    widget_x, widget_y = _world_to_map_coords_adapted(point_world[0], point_world[2], view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-                    glVertex2f(widget_x, widget_y)
-                glEnd()
+                    # Draw line strip for main segment
+                    glBegin(GL_LINE_STRIP)
+                    for point_world in segment.points:
+                        widget_x, widget_y = _world_to_map_coords_adapted(
+                            point_world[0], point_world[2], 
+                            view_center_x, view_center_z, 
+                            widget_center_x_screen, widget_center_y_screen, scale)
+                        glVertex2f(widget_x, widget_y)
+                    glEnd()
+                finally:
+                    glPopAttrib()
 
-            finally:
-                glPopAttrib() # 恢復狀態
-
-            # 顯示端點info
-            # 'ballast_vao', 'ballast_vbo', 'ballast_vertices',
-            # 'cleanup_buffers', 'create_gl_buffers', 'end_angle_rad',
-            # 'end_pos', 'get_position_orientation', 'gradient_factor',
-            # 'horizontal_length', 'length', 'orientations', 'points',
-            # 'rail_left_vao', 'rail_left_vbo', 'rail_left_vertices',
-            # 'rail_right_vao', 'rail_right_vbo', 'rail_right_vertices',
-            # 'setup_buffers', 'start_angle_rad', 'start_pos'
-            is_curve = True if segment.start_angle_rad != segment.end_angle_rad else False
-            if is_curve:
-                track_info = f"C {segment.angle_deg:.1f}°"
-            else:
-                track_info = f"S {segment.horizontal_length}"
-            label_text=f"{track_info} y: {segment.points[0][1]:.1f}";
-            label_color = (255, 255, 0, 255) if is_highlighted else MINIMAP_GRID_LABEL_COLOR
-            try:
-                text_surface=coord_label_font.render(label_text,True,label_color);
-                dx=map_x + 5;
-                dy=map_y;
-                renderer._draw_text_texture(text_surface,dx,dy);
-            except Exception as e:
-                pass
+                # Display info for main segment (reuse map_x_main_start, map_y_main_start)
+                is_curve = True if hasattr(segment, 'angle_deg') and abs(segment.angle_deg) > 0.1 else False # Check if it's a curve
+                if is_curve:
+                    track_info = f"C {segment.angle_deg:.1f}°"
+                else: # Assuming straight
+                    track_info = f"S {segment.horizontal_length:.1f}" # Use horizontal_length
+                
+                label_text_main=f"{track_info} y: {segment.points[0][1]:.1f} ({line_num_main})"; # Added line_num
+                label_color_main = (255, 255, 0, 255) if is_highlighted_main else MINIMAP_GRID_LABEL_COLOR
+                try:
+                    if coord_label_font: # Check if font exists
+                        text_surface_main=coord_label_font.render(label_text_main,True,label_color_main);
+                        dx_main=map_x_main_start + 5;
+                        dy_main=map_y_main_start;
+                        renderer._draw_text_texture(text_surface_main,dx_main,dy_main);
+                except Exception as e: pass
             
+            # --- Draw Visual Branches ---
+            if hasattr(segment, 'visual_branches') and segment.visual_branches:
+                for idx, branch_def in enumerate(segment.visual_branches):
+                    if branch_def.get('points') and len(branch_def['points']) >= 2:
+                        glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT | GL_POINT_BIT)
+                        # For vbranch, highlighting could be based on the parent segment's line number
+                        # or if vbranch itself had a source_line_number (if it were a separate command in table)
+                        # Assuming for now, vbranch highlight follows parent segment.
+                        is_highlighted_branch = segment.source_line_number in highlight_line_nums 
+                        try:
+                            if is_highlighted_branch: # Highlight branch if parent is highlighted
+                                glColor3f(1.0, 0.8, 0.2) # Slightly different highlight (e.g., orange)
+                                glLineWidth(highlight_track_line_width * 0.8) # Maybe slightly thinner than main highlight  
+                                glPointSize(highlight_point_size * 0.8)      
+                            else:
+                                glColor3fv(MINIMAP_TRACK_COLOR) # Or a different color for vbranches
+                                glLineWidth(default_track_line_width * 0.8) # Slightly thinner than main track
+                                glPointSize(default_point_size * 0.8)
+                            
+                            # Draw start point of the branch
+                            map_x_branch_start, map_y_branch_start = _world_to_map_coords_adapted(
+                                branch_def['points'][0][0], branch_def['points'][0][2],
+                                view_center_x, view_center_z,
+                                widget_center_x_screen, widget_center_y_screen, scale)
+                            glBegin(GL_POINTS)
+                            glVertex2f(map_x_branch_start, map_y_branch_start)
+                            glEnd()
+
+                            # Draw line strip for the branch
+                            glBegin(GL_LINE_STRIP)
+                            for point_world_b in branch_def['points']:
+                                widget_x_b, widget_y_b = _world_to_map_coords_adapted(
+                                    point_world_b[0], point_world_b[2], 
+                                    view_center_x, view_center_z, 
+                                    widget_center_x_screen, widget_center_y_screen, scale)
+                                glVertex2f(widget_x_b, widget_y_b)
+                            glEnd()
+                        finally:
+                            glPopAttrib()
+                        
+                        # Optional: Display info for vbranch (could get cluttered)
+                        # branch_type_char = "S" if branch_def.get("type") == "straight" else "C"
+                        # branch_len_or_angle = branch_def.get("length") if branch_type_char == "S" else branch_def.get("angle_deg")
+                        # label_text_branch = f"v{branch_type_char} {branch_len_or_angle:.1f} y:{branch_def['points'][0][1]:.1f}"
+                        # label_color_branch = (255,220,0,180) if is_highlighted_branch else (200,200,200,150)
+                        # try:
+                        #     if coord_label_font:
+                        #         text_surface_b = coord_label_font.render(label_text_branch, True, label_color_branch)
+                        #         renderer._draw_text_texture(text_surface_b, map_x_branch_start + 7, map_y_branch_start - 7)
+                        # except: pass
+    # --- END OF MODIFICATION ---
                 
                 
     # --- 5. Draw Grid Labels Dynamically ---
@@ -1253,12 +1311,12 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             if 0<=widget_x<=widget_width:
                 label_text=f"{current_gx:.0f}";
                 try:
-                    text_surface=grid_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
-                    dx=widget_x-text_surface.get_width()/2;
-                    dy=MINIMAP_GRID_LABEL_OFFSET;
-                    renderer._draw_text_texture(text_surface,dx,dy);
-                except Exception as e:
-                    pass
+                    if grid_label_font: # Check font
+                        text_surface=grid_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
+                        dx=widget_x-text_surface.get_width()/2;
+                        dy=MINIMAP_GRID_LABEL_OFFSET; # Labels at bottom
+                        renderer._draw_text_texture(text_surface,dx,dy);
+                except Exception as e: pass
             current_gx += MINIMAP_GRID_SCALE
         current_gz=start_gz
         while current_gz <= world_t:
@@ -1266,12 +1324,12 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             if 0<=widget_y<=widget_height:
                 label_text=f"{current_gz:.0f}";
                 try:
-                    text_surface=grid_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
-                    dx=MINIMAP_GRID_LABEL_OFFSET;
-                    dy=widget_y-text_surface.get_height()/2;
-                    renderer._draw_text_texture(text_surface,dx,dy);
-                except Exception as e:
-                    pass
+                    if grid_label_font: # Check font
+                        text_surface=grid_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
+                        dx=MINIMAP_GRID_LABEL_OFFSET; # Labels at left
+                        dy=widget_y-text_surface.get_height()/2;
+                        renderer._draw_text_texture(text_surface,dx,dy);
+                except Exception as e: pass
             current_gz += MINIMAP_GRID_SCALE
 
 

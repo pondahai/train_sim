@@ -41,7 +41,17 @@ class TrackSegment:
         self.rail_right_vao = None
         # ---------------------------
         self.source_line_number = -1 # 初始化為無效值
-        
+
+        # --- START OF MODIFICATION ---
+        # 新增：用於存儲視覺分岔的定義和資源
+        self.visual_branches = [] # 列表，每個元素是一個字典，描述一個視覺分岔
+                                  # 例如: {'type': 'straight', 'angle_deg': 30, 'length': 50, 'gradient': 0,
+                                  #        'points': [], 'orientations': [],
+                                  #        'ballast_vertices': [], 'rail_left_vertices': [], 'rail_right_vertices': [],
+                                  #        'ballast_vao': None, 'rail_left_vao': None, 'rail_right_vao': None,
+                                  #        'ballast_vbo': None, 'rail_left_vbo': None, 'rail_right_vbo': None}
+        # --- END OF MODIFICATION ---
+
     def _generate_render_vertices(self):
         """
         根據 self.points 和 self.orientations 生成繪製用的頂點。
@@ -63,11 +73,17 @@ class TrackSegment:
         for i in range(len(self.points) - 1):
             p1 = self.points[i]
             o1_xz = self.orientations[i]
-            r1_xz = np.array([-o1_xz[1], 0, o1_xz[0]]) # Right vector at p1
+            # --- MODIFICATION: Ensure o1_xz is a numpy array for vector operations ---
+            o1_xz_arr = np.asarray(o1_xz)
+            r1_xz = np.array([-o1_xz_arr[1], 0, o1_xz_arr[0]]) # Right vector at p1
+            # --- END OF MODIFICATION ---
 
             p2 = self.points[i+1]
             o2_xz = self.orientations[i+1]
-            r2_xz = np.array([-o2_xz[1], 0, o2_xz[0]]) # Right vector at p2
+            # --- MODIFICATION: Ensure o2_xz is a numpy array for vector operations ---
+            o2_xz_arr = np.asarray(o2_xz)
+            r2_xz = np.array([-o2_xz_arr[1], 0, o2_xz_arr[0]]) # Right vector at p2
+            # --- END OF MODIFICATION ---
 
             # 計算四個角點 (道碴頂面)
             bl1 = p1 + r1_xz * half_ballast_width + np.array([0, BALLAST_HEIGHT, 0])
@@ -88,26 +104,95 @@ class TrackSegment:
         for i in range(len(self.points)):
             pos = self.points[i]
             orient_xz = self.orientations[i]
-            right_vec_xz = np.array([-orient_xz[1], 0, orient_xz[0]])
+            # --- MODIFICATION: Ensure orient_xz is a numpy array for vector operations ---
+            orient_xz_arr = np.asarray(orient_xz)
+            right_vec_xz = np.array([-orient_xz_arr[1], 0, orient_xz_arr[0]])
+            # --- END OF MODIFICATION ---
 
             p_rail_left = pos + right_vec_xz * half_track_width + np.array([0, rail_height_offset, 0])
             p_rail_right = pos - right_vec_xz * half_track_width + np.array([0, rail_height_offset, 0])
 
             self.rail_left_vertices.extend(p_rail_left.tolist())
             self.rail_right_vertices.extend(p_rail_right.tolist())
+        # --- START OF MODIFICATION ---
+        # 生成視覺分岔的頂點數據
+        for branch_def in self.visual_branches:
+            # 在添加 visual_branch 的定義時，scene_parser 會將解析後的參數放入 branch_def
+            # 現在我們需要根據這些參數計算該分岔的 points 和 orientations
+            # 這些計算應該在 self.end_pos 和 self.end_angle_rad 確定後進行
+            # 為簡化，我們假設 branch_def 中已經預先填充了 'points' 和 'orientations'
+            # 或者在這裡動態計算它們
+
+            # 重置/初始化當前 branch 的頂點列表
+            branch_def['ballast_vertices'] = []
+            branch_def['rail_left_vertices'] = []
+            branch_def['rail_right_vertices'] = []
+
+            if not branch_def.get('points') or len(branch_def['points']) < 2:
+                print(f"Warning: Visual branch has insufficient points. Skipping vertex generation for this branch.")
+                continue
+
+            # 使用與主軌道類似的邏輯生成分岔的頂點
+            branch_points = branch_def['points']
+            branch_orientations = branch_def['orientations']
+
+            # 生成分岔道碴頂點
+            for i in range(len(branch_points) - 1):
+                p1_b = branch_points[i]
+                o1_xz_b = np.asarray(branch_orientations[i]) # 確保是 numpy array
+                r1_xz_b = np.array([-o1_xz_b[1], 0, o1_xz_b[0]])
+
+                p2_b = branch_points[i+1]
+                o2_xz_b = np.asarray(branch_orientations[i+1]) # 確保是 numpy array
+                r2_xz_b = np.array([-o2_xz_b[1], 0, o2_xz_b[0]])
+
+                bl1_b = p1_b + r1_xz_b * half_ballast_width + np.array([0, BALLAST_HEIGHT, 0])
+                br1_b = p1_b - r1_xz_b * half_ballast_width + np.array([0, BALLAST_HEIGHT, 0])
+                bl2_b = p2_b + r2_xz_b * half_ballast_width + np.array([0, BALLAST_HEIGHT, 0])
+                br2_b = p2_b - r2_xz_b * half_ballast_width + np.array([0, BALLAST_HEIGHT, 0])
+
+                branch_def['ballast_vertices'].extend(bl1_b.tolist())
+                branch_def['ballast_vertices'].extend(br1_b.tolist())
+                branch_def['ballast_vertices'].extend(bl2_b.tolist())
+                branch_def['ballast_vertices'].extend(bl2_b.tolist())
+                branch_def['ballast_vertices'].extend(br1_b.tolist())
+                branch_def['ballast_vertices'].extend(br2_b.tolist())
+
+            # 生成分岔軌道頂點
+            for i in range(len(branch_points)):
+                pos_b = branch_points[i]
+                orient_xz_b = np.asarray(branch_orientations[i]) # 確保是 numpy array
+                right_vec_xz_b = np.array([-orient_xz_b[1], 0, orient_xz_b[0]])
+
+                p_rail_left_b = pos_b + right_vec_xz_b * half_track_width + np.array([0, rail_height_offset, 0])
+                p_rail_right_b = pos_b - right_vec_xz_b * half_track_width + np.array([0, rail_height_offset, 0])
+
+                branch_def['rail_left_vertices'].extend(p_rail_left_b.tolist())
+                branch_def['rail_right_vertices'].extend(p_rail_right_b.tolist())
+        # --- END OF MODIFICATION ---
 
     def setup_buffers(self):
         """創建並上傳 VBO/VAO 數據"""
         if not self.ballast_vertices: # 確保頂點已生成
-             print("警告: setup_buffers 被調用，但頂點尚未生成。")
-             return
+             # --- MODIFICATION: Changed print to a more informative warning ---
+             print(f"Warning: Main track vertices not generated for segment (source line: {self.source_line_number}). Skipping main buffer setup.")
+             # We might still want to set up branch buffers if they exist.
+             # --- END OF MODIFICATION ---
+             # return # Don't return early, branches might still need setup
 
-        # 清理舊的緩衝區 (如果存在)
-        self.cleanup_buffers()
+        # 清理舊的緩衝區 (如果存在) - 這裡只清理主軌道的，分岔的單獨處理或在總清理時處理
+        # --- MODIFICATION: Moved specific cleanup to a more general cleanup_buffers call ---
+        # self.cleanup_buffers() # Calling this here might be too soon if branches are not yet processed
+        # It's better to call cleanup_buffers once before any setup.
+        # --- END OF MODIFICATION ---
 
         # --- Ballast VBO/VAO ---
         if self.ballast_vertices:
             ballast_data = np.array(self.ballast_vertices, dtype=np.float32)
+            # --- START OF MODIFICATION: Cleanup specific buffer before regenerating ---
+            if self.ballast_vbo: glDeleteBuffers(1, [self.ballast_vbo]); self.ballast_vbo = None
+            if self.ballast_vao: glDeleteVertexArrays(1, [self.ballast_vao]); self.ballast_vao = None
+            # --- END OF MODIFICATION ---
             self.ballast_vbo = glGenBuffers(1)
             glBindBuffer(GL_ARRAY_BUFFER, self.ballast_vbo)
             glBufferData(GL_ARRAY_BUFFER, ballast_data.nbytes, ballast_data, GL_STATIC_DRAW)
@@ -127,6 +212,10 @@ class TrackSegment:
         # --- Left Rail VBO/VAO ---
         if self.rail_left_vertices:
             rail_left_data = np.array(self.rail_left_vertices, dtype=np.float32)
+            # --- START OF MODIFICATION: Cleanup specific buffer before regenerating ---
+            if self.rail_left_vbo: glDeleteBuffers(1, [self.rail_left_vbo]); self.rail_left_vbo = None
+            if self.rail_left_vao: glDeleteVertexArrays(1, [self.rail_left_vao]); self.rail_left_vao = None
+            # --- END OF MODIFICATION ---
             self.rail_left_vbo = glGenBuffers(1)
             glBindBuffer(GL_ARRAY_BUFFER, self.rail_left_vbo)
             glBufferData(GL_ARRAY_BUFFER, rail_left_data.nbytes, rail_left_data, GL_STATIC_DRAW)
@@ -142,6 +231,10 @@ class TrackSegment:
         # --- Right Rail VBO/VAO ---
         if self.rail_right_vertices:
             rail_right_data = np.array(self.rail_right_vertices, dtype=np.float32)
+            # --- START OF MODIFICATION: Cleanup specific buffer before regenerating ---
+            if self.rail_right_vbo: glDeleteBuffers(1, [self.rail_right_vbo]); self.rail_right_vbo = None
+            if self.rail_right_vao: glDeleteVertexArrays(1, [self.rail_right_vao]); self.rail_right_vao = None
+            # --- END OF MODIFICATION ---
             self.rail_right_vbo = glGenBuffers(1)
             glBindBuffer(GL_ARRAY_BUFFER, self.rail_right_vbo)
             glBufferData(GL_ARRAY_BUFFER, rail_right_data.nbytes, rail_right_data, GL_STATIC_DRAW)
@@ -154,26 +247,119 @@ class TrackSegment:
             glBindVertexArray(0)
             glBindBuffer(GL_ARRAY_BUFFER, 0)
 
+        # --- START OF MODIFICATION ---
+        # 為每個視覺分岔創建 VBO/VAO
+        for branch_def in self.visual_branches:
+            # Ballast for branch
+            if branch_def.get('ballast_vertices'):
+                b_ballast_data = np.array(branch_def['ballast_vertices'], dtype=np.float32)
+                if branch_def.get('ballast_vbo'): glDeleteBuffers(1, [branch_def['ballast_vbo']])
+                if branch_def.get('ballast_vao'): glDeleteVertexArrays(1, [branch_def['ballast_vao']])
+                branch_def['ballast_vbo'] = glGenBuffers(1)
+                glBindBuffer(GL_ARRAY_BUFFER, branch_def['ballast_vbo'])
+                glBufferData(GL_ARRAY_BUFFER, b_ballast_data.nbytes, b_ballast_data, GL_STATIC_DRAW)
+                branch_def['ballast_vao'] = glGenVertexArrays(1)
+                glBindVertexArray(branch_def['ballast_vao'])
+                glBindBuffer(GL_ARRAY_BUFFER, branch_def['ballast_vbo'])
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), ctypes.c_void_p(0))
+                glEnableVertexAttribArray(0)
+                glBindVertexArray(0); glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+            # Left Rail for branch
+            if branch_def.get('rail_left_vertices'):
+                b_rail_l_data = np.array(branch_def['rail_left_vertices'], dtype=np.float32)
+                if branch_def.get('rail_left_vbo'): glDeleteBuffers(1, [branch_def['rail_left_vbo']])
+                if branch_def.get('rail_left_vao'): glDeleteVertexArrays(1, [branch_def['rail_left_vao']])
+                branch_def['rail_left_vbo'] = glGenBuffers(1)
+                glBindBuffer(GL_ARRAY_BUFFER, branch_def['rail_left_vbo'])
+                glBufferData(GL_ARRAY_BUFFER, b_rail_l_data.nbytes, b_rail_l_data, GL_STATIC_DRAW)
+                branch_def['rail_left_vao'] = glGenVertexArrays(1)
+                glBindVertexArray(branch_def['rail_left_vao'])
+                glBindBuffer(GL_ARRAY_BUFFER, branch_def['rail_left_vbo'])
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), ctypes.c_void_p(0))
+                glEnableVertexAttribArray(0)
+                glBindVertexArray(0); glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+            # Right Rail for branch
+            if branch_def.get('rail_right_vertices'):
+                b_rail_r_data = np.array(branch_def['rail_right_vertices'], dtype=np.float32)
+                if branch_def.get('rail_right_vbo'): glDeleteBuffers(1, [branch_def['rail_right_vbo']])
+                if branch_def.get('rail_right_vao'): glDeleteVertexArrays(1, [branch_def['rail_right_vao']])
+                branch_def['rail_right_vbo'] = glGenBuffers(1)
+                glBindBuffer(GL_ARRAY_BUFFER, branch_def['rail_right_vbo'])
+                glBufferData(GL_ARRAY_BUFFER, b_rail_r_data.nbytes, b_rail_r_data, GL_STATIC_DRAW)
+                branch_def['rail_right_vao'] = glGenVertexArrays(1)
+                glBindVertexArray(branch_def['rail_right_vao'])
+                glBindBuffer(GL_ARRAY_BUFFER, branch_def['rail_right_vbo'])
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), ctypes.c_void_p(0))
+                glEnableVertexAttribArray(0)
+                glBindVertexArray(0); glBindBuffer(GL_ARRAY_BUFFER, 0)
+        # --- END OF MODIFICATION ---
+
 #         print(f"緩衝區已創建: Ballast VAO={self.ballast_vao}, Rail Left VAO={self.rail_left_vao}, Rail Right VAO={self.rail_right_vao}")
 
     def create_gl_buffers(self):
-        self.setup_buffers()
+        # --- START OF MODIFICATION: Calculate visual branch points BEFORE generating vertices for them ---
+        # 這一步驟很重要，確保在 _generate_render_vertices 之前，
+        # self.visual_branches 列表中的每個字典都已經計算並填充了 'points' 和 'orientations' 鍵。
+        # 這個計算邏輯應該在 scene_parser 解析完 vbranch 指令並將其添加到父 segment 後，
+        # 或者在父 segment 的幾何（特別是 end_pos, end_angle_rad）最終確定後執行。
+        # 為了簡化，我們假設 scene_parser 在填充 self.visual_branches 字典時，
+        # 會立即根據父 segment 的當前末端狀態計算好這些點。
+        # 或者，我們可以在 TrackSegment 的構造函數或一個專門的方法中完成這個計算。
+        # 現在，為了讓 setup_buffers 能工作，我們需要確保這些點已經存在。
+
+        # 這裡是一個概念性的點計算循環，實際的計算應該基於 vbranch 的類型和參數
+        # 這個循環應該在 scene_parser 將 vbranch 數據添加到 segment 時執行，或者在 TrackSegment 內部某個初始化階段執行。
+        # **** 這個計算邏輯實際上更適合放在 scene_parser.py 中，當它解析 vbranch 指令時，
+        # **** 利用當時的 parent_segment.end_pos 和 parent_segment.end_angle_rad 來計算。
+        # **** TrackSegment 只需要存儲這些預計算好的點。
+
+        # 假設 scene_parser 已經填充了 branch_def['points'] 和 branch_def['orientations']
+        # 下面的 _generate_render_vertices 會使用它們
+        # --- END OF MODIFICATION ---
+        
+        # --- MODIFICATION: Call cleanup_buffers once before any setup ---
+        self.cleanup_buffers() # Clean up ALL old buffers first
+        # --- END OF MODIFICATION ---
+
+        self._generate_render_vertices() # This will now also generate vertices for visual_branches
+        self.setup_buffers() # This will now also set up buffers for visual_branches
         
     def cleanup_buffers(self):
         """刪除 OpenGL 緩衝區"""
-        if self.ballast_vao: glDeleteVertexArrays(1, [self.ballast_vao])
-        if self.rail_left_vao: glDeleteVertexArrays(1, [self.rail_left_vao])
-        if self.rail_right_vao: glDeleteVertexArrays(1, [self.rail_right_vao])
-        if self.ballast_vbo: glDeleteBuffers(1, [self.ballast_vbo])
-        if self.rail_left_vbo: glDeleteBuffers(1, [self.rail_left_vbo])
-        if self.rail_right_vbo: glDeleteBuffers(1, [self.rail_right_vbo])
-        self.ballast_vao, self.rail_left_vao, self.rail_right_vao = None, None, None
-        self.ballast_vbo, self.rail_left_vbo, self.rail_right_vbo = None, None, None
+        # 清理主軌道緩衝區
+        if self.ballast_vao: glDeleteVertexArrays(1, [self.ballast_vao]); self.ballast_vao = None
+        if self.rail_left_vao: glDeleteVertexArrays(1, [self.rail_left_vao]); self.rail_left_vao = None
+        if self.rail_right_vao: glDeleteVertexArrays(1, [self.rail_right_vao]); self.rail_right_vao = None
+        if self.ballast_vbo: glDeleteBuffers(1, [self.ballast_vbo]); self.ballast_vbo = None
+        if self.rail_left_vbo: glDeleteBuffers(1, [self.rail_left_vbo]); self.rail_left_vbo = None
+        if self.rail_right_vbo: glDeleteBuffers(1, [self.rail_right_vbo]); self.rail_right_vbo = None
+        # self.ballast_vao, self.rail_left_vao, self.rail_right_vao = None, None, None # Redundant after setting to None above
+        # self.ballast_vbo, self.rail_left_vbo, self.rail_right_vbo = None, None, None # Redundant
+
+        # --- START OF MODIFICATION ---
+        # 清理所有視覺分岔的緩衝區
+        for branch_def in self.visual_branches:
+            if branch_def.get('ballast_vao'): glDeleteVertexArrays(1, [branch_def['ballast_vao']]); branch_def['ballast_vao'] = None
+            if branch_def.get('rail_left_vao'): glDeleteVertexArrays(1, [branch_def['rail_left_vao']]); branch_def['rail_left_vao'] = None
+            if branch_def.get('rail_right_vao'): glDeleteVertexArrays(1, [branch_def['rail_right_vao']]); branch_def['rail_right_vao'] = None
+            if branch_def.get('ballast_vbo'): glDeleteBuffers(1, [branch_def['ballast_vbo']]); branch_def['ballast_vbo'] = None
+            if branch_def.get('rail_left_vbo'): glDeleteBuffers(1, [branch_def['rail_left_vbo']]); branch_def['rail_left_vbo'] = None
+            if branch_def.get('rail_right_vbo'): glDeleteBuffers(1, [branch_def['rail_right_vbo']]); branch_def['rail_right_vbo'] = None
+        # --- END OF MODIFICATION ---
 
     def get_position_orientation(self, distance_on_segment):
         """根據在該段上的距離，獲取位置和朝向"""
+        # --- MODIFICATION: Ensure self.points is a numpy array for vectorized operations if possible ---
+        # However, interpolation logic below handles list of numpy arrays correctly.
+        # Just ensure points added to self.points are numpy arrays.
+        # --- END OF MODIFICATION ---
         if not self.points or self.length == 0:
-            return self.start_pos, (math.cos(self.start_angle_rad), math.sin(self.start_angle_rad))
+            # --- MODIFICATION: Ensure orientations are also handled if points are missing ---
+            start_orientation_xz = np.asarray(self.orientations[0] if self.orientations else (math.cos(self.start_angle_rad), math.sin(self.start_angle_rad)))
+            return self.start_pos, (start_orientation_xz[0], start_orientation_xz[1])
+            # --- END OF MODIFICATION ---
 
         # 計算索引 (確保在範圍內)
         # 根據 *實際* 段長度計算比例
@@ -182,8 +368,18 @@ class TrackSegment:
         index = max(0, min(index, len(self.points) - 2)) # 確保至少有下一個點
 
         # 計算在兩個內插點之間的比例 t
-        segment_len_per_point = self.length / (len(self.points) - 1)
-        t = (distance_on_segment - index * segment_len_per_point) / segment_len_per_point
+        # --- MODIFICATION: Handle potential division by zero if len(self.points) == 1 ---
+        num_point_segments = len(self.points) - 1
+        if num_point_segments <= 0: # Should not happen if len(self.points) >= 2
+            t = 0.0
+            # --- MODIFICATION: Ensure orientations are also handled ---
+            current_orientation_xz = np.asarray(self.orientations[index] if self.orientations and index < len(self.orientations) else (math.cos(self.start_angle_rad), math.sin(self.start_angle_rad)))
+            return self.points[index], (current_orientation_xz[0], current_orientation_xz[1])
+            # --- END OF MODIFICATION ---
+        else:
+            segment_len_per_point = self.length / num_point_segments
+            t = (distance_on_segment - index * segment_len_per_point) / segment_len_per_point
+        # --- END OF MODIFICATION ---
         t = max(0.0, min(1.0, t)) # 限制 t 在 0 到 1 之間
 
         # 線性內插 3D 位置
@@ -193,15 +389,23 @@ class TrackSegment:
 
         # 線性內插朝向 (簡單方法，對劇烈轉彎可能不完美，但適用於本例)
         # 可以考慮用球面線性內插 (Slerp) 獲取更平滑的旋轉
-        orient1 = self.orientations[index]
-        orient2 = self.orientations[index + 1]
-        interpolated_orient = orient1 + t * (orient2 - orient1)
-        norm = np.linalg.norm(interpolated_orient)
+        # --- MODIFICATION: Ensure orientations list is valid and accessed correctly ---
+        if index < len(self.orientations) and (index + 1) < len(self.orientations):
+            orient1_arr = np.asarray(self.orientations[index])
+            orient2_arr = np.asarray(self.orientations[index + 1])
+            interpolated_orient_arr = orient1_arr + t * (orient2_arr - orient1_arr)
+        elif self.orientations: # Fallback to the first or last known orientation
+            interpolated_orient_arr = np.asarray(self.orientations[index if index < len(self.orientations) else -1])
+        else: # Ultimate fallback
+            interpolated_orient_arr = np.array([math.cos(self.start_angle_rad), math.sin(self.start_angle_rad)])
+
+        norm = np.linalg.norm(interpolated_orient_arr)
         if norm > 1e-6: # 避免除以零
-             interpolated_orient /= norm # 重新標準化
+             interpolated_orient_arr /= norm # 重新標準化
+        # --- END OF MODIFICATION ---
 
         # 朝向向量 (forward_x, forward_z)
-        forward_vector_xz  = (interpolated_orient[0], interpolated_orient[1])
+        forward_vector_xz  = (interpolated_orient_arr[0], interpolated_orient_arr[1])
 
         return interpolated_pos, forward_vector_xz
 
@@ -215,8 +419,9 @@ class StraightTrack(TrackSegment):
         self.length = math.sqrt(self.horizontal_length**2 + vertical_change**2)
         
         # 水平方向向量
-        forward_vector_xz = np.array([math.cos(start_angle_rad_xz), math.sin(start_angle_rad_xz)])
-        forward_vector_horizontal_3d = np.array([forward_vector_xz[0], 0, forward_vector_xz[1]])
+        forward_vector_xz_tuple = (math.cos(start_angle_rad_xz), math.sin(start_angle_rad_xz)) # Keep as tuple for orientations list
+        forward_vector_xz_arr = np.array(forward_vector_xz_tuple) # Use array for calculations
+        forward_vector_horizontal_3d = np.array([forward_vector_xz_arr[0], 0, forward_vector_xz_arr[1]])
         
 #         self.end_pos = self.start_pos + forward_vector * length
 #         self.end_angle_rad = start_angle_rad
@@ -227,6 +432,10 @@ class StraightTrack(TrackSegment):
         self.end_angle_rad = start_angle_rad_xz # 水平角度不變
 
         # 計算內插點 (包含 Y 坐標)
+        # --- MODIFICATION: points and orientations lists are initialized in base class, append to them ---
+        # self.points = []
+        # self.orientations = []
+        # --- END OF MODIFICATION ---
         num_steps = max(2, int(self.horizontal_length * INTERPOLATION_STEPS / 5))
         if num_steps < 2: num_steps = 2
         for i in range(num_steps):
@@ -236,31 +445,38 @@ class StraightTrack(TrackSegment):
             point_pos = self.start_pos + forward_vector_horizontal_3d * current_horizontal_dist \
                        + np.array([0, current_vertical_change, 0])
             self.points.append(point_pos)
-            self.orientations.append(forward_vector_xz) # 水平方向
+            self.orientations.append(forward_vector_xz_tuple) # 水平方向
 
-        self.points = [] # 重置以確保從頭開始填充
-        self.orientations = []
-        forward_vector_xz = np.array([np.cos(start_angle_rad_xz), np.sin(start_angle_rad_xz)])
-        forward_vector_horizontal_3d = np.array([forward_vector_xz[0], 0, forward_vector_xz[1]])
-        vertical_change = self.horizontal_length * self.gradient_factor
-        self.end_pos = self.start_pos + forward_vector_horizontal_3d * self.horizontal_length \
-                       + np.array([0, vertical_change, 0])
-        self.end_angle_rad = start_angle_rad_xz
-        # --- 重新計算內插點 ---
-        num_steps = max(2, int(self.horizontal_length * INTERPOLATION_STEPS / 5)) # 調整 INTERPOLATION_STEPS 值可能影響效能與平滑度
-        if num_steps < 2: num_steps = 2
-        for i in range(num_steps):
-             t = i / (num_steps - 1)
-             current_horizontal_dist = t * self.horizontal_length
-             current_vertical_change = current_horizontal_dist * self.gradient_factor
-             point_pos = self.start_pos + forward_vector_horizontal_3d * current_horizontal_dist \
-                        + np.array([0, current_vertical_change, 0])
-             self.points.append(point_pos)
-             self.orientations.append(forward_vector_xz) # Orientation is constant
-        # --- 生成繪圖頂點 ---
-        self._generate_render_vertices()
-        # --- 創建 VBO/VAO ---
-#         self.setup_buffers() # 在初始化時就創建好
+        # --- REMOVED REDUNDANT CALCULATION BLOCK ---
+        # The points and orientations are now calculated correctly in the block above.
+        # The _generate_render_vertices call is now part of create_gl_buffers
+        # self._generate_render_vertices()
+        # self.setup_buffers() # in create_gl_buffers now
+        # --- END OF REMOVAL ---
+
+#         self.points = [] # 重置以確保從頭開始填充
+#         self.orientations = []
+#         forward_vector_xz = np.array([np.cos(start_angle_rad_xz), np.sin(start_angle_rad_xz)])
+#         forward_vector_horizontal_3d = np.array([forward_vector_xz[0], 0, forward_vector_xz[1]])
+#         vertical_change = self.horizontal_length * self.gradient_factor
+#         self.end_pos = self.start_pos + forward_vector_horizontal_3d * self.horizontal_length \
+#                        + np.array([0, vertical_change, 0])
+#         self.end_angle_rad = start_angle_rad_xz
+#         # --- 重新計算內插點 ---
+#         num_steps = max(2, int(self.horizontal_length * INTERPOLATION_STEPS / 5)) # 調整 INTERPOLATION_STEPS 值可能影響效能與平滑度
+#         if num_steps < 2: num_steps = 2
+#         for i in range(num_steps):
+#              t = i / (num_steps - 1)
+#              current_horizontal_dist = t * self.horizontal_length
+#              current_vertical_change = current_horizontal_dist * self.gradient_factor
+#              point_pos = self.start_pos + forward_vector_horizontal_3d * current_horizontal_dist \
+#                         + np.array([0, current_vertical_change, 0])
+#              self.points.append(point_pos)
+#              self.orientations.append(forward_vector_xz) # Orientation is constant
+#         # --- 生成繪圖頂點 ---
+#         self._generate_render_vertices()
+#         # --- 創建 VBO/VAO ---
+# #         self.setup_buffers() # 在初始化時就創建好
 
 class CurveTrack(TrackSegment):
     """彎曲軌道 (增加坡度支持)"""
@@ -281,14 +497,18 @@ class CurveTrack(TrackSegment):
         self.length = self.horizontal_length # 假設行駛距離按水平弧長算 (用於 distance_on_segment)
 
         turn_direction = 1.0 if self.angle_rad > 0 else -1.0
+        # --- MODIFICATION: Ensure start_angle_rad_xz is used for perp_angle consistently ---
         perp_angle = start_angle_rad_xz + turn_direction * math.pi / 2.0
+        # --- END OF MODIFICATION ---
         center_offset_xz = np.array([math.cos(perp_angle), math.sin(perp_angle)]) * self.radius
         # 計算圓心 (假設圓心在同一水平面上)
         self.center_xz = np.array([self.start_pos[0], self.start_pos[2]]) + center_offset_xz
 
         # 計算水平結束角度和位置
         self.end_angle_rad = start_angle_rad_xz + self.angle_rad
+        # --- MODIFICATION: Ensure start_angle_rad_xz is used for end_offset_angle consistently ---
         end_offset_angle = start_angle_rad_xz - turn_direction * math.pi / 2.0 + self.angle_rad
+        # --- END OF MODIFICATION ---
         end_offset_xz = np.array([math.cos(end_offset_angle), math.sin(end_offset_angle)]) * self.radius
         end_pos_xz = self.center_xz + end_offset_xz
 
@@ -297,9 +517,15 @@ class CurveTrack(TrackSegment):
         self.end_pos = np.array([end_pos_xz[0], end_pos_y, end_pos_xz[1]])
 
         # 計算內插點
+        # --- MODIFICATION: points and orientations lists are initialized in base class, append to them ---
+        # self.points = []
+        # self.orientations = []
+        # --- END OF MODIFICATION ---
         num_steps = max(2, int(abs(angle_deg) * INTERPOLATION_STEPS / 5))
         if num_steps < 2: num_steps = 2
+        # --- MODIFICATION: Ensure start_angle_rad_xz is used for start_angle_offset consistently ---
         start_angle_offset = start_angle_rad_xz - turn_direction * math.pi / 2.0
+        # --- END OF MODIFICATION ---
 
         for i in range(num_steps):
             t = i / (num_steps - 1)
@@ -319,50 +545,55 @@ class CurveTrack(TrackSegment):
 
             # 計算該點的水平切線方向 (朝前)
             tangent_angle = current_angle + turn_direction * math.pi / 2.0
-            orientation_vec_xz = np.array([math.cos(tangent_angle), math.sin(tangent_angle)])
-            self.orientations.append(orientation_vec_xz)
+            orientation_vec_xz_tuple = np.array([math.cos(tangent_angle), math.sin(tangent_angle)])
+            self.orientations.append(orientation_vec_xz_tuple)
 
-        self.points = [] # 重置
-        self.orientations = []
-        self.radius = abs(radius)
-        self.angle_rad = np.radians(angle_deg)
-        self.horizontal_length = self.radius * abs(self.angle_rad)
-        vertical_change = self.horizontal_length * self.gradient_factor
-        self.length = self.horizontal_length # Assume driving distance is horizontal arc length
-
-        turn_direction = 1.0 if self.angle_rad > 0 else -1.0
-        perp_angle = start_angle_rad_xz + turn_direction * np.pi / 2.0
-        center_offset_xz = np.array([np.cos(perp_angle), np.sin(perp_angle)]) * self.radius
-        self.center_xz = np.array([self.start_pos[0], self.start_pos[2]]) + center_offset_xz
-
-        self.end_angle_rad = start_angle_rad_xz + self.angle_rad
-        end_offset_angle = start_angle_rad_xz - turn_direction * np.pi / 2.0 + self.angle_rad
-        end_offset_xz = np.array([np.cos(end_offset_angle), np.sin(end_offset_angle)]) * self.radius
-        end_pos_xz = self.center_xz + end_offset_xz
-        end_pos_y = self.start_pos[1] + vertical_change
-        self.end_pos = np.array([end_pos_xz[0], end_pos_y, end_pos_xz[1]])
-
-        # --- 重新計算內插點 ---
-        num_steps = max(2, int(abs(angle_deg) * INTERPOLATION_STEPS / 5))
-        if num_steps < 2: num_steps = 2
-        start_angle_offset = start_angle_rad_xz - turn_direction * np.pi / 2.0
-
-        for i in range(num_steps):
-            t = i / (num_steps - 1)
-            current_angle = start_angle_offset + t * self.angle_rad
-            point_offset_xz = np.array([np.cos(current_angle), np.sin(current_angle)]) * self.radius
-            current_pos_xz = self.center_xz + point_offset_xz
-            current_horizontal_arc_len = t * self.horizontal_length
-            current_vertical_change = current_horizontal_arc_len * self.gradient_factor
-            current_pos_y = self.start_pos[1] + current_vertical_change
-            self.points.append(np.array([current_pos_xz[0], current_pos_y, current_pos_xz[1]]))
-            tangent_angle = current_angle + turn_direction * np.pi / 2.0
-            orientation_vec_xz = np.array([np.cos(tangent_angle), np.sin(tangent_angle)])
-            self.orientations.append(orientation_vec_xz)
-        # --- 生成繪圖頂點 ---
-        self._generate_render_vertices()
-        # --- 創建 VBO/VAO ---
-#         self.setup_buffers() # 在初始化時就創建好
+        # --- REMOVED REDUNDANT CALCULATION BLOCK ---
+        # The points and orientations are now calculated correctly in the block above.
+        # self._generate_render_vertices() # in create_gl_buffers now
+        # self.setup_buffers() # in create_gl_buffers now
+        # --- END OF REMOVAL ---
+#         self.points = [] # 重置
+#         self.orientations = []
+#         self.radius = abs(radius)
+#         self.angle_rad = np.radians(angle_deg)
+#         self.horizontal_length = self.radius * abs(self.angle_rad)
+#         vertical_change = self.horizontal_length * self.gradient_factor
+#         self.length = self.horizontal_length # Assume driving distance is horizontal arc length
+# 
+#         turn_direction = 1.0 if self.angle_rad > 0 else -1.0
+#         perp_angle = start_angle_rad_xz + turn_direction * np.pi / 2.0
+#         center_offset_xz = np.array([np.cos(perp_angle), np.sin(perp_angle)]) * self.radius
+#         self.center_xz = np.array([self.start_pos[0], self.start_pos[2]]) + center_offset_xz
+# 
+#         self.end_angle_rad = start_angle_rad_xz + self.angle_rad
+#         end_offset_angle = start_angle_rad_xz - turn_direction * np.pi / 2.0 + self.angle_rad
+#         end_offset_xz = np.array([np.cos(end_offset_angle), np.sin(end_offset_angle)]) * self.radius
+#         end_pos_xz = self.center_xz + end_offset_xz
+#         end_pos_y = self.start_pos[1] + vertical_change
+#         self.end_pos = np.array([end_pos_xz[0], end_pos_y, end_pos_xz[1]])
+# 
+#         # --- 重新計算內插點 ---
+#         num_steps = max(2, int(abs(angle_deg) * INTERPOLATION_STEPS / 5))
+#         if num_steps < 2: num_steps = 2
+#         start_angle_offset = start_angle_rad_xz - turn_direction * np.pi / 2.0
+# 
+#         for i in range(num_steps):
+#             t = i / (num_steps - 1)
+#             current_angle = start_angle_offset + t * self.angle_rad
+#             point_offset_xz = np.array([np.cos(current_angle), np.sin(current_angle)]) * self.radius
+#             current_pos_xz = self.center_xz + point_offset_xz
+#             current_horizontal_arc_len = t * self.horizontal_length
+#             current_vertical_change = current_horizontal_arc_len * self.gradient_factor
+#             current_pos_y = self.start_pos[1] + current_vertical_change
+#             self.points.append(np.array([current_pos_xz[0], current_pos_y, current_pos_xz[1]]))
+#             tangent_angle = current_angle + turn_direction * np.pi / 2.0
+#             orientation_vec_xz = np.array([np.cos(tangent_angle), np.sin(tangent_angle)])
+#             self.orientations.append(orientation_vec_xz)
+#         # --- 生成繪圖頂點 ---
+#         self._generate_render_vertices()
+#         # --- 創建 VBO/VAO ---
+# #         self.setup_buffers() # 在初始化時就創建好
 
 class Track:
     """管理整個軌道"""
@@ -405,9 +636,14 @@ class Track:
 
         # 如果距離超出總長度 (理論上循環時不應到達這裡，除非不循環)
         # 返回最後一段的末端
+        # --- MODIFICATION: Ensure last_segment.orientations is accessed safely ---
         last_segment = self.segments[-1]
-        end_forward_xz  = (math.cos(last_segment.end_angle_rad), math.sin(last_segment.end_angle_rad))
-        return last_segment.end_pos, end_forward_xz
+        if last_segment.orientations:
+            end_forward_xz_tuple = last_segment.orientations[-1] # Get the last orientation tuple
+        else: # Fallback if orientations list is empty for some reason
+            end_forward_xz_tuple = (math.cos(last_segment.end_angle_rad), math.sin(last_segment.end_angle_rad))
+        return last_segment.end_pos, end_forward_xz_tuple
+        # --- END OF MODIFICATION ---
     
     def __del__(self):
         # 可選：確保在 Track 對象被垃圾回收時清理緩衝區

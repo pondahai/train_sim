@@ -530,7 +530,7 @@ class SceneTableWidget(QTableWidget):
             max_cols = max(1, max_cols) # Ensure at least one column
 
             self.setColumnCount(max_cols+8)
-            self.setHorizontalHeaderLabels([f"P{i}" for i in range(max_cols)]) # Initial generic headers
+            # self.setHorizontalHeaderLabels([f"P{i}" for i in range(max_cols)]) # Initial generic headers
             self.setRowCount(len(lines))
 
             self.blockSignals(True) # Block signals during population
@@ -556,8 +556,15 @@ class SceneTableWidget(QTableWidget):
                 self.blockSignals(False)
 
             self._data_modified = False
-            self._resize_columns_to_header_labels() # Resize after populating
-            self.sceneDataChanged.emit() # Notify that data has changed
+            # --- MODIFICATION: Trigger _on_current_cell_changed to set initial headers ---
+            if self.rowCount() > 0:
+                self._on_current_cell_changed(0,0, -1,-1) # Simulate a cell change to set headers
+            else: # If file was empty or only comments, set default headers
+                 self.setHorizontalHeaderLabels(["Command"] + [f"P{i+1}" for i in range(max_cols-1 if max_cols > 0 else 0)])
+                 self._resize_columns_to_header_labels()
+            # --- END OF MODIFICATION ---
+            # self._resize_columns_to_header_labels() # Called by _on_current_cell_changed or above
+            self.sceneDataChanged.emit() 
 
             # Restore selection/scroll position
             new_row_count = self.rowCount()
@@ -585,7 +592,14 @@ class SceneTableWidget(QTableWidget):
         lines = []
         for row in range(self.rowCount()):
             row_parts = []
-            for col in range(self.columnCount()):
+            # --- MODIFICATION: Iterate only up to the actual number of columns to avoid issues with sparse tables ---
+            # for col in range(self.columnCount()):
+            # Iterate up to the maximum possible columns based on COMMAND_HINTS or a large enough number
+            # to capture all meaningful data, but avoid excessively sparse rows if table column count is huge.
+            # A simpler approach is to stop when an empty cell is encountered after some content.
+            has_content_in_row = False
+            for col in range(self.columnCount()): # Iterate through current table columns
+            # --- END OF MODIFICATION ---
                 item = self.item(row, col)
                 # Append part if item exists and has text
                 if item and item.text():
@@ -636,10 +650,20 @@ class SceneTableWidget(QTableWidget):
         clipboard_text = ""
         for row in rows_to_copy:
             row_data = []
+            # --- MODIFICATION: Iterate only up to actual content for copying ---
+            has_content = False
+            temp_row_parts = []
             for col in range(self.columnCount()):
                 item = self.item(row, col)
-                row_data.append(item.text() if item else "")
-            # Join columns with Tab, add newline for next row
+                cell_text = item.text() if item else ""
+                temp_row_parts.append(cell_text)
+                if cell_text: has_content = True
+            # Trim trailing empty cells from the copied line, but only if there was content
+            if has_content:
+                while temp_row_parts and not temp_row_parts[-1]:
+                    temp_row_parts.pop()
+            row_data = temp_row_parts
+            # --- END OF MODIFICATION ---
             clipboard_text += "\t".join(row_data) + "\n"
 
         if clipboard_text:
@@ -674,19 +698,30 @@ class SceneTableWidget(QTableWidget):
         # Parse clipboard text into rows and columns
         lines = clipboard_text.strip('\n').split('\n')
         pasted_data = [line.split('\t') for line in lines]
+        if not pasted_data: return
 
-        if not pasted_data:
-            return
-
-        self.blockSignals(True) # Block signals during paste
+        self.blockSignals(True) 
         try:
-            col_count = self.columnCount()
+            # --- MODIFICATION: Ensure table has enough columns for pasted data ---
+            max_pasted_cols = 0
+            for row_parts in pasted_data:
+                max_pasted_cols = max(max_pasted_cols, len(row_parts))
+            
+            current_col_count = self.columnCount()
+            if max_pasted_cols > current_col_count:
+                self.setColumnCount(max_pasted_cols)
+                # Update headers for new columns if necessary (though _on_current_cell_changed will do it)
+                # for c_idx in range(current_col_count, max_pasted_cols):
+                #     self.setHorizontalHeaderItem(c_idx, QTableWidgetItem(f"P{c_idx}"))
+            col_count_to_use = self.columnCount() # Use updated column count
+            # --- END OF MODIFICATION ---
+
             num_pasted = 0
             for i, row_parts in enumerate(pasted_data):
                 actual_insert_pos = insert_row_index + i
                 self.insertRow(actual_insert_pos)
                 for col, part in enumerate(row_parts):
-                    if col < col_count: # Only paste up to the table's column count
+                    if col < col_count_to_use: 
                         item = QTableWidgetItem(part)
                         # --- 確保貼上的 Item 也是可編輯的 ---
                         # 假設原始的可編輯性是期望的，如果需要強制，則取消註解
@@ -694,8 +729,7 @@ class SceneTableWidget(QTableWidget):
                         # item.setFlags(flags)
                         # ---------------------------------
                         self.setItem(actual_insert_pos, col, item)
-                # Fill remaining cells if pasted data has fewer columns
-                for col in range(len(row_parts), col_count):
+                for col in range(len(row_parts), col_count_to_use):
                      item = QTableWidgetItem("")
                      # flags = item.flags() | Qt.ItemIsEditable
                      # item.setFlags(flags)
@@ -757,13 +791,12 @@ class SceneTableWidget(QTableWidget):
                 try:
                     num_deleted = 0
                     for row_index in sorted_rows:
-                        # Check if the row is completely empty before deleting (optional check)
-                        if self.is_row_empty(row_index):
-                            self.removeRow(row_index)
-                            num_deleted += 1
-                finally:
-                    self.blockSignals(False)
-
+                        # --- MODIFICATION: Allow deleting non-empty rows as well ---
+                        # if self.is_row_empty(row_index): 
+                        self.removeRow(row_index)
+                        num_deleted += 1
+                        # --- END OF MODIFICATION ---
+                finally: self.blockSignals(False)
                 if num_deleted > 0:
                     self.renumber_vertical_headers() # Update row numbers
                     self._data_modified = True
@@ -788,29 +821,64 @@ class SceneTableWidget(QTableWidget):
                 self.sceneDataChanged.emit()
             self.needUpdate = False # Reset update flag
 
-        # Update horizontal header hints based on the command in the first column
+        # --- MODIFICATION: Ensure self.columnCount() is valid before iterating ---
+        current_table_col_count = self.columnCount()
+        if current_table_col_count == 0 and currentRow >=0 : # If table has rows but no columns yet (e.g. after clear)
+            # This can happen if load_scene_file clears everything and then a cell change is triggered.
+            # Try to set a default of 1 column if none exist.
+            # self.setColumnCount(1) # This might be too aggressive here.
+            # current_table_col_count = self.columnCount()
+            # It's better handled in load_scene_file to ensure columns exist.
+            # For now, if no columns, just use generic headers.
+            if currentRow < 0: # No row selected, use default
+                self.setHorizontalHeaderLabels(["Command"]) # Minimal default
+                self._resize_columns_to_header_labels()
+            return # Avoid further processing if no columns
+        # --- END OF MODIFICATION ---
+
+
         if 0 <= currentRow < self.rowCount():
             command_item = self.item(currentRow, 0)
             command = command_item.text().lower().strip() if command_item else ""
+            
+            # --- MODIFICATION: Use self._command_hints directly ---
             hints = self._command_hints.get(command, [])
-            max_cols = self.columnCount()
+            # --- END OF MODIFICATION ---
+            
+            # --- MODIFICATION: Adjust max_cols based on hints or current table columns ---
+            # Determine the number of headers to show: max of hints length or current table columns
+            # This prevents trying to set headers for non-existent columns if hints are fewer than table columns,
+            # and also allows showing generic Px headers if table has more columns than hints.
+            num_headers_to_set = max(len(hints), current_table_col_count)
+            if command and not hints and current_table_col_count > 0: # Command exists but no hints, use Px for all params
+                num_headers_to_set = current_table_col_count
+            elif not command and current_table_col_count > 0: # No command, selected an empty row?
+                 num_headers_to_set = current_table_col_count
 
             # Prepare new headers
             new_headers = []
-            if not hints: # If command not found or has no hints
-                 new_headers = [f"P{i}" for i in range(max_cols)]
+            if not command and currentRow >=0 : # Empty row selected, or invalid command
+                new_headers = ["Command"] + [f"P{i}" for i in range(1, num_headers_to_set if num_headers_to_set > 0 else 1 )]
+            elif not hints: 
+                 new_headers = [f"P{i}" for i in range(num_headers_to_set)]
+                 if num_headers_to_set > 0 and new_headers[0] == "P0": new_headers[0] = "Command" # Ensure first is Command
             else:
-                 new_headers = [hints[i] if i < len(hints) else f"P{i}" for i in range(max_cols)]
+                 new_headers = [hints[i] if i < len(hints) else f"P{i}" for i in range(num_headers_to_set)]
+            # --- END OF MODIFICATION ---
 
-             # Only set headers if they actually changed to avoid unnecessary updates
-            current_actual_headers = [self.horizontalHeaderItem(c).text() if self.horizontalHeaderItem(c) else f"P{c}" for c in range(max_cols)]
-            if new_headers != current_actual_headers:
+            current_actual_headers = [self.horizontalHeaderItem(c).text() if self.horizontalHeaderItem(c) else "" for c in range(min(num_headers_to_set, current_table_col_count))]
+            
+            # Pad new_headers with generic Px if current_table_col_count is larger than new_headers derived from hints
+            if len(new_headers) < current_table_col_count:
+                new_headers.extend([f"P{i}" for i in range(len(new_headers), current_table_col_count)])
+            
+            # Only update if different or column count changed significantly
+            if new_headers[:len(current_actual_headers)] != current_actual_headers or len(new_headers) != len(current_actual_headers):
                 self.setHorizontalHeaderLabels(new_headers)
-                self._resize_columns_to_header_labels() # Resize only when headers change
-        else:
-            # If no row is selected or row is invalid, show generic headers
-            self.setHorizontalHeaderLabels([f"P{c}" for c in range(self.columnCount())])
-            # Don't resize if no row is selected
+                self._resize_columns_to_header_labels() 
+        elif currentRow < 0 : # No row selected (e.g., table cleared)
+             self.setHorizontalHeaderLabels(["Command"] + [f"P{i+1}" for i in range( (current_table_col_count-1) if current_table_col_count > 0 else 0 )])
+             self._resize_columns_to_header_labels()
 
 
     def _on_item_changed(self, item):
@@ -830,11 +898,8 @@ class SceneEditorWindow(QMainWindow):
         pygame.init()
         pygame.font.init()
         try:
-            # --- 修改：移除 pygame.display 設定，以避免潛在衝突 ---
-#             pygame.display.set_mode((64, 64), pygame.OPENGL | pygame.DOUBLEBUF, vsync=0)
-#             pygame.display.set_caption("Pygame Helper (Editor)")
-            print("Pygame font/mixer initialized for editor (no display mode set).")
-            # -------------------------------------------------
+            # print("Pygame font/mixer initialized for editor (no display mode set).") #R
+            pass
         except pygame.error as e:
             print(f"Warning: Could not initialize Pygame subsystems: {e}")
         scene_parser.set_texture_loader(texture_loader) # Pass loader to parser
@@ -998,6 +1063,12 @@ class SceneEditorWindow(QMainWindow):
 
         # 2. 獲取當前表格中選中的行號
         current_row = self.table_widget.currentRow()
+        current_table_lines = self.table_widget.get_scene_lines()
+        
+        # --- START OF MODIFICATION: Ensure texture_loader is available for parsing ---
+        if scene_parser.texture_loader is None:
+            scene_parser.set_texture_loader(texture_loader) # Ensure it's set if not already
+        # --- END OF MODIFICATION ---
 
         # 3. 使用 scene_parser 解析當前表格的 *完整* 內容
         #    我們先獲取一次完整的 lines 列表用於解析 Scene 物件
@@ -1020,37 +1091,29 @@ class SceneEditorWindow(QMainWindow):
                 for i in range(current_row, -1, -1): # 從 current_row 倒序迭代到 0
                     # --- >>> 修正點：獲取整行文本來解析 <<< ---
                     row_text = ""
-                    row_parts = []
+                    row_parts_bg = [] # Use a different variable name to avoid conflict
                     if i < table_widget_ref.rowCount():
                         for j in range(table_widget_ref.columnCount()): # 遍歷該行的所有列
                             item = table_widget_ref.item(i, j)
                             if item and item.text():
-                                row_parts.append(item.text().strip()) # 獲取單元格文本
-                            else:
-                                break # 遇到空單元格停止，假設後面都是空的
-                        row_text = " ".join(row_parts) # 組合該行文本
-                    # --- >>> END 修正點 <<< ---
-
-                    if row_text: # 確保行不為空
-                        parts = row_text.split() # 這裡 parts 才包含參數
-                        cmd = parts[0].lower() if parts else ""
-
-                        if cmd in ["skybox", "skydome"]:
-                            # 找到了背景指令，重建其資訊字典
-                            if cmd == "skybox" and len(parts) > 1:
-                                # Skybox 信息只包含類型和基礎名稱
-                                last_bg_info_found_upwards = {'type': 'skybox', 'base_name': parts[1]}
-                            elif cmd == "skydome" and len(parts) > 1:
-                                # Skydome 信息包含類型、檔名，並嘗試查找已載入的 ID
-                                tex_file_to_find = parts[1] # 現在可以正確獲取檔名
+                                row_parts_bg.append(item.text().strip()) 
+                            else: break 
+                        row_text = " ".join(row_parts_bg) 
+                    if row_text: 
+                        parts_bg = row_text.split() # Use different var name
+                        cmd_bg = parts_bg[0].lower() if parts_bg else "" # Use different var name
+                        if cmd_bg in ["skybox", "skydome"]:
+                            if cmd_bg == "skybox" and len(parts_bg) > 1:
+                                last_bg_info_found_upwards = {'type': 'skybox', 'base_name': parts_bg[1]}
+                            elif cmd_bg == "skydome" and len(parts_bg) > 1:
+                                tex_file_to_find = parts_bg[1] 
                                 found_id = None
                                 # 檢查初始背景是否匹配
                                 if parsed_scene.initial_background_info and \
                                    parsed_scene.initial_background_info.get('type') == 'skydome' and \
                                    parsed_scene.initial_background_info.get('file') == tex_file_to_find:
                                     found_id = parsed_scene.initial_background_info.get('id')
-                                # 如果初始沒找到，檢查觸發器列表
-                                if found_id is None:
+                                if found_id is None and parsed_scene.background_triggers : # Check if triggers exist
                                     for _, info_dict in parsed_scene.background_triggers:
                                          if info_dict.get('type') == 'skydome' and info_dict.get('file') == tex_file_to_find:
                                              found_id = info_dict.get('id')
@@ -1078,12 +1141,12 @@ class SceneEditorWindow(QMainWindow):
             # 為新解析的場景創建軌道渲染所需的緩衝區
             if parsed_scene and parsed_scene.track:
                 try:
-                    # --- 清理舊軌道緩衝區 (如果存在) ---
-                    # 雖然 track.clear() 會做，但在創建前明確調用一次更安全
-                    # (假設 clear 會正確處理 VBO/VAO ID)
-                    # parsed_scene.track.clear() # 可能導致重複清理，暫時註釋
-                    # ------------------------------------
-                    parsed_scene.track.create_all_segment_buffers()
+                    # --- MODIFICATION: Call clear before create_all_segment_buffers for safety ---
+                    # This ensures old buffers are gone if the track structure changed significantly
+                    # parsed_scene.track.clear() # This might be too aggressive if only one segment changed.
+                                                # create_all_segment_buffers should handle individual segment cleanup.
+                    # --- END OF MODIFICATION ---
+                    parsed_scene.track.create_all_segment_buffers() # This now creates buffers for vbranches too
                 except Exception as e:
                     print(f"  Error creating track buffers for preview: {e}")
             # 將解析後的場景數據 和 決定好的預覽背景信息 傳遞給 3D 預覽窗口
@@ -1176,37 +1239,56 @@ class SceneEditorWindow(QMainWindow):
         else:
             # 如果沒有選中任何行 (例如表格清空後)
             self.minimap_widget.clear_highlight_targets()
+        
+        # --- START OF MODIFICATION: Use self.table_widget._command_hints ---
+        # This ensures we are using the same hint source as the table widget itself if it's directly populated.
+        # Or, if the table widget gets hints from scene_parser, then scene_parser.COMMAND_HINTS is fine.
+        # For consistency, let's assume the table_widget holds the definitive list it uses.
+        # command_hints_source = self.table_widget._command_hints # Accessing "private" member, better if there's a getter
+        command_hints_source = scene_parser.COMMAND_HINTS # Assuming this is the canonical source
+        # --- END OF MODIFICATION ---
 
         # --- 更新參數提示 (這部分邏輯從 SceneTableWidget 移過來或保持獨立) ---
         # 建議將參數提示的更新邏輯也放在這裡，與高亮同步觸發
         if current_row >= 0:
             command_item = self.table_widget.item(current_row, 0)
             command = command_item.text().lower().strip() if command_item else ""
-            hints = self.table_widget._command_hints.get(command, []) # 假設可以訪問 _command_hints
-            max_cols = self.table_widget.columnCount()
-            new_headers = [hints[i] if i < len(hints) else f"P{i}" for i in range(max_cols)]
+            hints = command_hints_source.get(command, []) 
+            max_cols = self.table_widget.columnCount() # Use current table column count
+            
+            # Determine how many headers to generate based on hints or existing columns
+            num_headers_needed = max(len(hints), max_cols if max_cols > 0 else 1)
+            if command and not hints and max_cols > 0: # Command typed, but no hints, use Px for all
+                num_headers_needed = max_cols
+            elif not command and max_cols > 0: # Empty row, use Px
+                 num_headers_needed = max_cols
 
-            # 優化：僅當 header 實際改變時才設置
-            current_actual_headers = [self.table_widget.horizontalHeaderItem(c).text() if self.table_widget.horizontalHeaderItem(c) else f"P{c}" for c in range(max_cols)]
+
+            new_headers = []
+            if not command and current_row >=0: # Empty or invalid command line
+                new_headers = ["Command"] + [f"P{i}" for i in range(1, num_headers_needed if num_headers_needed >0 else 1)]
+            elif not hints: # Command has no hints defined
+                 new_headers = ["Command"] + [f"P{i}" for i in range(1, num_headers_needed if num_headers_needed >0 else 1)]
+            else: # Command has hints
+                 new_headers = [hints[i] if i < len(hints) else f"P{i}" for i in range(num_headers_needed)]
+
+            current_actual_headers = []
+            for c_idx in range(self.table_widget.columnCount()):
+                header_item = self.table_widget.horizontalHeaderItem(c_idx)
+                current_actual_headers.append(header_item.text() if header_item else "")
+            
+            # Only update if headers are different to prevent unnecessary resizing/flicker
             if new_headers != current_actual_headers:
-                self.table_widget.setHorizontalHeaderLabels(new_headers)
-                self.table_widget._resize_columns_to_header_labels() # 調用表格的內部方法調整列寬
-        else:
-            # 清除參數提示 (設置為通用 P0, P1...)
-            self.table_widget.setHorizontalHeaderLabels([f"P{c}" for c in range(self.table_widget.columnCount())])
-            # 可能不需要在沒有選中時調整列寬
-
-        # --- 3D 預覽背景更新 (獨立考慮) ---
-        # 如果點擊行也需要更新 3D 預覽背景，可以在這裡觸發
-        # self.update_previews_background_only(current_row)
-        # 但注意，這可能需要 Scene 物件，而 Scene 物件通常在 sceneDataChanged 後才更新。
-        # 除非背景更新邏輯可以獨立於完整的 Scene 物件執行。
-        # 為簡單起見，目前點擊只觸發高亮和參數提示。
-
-        # --- (原有 _on_current_cell_changed 中的其他邏輯) ---
-        # 例如，如果之前有基於行變化的 sceneDataChanged 觸發，需要重新評估
-        # 目前 sceneDataChanged 是在 itemChanged 時觸發的 (needUpdate=True)
-        # 選中行變化本身不應標記數據已修改或觸發 sceneDataChanged
+                 # --- MODIFICATION: Ensure table has enough columns for all hints ---
+                 if len(new_headers) > self.table_widget.columnCount():
+                     self.table_widget.setColumnCount(len(new_headers))
+                 # --- END OF MODIFICATION ---
+                 self.table_widget.setHorizontalHeaderLabels(new_headers)
+                 self.table_widget._resize_columns_to_header_labels() 
+        else: # No row selected
+            default_cols = self.table_widget.columnCount() if self.table_widget.columnCount() > 0 else 1
+            self.table_widget.setHorizontalHeaderLabels(["Command"] + [f"P{i+1}" for i in range(default_cols -1)])
+            self.table_widget._resize_columns_to_header_labels()
     
 # --- Main Application Execution ---
 if __name__ == '__main__':

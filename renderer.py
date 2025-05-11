@@ -143,22 +143,66 @@ def draw_track(track_obj):
         if segment.ballast_vao and segment.ballast_vertices:
             glColor3fv(BALLAST_COLOR)
             glBindVertexArray(segment.ballast_vao)
+            # --- MODIFICATION: Ensure vertex_count is calculated correctly ---
+            # ballast_vertices stores x,y,z per vertex, so len gives total floats. Divide by 3 for vertex count.
             vertex_count = len(segment.ballast_vertices) // 3
-            glDrawArrays(GL_TRIANGLES, 0, vertex_count)
+            if vertex_count > 0:
+                 glDrawArrays(GL_TRIANGLES, 0, vertex_count)
+            # --- END OF MODIFICATION ---
             glBindVertexArray(0)
-        glLineWidth(2.0); glColor3fv(RAIL_COLOR)
+        
+        glLineWidth(2.0); # Set line width for rails
+        glColor3fv(RAIL_COLOR) # Set color before drawing
+        # Main Left Rail
         if segment.rail_left_vao and segment.rail_left_vertices:
             glBindVertexArray(segment.rail_left_vao)
             vertex_count = len(segment.rail_left_vertices) // 3
-            glDrawArrays(GL_LINE_STRIP, 0, vertex_count)
+            if vertex_count > 0:
+                glDrawArrays(GL_LINE_STRIP, 0, vertex_count)
             glBindVertexArray(0)
+        # Main Right Rail
         if segment.rail_right_vao and segment.rail_right_vertices:
+            
             glBindVertexArray(segment.rail_right_vao)
             vertex_count = len(segment.rail_right_vertices) // 3
-            glDrawArrays(GL_LINE_STRIP, 0, vertex_count)
+            if vertex_count > 0:
+                glDrawArrays(GL_LINE_STRIP, 0, vertex_count)
             glBindVertexArray(0)
-    glEnable(GL_TEXTURE_2D)
+#    glEnable(GL_TEXTURE_2D)
 
+        # --- START OF MODIFICATION ---
+        # --- Draw Visual Branches for this segment ---
+        if hasattr(segment, 'visual_branches') and segment.visual_branches:
+            for branch_def in segment.visual_branches:
+                # Draw Ballast for the branch
+                if branch_def.get('ballast_vao') and branch_def.get('ballast_vertices'):
+                    glColor3fv(BALLAST_COLOR) # Use same ballast color, or could be different
+                    glBindVertexArray(branch_def['ballast_vao'])
+                    vertex_count_b_ballast = len(branch_def['ballast_vertices']) // 3
+                    if vertex_count_b_ballast > 0:
+                        glDrawArrays(GL_TRIANGLES, 0, vertex_count_b_ballast)
+                    glBindVertexArray(0)
+
+                # Draw Left Rail for the branch
+                if branch_def.get('rail_left_vao') and branch_def.get('rail_left_vertices'):
+                    glColor3fv(RAIL_COLOR) # Use same rail color
+                    glBindVertexArray(branch_def['rail_left_vao'])
+                    vertex_count_b_rail_l = len(branch_def['rail_left_vertices']) // 3
+                    if vertex_count_b_rail_l > 0:
+                        glDrawArrays(GL_LINE_STRIP, 0, vertex_count_b_rail_l)
+                    glBindVertexArray(0)
+
+                # Draw Right Rail for the branch
+                if branch_def.get('rail_right_vao') and branch_def.get('rail_right_vertices'):
+                    glColor3fv(RAIL_COLOR) # Use same rail color
+                    glBindVertexArray(branch_def['rail_right_vao'])
+                    vertex_count_b_rail_r = len(branch_def['rail_right_vertices']) // 3
+                    if vertex_count_b_rail_r > 0:
+                        glDrawArrays(GL_LINE_STRIP, 0, vertex_count_b_rail_r)
+                    glBindVertexArray(0)
+        # --- END OF MODIFICATION ---
+
+    glEnable(GL_TEXTURE_2D) # Re-enable textures if they were disabled for track drawing
 
 # --- _calculate_uv (unchanged) ---
 @njit

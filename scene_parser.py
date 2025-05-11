@@ -3,7 +3,7 @@ import os
 import numpy as np
 import numpy as math # Keep consistent
 # import math # Original import removed
-from track import StraightTrack, CurveTrack, Track, TrackSegment
+from track import StraightTrack, CurveTrack, Track, TrackSegment, INTERPOLATION_STEPS 
 
 # --- Texture loading dependency ---
 texture_loader = None
@@ -25,6 +25,9 @@ COMMAND_HINTS = {
     "skydome": ["    cmd    ", "texture_file"], # <--- NEW: Skydome (expects single texture file)
     "straight": ["    cmd    ", "length", "grad‰"],
     "curve": ["    cmd    ", "radius", "angle°", "grad‰"],
+    # --- START OF MODIFICATION ---
+    "vbranch": ["    cmd    ", "type(straight/curve)", "p1(angle°/radius)", "p2(length/angle°)", "grad‰?", "dir(fwd/bwd)?"], 
+    # --- END OF MODIFICATION ---
     "building": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "w", "d", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
     "cylinder": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "rad", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
     "tree": ["    cmd    ", "rel_x", "rel_y", "rel_z", "height", "tex?"],
@@ -74,6 +77,7 @@ class Scene:
         self.buildings = []
         self.trees = []
         self.cylinders = []
+        self.spheres = [] # Ensure spheres are cleared
         self.hills = []
         self.start_position = np.array([0.0, 0.0, 0.0], dtype=float)
         self.start_angle_deg = 0.0
@@ -229,6 +233,185 @@ def _parse_scene_content(lines_list, load_textures=True):
                     new_scene.track.add_segment(segment)
                     current_pos = segment.end_pos
                     current_angle_rad = segment.end_angle_rad
+
+            # --- START OF MODIFICATION ---
+            elif command == "vbranch":
+                if not new_scene.track.segments:
+                    print(f"警告: 第 {line_num} 行 'vbranch' 指令之前沒有任何常規軌道段。將忽略此指令。")
+                    continue
+                
+                parent_segment = new_scene.track.segments[-1]
+                
+                if len(parts) < 2:
+                    print(f"警告: 第 {line_num} 行 'vbranch' 指令需要類型 ('straight' 或 'curve')。")
+                    continue
+
+                branch_type = parts[1].lower()
+                branch_data = {
+                    "type": branch_type,
+                    "points": [],
+                    "orientations": [],
+                    # Add keys for VBOs/VAOs which will be populated in track.py
+                    'ballast_vertices': [], 'rail_left_vertices': [], 'rail_right_vertices': [],
+                    'ballast_vao': None, 'rail_left_vao': None, 'rail_right_vao': None,
+                    'ballast_vbo': None, 'rail_left_vbo': None, 'rail_right_vbo': None
+                    } # Initialize points/orientations
+
+                # 視覺分岔的起點是父軌道段的末端
+                branch_start_pos = np.copy(parent_segment.end_pos) # Use a copy
+                branch_parent_end_angle_rad = parent_segment.end_angle_rad
+
+                if branch_type == "straight":
+                    # vbranch straight <angle_deg> <length> [gradient_permille]
+                    if len(parts) < 4:
+                        print(f"警告: 第 {line_num} 行 'vbranch straight' 需要 <angle_deg> 和 <length> 參數。")
+                        continue
+                    try:
+                        angle_offset_deg = float(parts[2])
+                        branch_length = float(parts[3])
+                        gradient_permille = float(parts[4]) if len(parts) > 4 else 0.0
+                        if branch_length <= 0:
+                            print(f"警告: 第 {line_num} 行 'vbranch straight' 長度 ({branch_length}) 必須為正。"); continue
+
+                        branch_data["angle_deg_offset"] = angle_offset_deg # Store original offset for reference
+                        branch_data["length"] = branch_length
+                        branch_data["gradient"] = gradient_permille
+                        
+                        # 計算此直線視覺分岔的 points 和 orientations
+                        branch_actual_start_angle_rad = branch_parent_end_angle_rad + math.radians(angle_offset_deg)
+                        branch_gradient_factor = gradient_permille / 1000.0
+                        
+                        # 水平方向向量
+                        b_fwd_xz_tuple = (math.cos(branch_actual_start_angle_rad), math.sin(branch_actual_start_angle_rad))
+                        b_fwd_xz_arr = np.array(b_fwd_xz_tuple)
+                        b_fwd_horiz_3d = np.array([b_fwd_xz_arr[0], 0, b_fwd_xz_arr[1]])
+                        
+                        b_horizontal_length_for_grad_calc = branch_length
+                        b_vertical_change = b_horizontal_length_for_grad_calc * branch_gradient_factor
+                        # Note: For vbranch straight, 'branch_length' is its horizontal_length
+                        
+                        num_steps_b = max(2, int(branch_length * INTERPOLATION_STEPS / 5))
+                        if num_steps_b < 2: num_steps_b = 2
+                        
+                        for i_b in range(num_steps_b):
+                            t_b = i_b / (num_steps_b - 1)
+                            current_horizontal_dist_b = t_b * branch_length # horizontal length for straight
+                            current_vertical_change_b = current_horizontal_dist_b * branch_gradient_factor
+                            point_pos_b = branch_start_pos + b_fwd_horiz_3d * current_horizontal_dist_b \
+                                       + np.array([0, current_vertical_change_b, 0])
+                            branch_data["points"].append(point_pos_b)
+                            branch_data["orientations"].append(b_fwd_xz_tuple)
+                            
+                    except ValueError:
+                        print(f"警告: 第 {line_num} 行 'vbranch straight' 參數無效。")
+                        continue
+
+                elif branch_type == "curve":
+                    # vbranch curve <radius> <angle_deg> [gradient_permille]
+                    if len(parts) < 4:
+                        print(f"警告: 第 {line_num} 行 'vbranch curve' 需要 <radius> 和 <angle_deg> 參數。")
+                        continue
+                    try:
+                        branch_radius = float(parts[2])
+                        branch_sweep_angle_deg = float(parts[3])
+                        
+                        gradient_permille = 0.0
+                        branch_direction_mode = "forward" # Default
+                        
+                        # Check for optional gradient and direction_modifier
+                        # gradient is parts[4], direction is parts[5]
+                        if len(parts) > 4: # At least one optional arg exists
+                            # Try to parse parts[4] as gradient
+                            try:
+                                gradient_permille = float(parts[4])
+                                # If successful, check if parts[5] is direction_modifier
+                                if len(parts) > 5:
+                                    modifier_candidate = parts[5].lower()
+                                    if modifier_candidate in ["forward", "backward"]:
+                                        branch_direction_mode = modifier_candidate
+                                    elif modifier_candidate: # Not empty and not a valid direction
+                                        print(f"警告: 第 {line_num} 行 'vbranch curve' 無效的方向修飾符 '{parts[5]}'")
+                                        # continue # Optionally skip if invalid modifier
+                            except ValueError:
+                                # parts[4] was not a float (gradient), so it must be the direction_modifier
+                                modifier_candidate = parts[4].lower()
+                                if modifier_candidate in ["forward", "backward"]:
+                                    branch_direction_mode = modifier_candidate
+                                    if len(parts) > 5: # Too many args if direction was in parts[4]
+                                        print(f"警告: 第 {line_num} 行 'vbranch curve' 在方向修飾符 '{parts[4]}' 後有過多參數。")
+                                        # continue
+                                elif modifier_candidate: # Not empty and not a valid direction
+                                    print(f"警告: 第 {line_num} 行 'vbranch curve' 無效的可選參數 '{parts[4]}'")
+                                    # continue 
+                        
+                        # Parameter validation
+                        if abs(branch_radius) < 1e-3 : 
+                             print(f"警告: 第 {line_num} 行 'vbranch curve' 半徑過小。"); continue
+                        if branch_radius <=0: 
+                            print(f"警告: 第 {line_num} 行 'vbranch curve' 半徑 ({branch_radius}) 必須為正。"); continue
+                        if abs(branch_sweep_angle_deg) < 1e-3 and branch_sweep_angle_deg != 0.0 : # Allow 0 angle for potential future use?
+                             print(f"警告: 第 {line_num} 行 'vbranch curve' 掃過角度過小。"); continue
+
+
+                        branch_data["radius"] = branch_radius
+                        branch_data["angle_deg"] = branch_sweep_angle_deg
+                        branch_data["gradient"] = gradient_permille
+                        branch_data["direction_mode"] = branch_direction_mode # Store for reference/debugging
+                        
+                        # 計算此曲線視覺分岔的 points 和 orientations
+                        branch_angle_rad = math.radians(branch_sweep_angle_deg)
+                        branch_gradient_factor = gradient_permille / 1000.0
+                        b_horizontal_length = abs(branch_radius * branch_angle_rad)
+                        
+                        b_turn_dir = 1.0 if branch_angle_rad > 0 else -1.0
+                        
+                        # Determine the initial tangent direction for the curve
+                        b_initial_tangent_rad = branch_parent_end_angle_rad
+                        if branch_direction_mode == "backward":
+                            b_initial_tangent_rad += math.pi # Add 180 degrees for backward
+
+                        # Calculate center of the curve based on the new initial tangent
+                        b_perp_angle_to_tangent = b_initial_tangent_rad + b_turn_dir * math.pi / 2.0
+                        b_center_offset_xz = np.array([math.cos(b_perp_angle_to_tangent), math.sin(b_perp_angle_to_tangent)]) * branch_radius
+                        b_center_xz = np.array([branch_start_pos[0], branch_start_pos[2]]) + b_center_offset_xz
+                        
+                        # Calculate the starting angle on the circle for interpolation
+                        b_start_angle_on_circle = b_initial_tangent_rad - b_turn_dir * math.pi / 2.0
+                        
+                        num_steps_b = max(2, int(abs(branch_sweep_angle_deg) * INTERPOLATION_STEPS / 5))
+                        if num_steps_b < 2: num_steps_b = 2
+                                                
+                        for i_b in range(num_steps_b):
+                            t_b = i_b / (num_steps_b - 1)
+                            current_angle_on_circle_b = b_start_angle_on_circle + t_b * branch_angle_rad
+                            
+                            point_offset_xz_b = np.array([math.cos(current_angle_on_circle_b), math.sin(current_angle_on_circle_b)]) * branch_radius
+                            current_pos_xz_b = b_center_xz + point_offset_xz_b
+                            
+                            current_horizontal_arc_len_b = t_b * b_horizontal_length
+                            current_vertical_change_b = current_horizontal_arc_len_b * branch_gradient_factor
+                            current_pos_y_b = branch_start_pos[1] + current_vertical_change_b
+                            
+                            branch_data["points"].append(np.array([current_pos_xz_b[0], current_pos_y_b, current_pos_xz_b[1]]))
+                            
+                            tangent_angle_b = current_angle_on_circle_b + b_turn_dir * math.pi / 2.0
+                            orientation_vec_xz_b_tuple = (math.cos(tangent_angle_b), math.sin(tangent_angle_b))
+                            branch_data["orientations"].append(orientation_vec_xz_b_tuple)
+
+                    except ValueError:
+                        print(f"警告: 第 {line_num} 行 'vbranch curve' 參數無效。")
+                        continue
+                else:
+                    print(f"警告: 第 {line_num} 行無法識別的 'vbranch' 類型: '{branch_type}'。")
+                    continue
+                
+                # 如果成功解析並計算了點，則添加到父軌道段
+                if branch_data["points"]:
+                    parent_segment.visual_branches.append(branch_data)
+                else:
+                    print(f"警告: 第 {line_num} 行 'vbranch {branch_type}' 未能生成任何點。")
+
+            # --- END OF MODIFICATION ---
 
             # --- Object Placement Commands (building, cylinder, tree - logic unchanged) ---
             elif command == "building":
