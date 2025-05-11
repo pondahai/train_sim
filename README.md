@@ -25,6 +25,7 @@
 - **自訂軌道與場景：**
     - 透過 `scene.txt` 文件定義軌道（直線、彎道）和場景物件。
     - 支援軌道坡度。
+    -   **新增支援視覺分岔軌道 (`vbranch`)**，可從主軌道末端引出純視覺的直線或曲線分岔，豐富軌道外觀。
     - 可放置建築物（立方體）、圓柱體、**球體**、**山丘** 和樹木 (**使用 Billboard 方式渲染**) 等靜態物件。
     - 支援物件紋理貼圖（需放置於 `textures` 資料夾）。
 - **背景系統：**
@@ -90,8 +91,8 @@ This project doesn't have a grand vision—it's simply a result of my curiosity 
 | main.py              | 主程式入口，負責初始化、主迴圈、整合各模組           |
 | renderer.py          | 3D 場景、物件、電車駕駛艙、HUD 等繪製                |
 | tram.py              | 電車物理模擬與控制邏輯                                |
-| track.py             | 軌道資料結構，直線/彎道/坡度計算與 OpenGL 頂點生成     |
-| scene_parser.py      | 解析 scene.txt，建立場景與物件，支援紋理載入          |
+| track.py             | 軌道資料結構，直線/彎道/坡度計算，主軌道及**視覺分岔軌道** OpenGL 頂點生成     |
+| scene_parser.py      | 解析 scene.txt，建立場景與物件，支援**視覺分岔軌道**、支援紋理載入          |
 | camera.py            | 攝影機/第一人稱視角控制與計算                        |
 | minimap_renderer.py  | 小地圖繪製、地圖圖層、座標轉換                        |
 | scene_editor.py      | PyQt5 GUI 場景編輯器，可視化修改 scene.txt            |
@@ -106,7 +107,7 @@ This project doesn't have a grand vision—it's simply a result of my curiosity 
 - 控制主事件迴圈、場景載入、鍵盤與滑鼠操作、畫面更新與渲染。
 
 ### renderer.py
-- 處理 3D 場景的所有繪製，包括地面、軌道、建築、**球體**、**山丘**、樹木 (**Billboard 方式**)、電車駕駛艙、HUD、**天空盒/天空圓頂背景** 等。
+- 處理 3D 場景的所有繪製，包括地面、軌道（含視覺分岔軌道）、建築、**球體**、**山丘**、樹木 (**Billboard 方式**)、電車駕駛艙、HUD、**天空盒/天空圓頂背景** 等。
 - 提供多種物件繪圖函式，支援紋理貼圖、Alpha Test 與座標顯示。
 
 ### tram.py
@@ -114,13 +115,19 @@ This project doesn't have a grand vision—it's simply a result of my curiosity 
 - 管理電車在軌道上的位置、速度、方向與狀態。
 
 ### track.py
-- 定義軌道相關資料結構（直線、彎道、坡度），並負責軌道頂點與方向的計算。
-- 支援軌道內插、OpenGL 線段生成與座標查詢。
+-   定義軌道相關資料結構（直線、彎道、坡度），並負責軌道頂點與方向的計算。
+-   支援主軌道段的內插、OpenGL 頂點生成與座標查詢。
+-   新增支援為每個主軌道段附加多個**視覺分岔軌道 (`visual_branches`)** 的定義。
+-   負責計算這些視覺分岔軌道的幾何點位、朝向，並為其生成獨立的 OpenGL 頂點緩衝區 (VBO/VAO) 以供渲染。
+-   電車的實際路徑不受視覺分岔軌道影響。
+ 
 
 ### scene_parser.py
-- 負責解析 `scene.txt` 場景檔案，建立軌道、建築、圓柱、**球體**、**山丘**、樹木等物件。
-- 新增支援 `skybox`、`skydome` 指令，管理背景觸發器。
-- 支援紋理載入、場景重載、座標與旋轉資訊管理。
+-   負責解析 `scene.txt` 場景檔案，建立軌道、建築、圓柱、**球體**、**山丘**、樹木等物件。
+-   新增支援 `vbranch` 指令，用於在主軌道段末端定義**視覺分岔軌道**（直線或曲線）。
+-   解析 `vbranch` 參數，並計算其幾何點位和朝向，將其附加到對應的主軌道段物件上。
+-   新增支援 `skybox`、`skydome` 指令，管理背景觸發器。
+-   支援紋理載入、場景重載、座標與旋轉資訊管理。
 
 ### camera.py
 - 控制攝影機（第一人稱視角）的位置、朝向、滑鼠鎖定與視角角度。
@@ -128,8 +135,8 @@ This project doesn't have a grand vision—it's simply a result of my curiosity 
 
 ### minimap_renderer.py
 - 負責小地圖繪製。
-- **模擬器模式：** 烘焙靜態地圖紋理（含物件輪廓、**山丘基底**），動態疊加電車和軌道。
-- **編輯器模式：** 動態繪製所有元素（軌道、物件標記、**山丘標記/輪廓/高度**、網格、標籤），支援高亮。
+- **模擬器模式：** 烘焙靜態地圖紋理（含物件輪廓、**山丘基底**）、軌道及視覺分岔軌道，動態疊加電車。
+- **編輯器模式：** 動態繪製所有元素（軌道及視覺分岔軌道、物件標記、**山丘標記/輪廓/高度**、網格、標籤），支援高亮。
 - 支援地圖縮放、座標轉換、地圖圖像疊加。
 
 ### scene_editor.py
@@ -239,7 +246,7 @@ pip install pygame PyOpenGL numpy Numba PyQt5 Pillow
 scene.txt 每一行代表一個指令，空白行與 `#` 開頭為註解。下方為完整格式與參數說明範例：
 
 ```plain
-# scene.txt 指令格式說明 (版本：加入 Sphere, Hill, 背景系統)
+# scene.txt 指令格式說明 (版本：加入 Sphere, Hill, 背景系統, vbranch)
 
 # 1. 地圖底圖 (用於小地圖)
 map <file> <cx> <cz> <scale>
@@ -279,6 +286,36 @@ curve <radius> <angle°> [<grad‰>]
 #   <radius>  ：彎道半徑 (必須為正)。
 #   <angle°>  ：彎道角度（度）。正值向左轉，負值向右轉。
 #   <grad‰>   ：坡度（千分比），可選，預設 0。
+
+
+# 6.1. 視覺分岔軌道 (依附於前一個 straight 或 curve 指令的末端)
+# 注意：此指令不影響電車實際行駛路徑，僅為視覺效果。
+vbranch <type> <param1> <param2> [<grad‰>] [<direction_modifier>]
+# 參數說明：
+#   <type>      ：分岔類型，`straight` 或 `curve`。
+#
+#   如果 <type> 是 `straight`:
+#     <param1> (angle_deg_offset)：分岔直線相對於父軌道段末端朝向的【偏轉角度】(度)。
+#                                  正值逆時針 (左偏)，負值順時針 (右偏)。
+#     <param2> (length)          ：分岔直線的長度。
+#     [<grad‰>] (可選)          ：分岔直線的坡度 (千分比)。預設 0。
+#     [<direction_modifier>]     ：對於直線，此參數通常【不使用】或被忽略。
+#                                  (因為 angle_deg_offset 已完全定義方向)
+#
+#   如果 <type> 是 `curve`:
+#     <param1> (radius)           ：分岔曲線的半徑 (必須為正)。
+#     <param2> (sweep_angle_deg)  ：分岔曲線掃過的中心角度 (度)。
+#                                   正值表示相對於新的初始切線【左彎】，負值【右彎】。
+#     [<grad‰>] (可選)           ：分岔曲線的坡度 (千分比)。預設 0。
+#     [<direction_modifier>] (可選)：曲線的初始切線方向。可以是：
+#                                   `forward` (預設)：曲線初始切線與父軌道末端朝向一致。
+#                                   `backward`：曲線初始切線與父軌道末端朝向相反 (旋轉180度)。
+#
+# 範例：
+# straight 100                  # 主軌道
+# vbranch straight 30 20        # 從主軌道末端，向左偏30度引出長20的直線視覺分岔
+# vbranch curve 15 -45 0 backward # 從主軌道末端，初始朝向後方，然後右彎45度(半徑15)的視覺分岔
+
 
 # --- 物件指令 (座標相對於上一個 start 或軌道段的結束點) ---
 
@@ -326,6 +363,7 @@ hill <cx> <height> <cz> <radius> [<tex>] [<uSc>] [<vSc>]
 # - `skybox` 或 `skydome` 指令會設定其後的軌道段開始時的背景。第一個出現的背景指令也會作為初始背景。
 # - 物件指令 (`building`, `cylinder`, `tree`, `sphere`) 的座標 `rel_x/y/z` 和相對 Y 旋轉 `rel_ry` 是相對於定義它們之前的最後一個 `start` 或軌道指令 (`straight`, `curve`) 的結束點和方向。
 # - `hill` 指令使用絕對世界座標 `cx`, `cz` 定義中心點。
+# - `vbranch` 指令必須緊跟在其父軌道指令 (`straight` 或 `curve`) 之後，它從父軌道段的末端引出視覺分岔。
 # - 帶 [] 的參數代表可省略，將使用預設值。
 # - 指令順序很重要。
 ```
@@ -336,7 +374,13 @@ hill <cx> <height> <cz> <radius> [<tex>] [<uSc>] [<vSc>]
 ```plain
 map map.png 0 0 1.0
 start 0 0 0 0
+
 straight 100
+# 從上一段 straight 的末端向前左偏30度，長20的視覺分岔
+vbranch straight 30 20
+# 從同一點，初始朝向"後方"，然後右彎(負角度)45度，半徑15的視覺分岔
+vbranch curve 15 -45 0 backward 
+
 curve 50 90 0
 building 10 0 5 0 0 0 10 10 10 building.png
 cylinder 15 0 5 0 0 0 2 10 metal.png
