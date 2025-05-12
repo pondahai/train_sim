@@ -618,15 +618,15 @@ class SceneTableWidget(QTableWidget):
                 # Append part if item exists and has text
                 if item and item.text():
                     row_parts.append(item.text())
-                else:
+                # else:
                     # Stop appending parts for this row if an empty cell is encountered
                     # (unless you want to preserve trailing empty strings)
-                    break
+                    # break
             # Only add non-empty lines (lines with at least one part)
             if row_parts:
                 lines.append(" ".join(row_parts))
-            # else:
-            #     lines.append("") # Add this line if you want to preserve blank lines from the table
+            else:
+                lines.append("") # Add this line if you want to preserve blank lines from the table
         return lines
 
     def is_modified(self):
