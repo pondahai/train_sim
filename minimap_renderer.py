@@ -1260,7 +1260,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                                 glLineWidth(highlight_track_line_width * 0.8) # Maybe slightly thinner than main highlight  
                                 glPointSize(highlight_point_size * 0.8)      
                             else:
-                                glColor3fv(MINIMAP_TRACK_COLOR) # Or a different color for vbranches
+                                glColor3fv(MINIMAP_BRANCH_TRACK_COLOR) # Or a different color for vbranches
                                 glLineWidth(default_track_line_width * 0.8) # Slightly thinner than main track
                                 glPointSize(default_point_size * 0.8)
                             

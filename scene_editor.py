@@ -47,7 +47,7 @@ EDITOR_LABEL_OFFSET_X = 5
 EDITOR_LABEL_OFFSET_Y = 3
 
 # --- 3D 預覽視窗常數 ---
-PREVIEW_UPDATE_INTERVAL = 16 # ms (接近 60 FPS)
+PREVIEW_UPDATE_INTERVAL = 100 # ms 
 PREVIEW_MOVE_SPEED = 25.0 # units per second
 PREVIEW_MOUSE_SENSITIVITY = 0.15
 PREVIEW_ACCEL_FACTOR = 6.0 # Shift 加速倍率
@@ -76,6 +76,10 @@ class MinimapGLWidget(QGLWidget):
                 self._coord_font = pygame.font.SysFont(None, EDITOR_COORD_FONT_SIZE)
         except Exception as e:
             print(f"Minimap Warning: Failed to create coordinate font: {e}")
+            
+        self.zoom_end_timer = QTimer(self)
+        self.zoom_end_timer.setSingleShot(True) # 確保是單次觸發
+        self.zoom_end_timer.timeout.connect(self.endZooming)
 
     def initializeGL(self):
         r, g, b, a = minimap_renderer.EDITOR_BG_COLOR
@@ -203,7 +207,17 @@ class MinimapGLWidget(QGLWidget):
             new_range = self._view_range * factor
             # Clamp range
             self._view_range = max(self._min_range, min(self._max_range, new_range))
+            self._is_dragging = True
             self.update() # Trigger repaint
+
+            # 啟動一個短定時器，在延遲後恢復文字顯示
+            # 延遲時間可以調整，例如 100-250 毫秒
+            self.zoom_end_timer.start(350) # 150ms 延遲
+
+    def endZooming(self):
+        """縮放操作結束後調用，用於恢復文字顯示"""
+        self._is_dragging = False
+        self.update() # 再次觸發繪製，此時文字會顯示
 
     def set_highlight_targets(self, line_numbers: set):
         """Sets the line numbers to be highlighted."""

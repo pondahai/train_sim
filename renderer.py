@@ -140,6 +140,13 @@ def draw_track(track_obj):
     if not track_obj or not track_obj.segments: return
     glDisable(GL_TEXTURE_2D)
     for segment in track_obj.segments:
+        # --- 修改：檢查 is_buffer_ready 標誌 ---
+        if not segment.is_buffer_ready:
+            # 可選：打印一個日誌，說明跳過了這個段的繪製
+            # print(f"TrackSegment (line {segment.source_line_number}): Buffers not ready, skipping draw.")
+            continue # 跳過繪製此段
+        # ------------------------------------
+        # 繪製主軌道段的道碴
         if segment.ballast_vao and segment.ballast_vertices:
             glColor3fv(BALLAST_COLOR)
             glBindVertexArray(segment.ballast_vao)

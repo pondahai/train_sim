@@ -51,6 +51,9 @@ class TrackSegment:
                                   #        'ballast_vao': None, 'rail_left_vao': None, 'rail_right_vao': None,
                                   #        'ballast_vbo': None, 'rail_left_vbo': None, 'rail_right_vbo': None}
         # --- END OF MODIFICATION ---
+        # --- 新增 is_buffer_ready 標誌 ---
+        self.is_buffer_ready = False 
+        # ----------------------------------
 
     def _generate_render_vertices(self):
         """
@@ -172,6 +175,10 @@ class TrackSegment:
         # --- END OF MODIFICATION ---
 
     def setup_buffers(self):
+        # --- 修改：在 setup_buffers 的開頭假設緩衝區尚未就緒 ---
+        # self.is_buffer_ready = False # 實際上應該在 cleanup_buffers 中設為 False，這裡確保初始值
+        # 更好的地方是在 create_gl_buffers 調用 cleanup_buffers 後，在 setup_buffers 成功後才設為 True
+        
         """創建並上傳 VBO/VAO 數據"""
         if not self.ballast_vertices: # 確保頂點已生成
              # --- MODIFICATION: Changed print to a more informative warning ---
@@ -179,6 +186,8 @@ class TrackSegment:
              # We might still want to set up branch buffers if they exist.
              # --- END OF MODIFICATION ---
              # return # Don't return early, branches might still need setup
+
+        main_buffers_ok = True # 用於追蹤主軌道緩衝區是否都成功創建
 
         # 清理舊的緩衝區 (如果存在) - 這裡只清理主軌道的，分岔的單獨處理或在總清理時處理
         # --- MODIFICATION: Moved specific cleanup to a more general cleanup_buffers call ---
@@ -208,6 +217,8 @@ class TrackSegment:
             # glEnableVertexAttribArray(1)
             glBindVertexArray(0) # 解綁 VAO
             glBindBuffer(GL_ARRAY_BUFFER, 0) # 解綁 VBO
+        else:
+            main_buffers_ok = False # 如果道碴頂點不存在，主緩衝區不完整
 
         # --- Left Rail VBO/VAO ---
         if self.rail_left_vertices:
@@ -227,6 +238,8 @@ class TrackSegment:
             glEnableVertexAttribArray(0)
             glBindVertexArray(0)
             glBindBuffer(GL_ARRAY_BUFFER, 0)
+        else:
+            main_buffers_ok = False
 
         # --- Right Rail VBO/VAO ---
         if self.rail_right_vertices:
@@ -246,10 +259,14 @@ class TrackSegment:
             glEnableVertexAttribArray(0)
             glBindVertexArray(0)
             glBindBuffer(GL_ARRAY_BUFFER, 0)
+        else:
+            main_buffers_ok = False
 
         # --- START OF MODIFICATION ---
         # 為每個視覺分岔創建 VBO/VAO
+        all_branch_buffers_ok = True
         for branch_def in self.visual_branches:
+            branch_buffers_this_one_ok = True
             # Ballast for branch
             if branch_def.get('ballast_vertices'):
                 b_ballast_data = np.array(branch_def['ballast_vertices'], dtype=np.float32)
@@ -264,6 +281,9 @@ class TrackSegment:
                 glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), ctypes.c_void_p(0))
                 glEnableVertexAttribArray(0)
                 glBindVertexArray(0); glBindBuffer(GL_ARRAY_BUFFER, 0)
+            else: # 如果分岔應該有道碴但沒有，則標記此分岔緩衝區不完整
+                if branch_def.get('type'): # 假設所有已定義類型的分岔都應該有道碴
+                    branch_buffers_this_one_ok = False
 
             # Left Rail for branch
             if branch_def.get('rail_left_vertices'):
@@ -279,6 +299,9 @@ class TrackSegment:
                 glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), ctypes.c_void_p(0))
                 glEnableVertexAttribArray(0)
                 glBindVertexArray(0); glBindBuffer(GL_ARRAY_BUFFER, 0)
+            else:
+                if branch_def.get('type'):
+                    branch_buffers_this_one_ok = False
 
             # Right Rail for branch
             if branch_def.get('rail_right_vertices'):
@@ -294,7 +317,19 @@ class TrackSegment:
                 glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), ctypes.c_void_p(0))
                 glEnableVertexAttribArray(0)
                 glBindVertexArray(0); glBindBuffer(GL_ARRAY_BUFFER, 0)
+            else:
+                if branch_def.get('type'):
+                    branch_buffers_this_one_ok = False
         # --- END OF MODIFICATION ---
+            if not branch_buffers_this_one_ok:
+                all_branch_buffers_ok = False # 如果任何一個分岔的緩衝區不完整
+
+        # --- 修改：在所有緩衝區（主軌道和所有分岔）成功創建後，設置 is_buffer_ready ---
+        if main_buffers_ok and all_branch_buffers_ok:
+            self.is_buffer_ready = True
+        else:
+            self.is_buffer_ready = False
+            # print(f"Segment line {self.source_line_number}: Buffers not fully set up (main_ok={main_buffers_ok}, branches_ok={all_branch_buffers_ok}). is_buffer_ready = False")
 
 #         print(f"緩衝區已創建: Ballast VAO={self.ballast_vao}, Rail Left VAO={self.rail_left_vao}, Rail Right VAO={self.rail_right_vao}")
 
@@ -322,11 +357,16 @@ class TrackSegment:
         # --- MODIFICATION: Call cleanup_buffers once before any setup ---
         self.cleanup_buffers() # Clean up ALL old buffers first
         # --- END OF MODIFICATION ---
+        # --- 修改：在 cleanup_buffers 後將 is_buffer_ready 設為 False ---
+        self.is_buffer_ready = False # 立即標記為不可用，直到 setup_buffers 完成
 
         self._generate_render_vertices() # This will now also generate vertices for visual_branches
         self.setup_buffers() # This will now also set up buffers for visual_branches
         
     def cleanup_buffers(self):
+        # --- 修改：在 cleanup_buffers 的開頭將 is_buffer_ready 設為 False ---
+        self.is_buffer_ready = False
+        # ----------------------------------------------------------------
         """刪除 OpenGL 緩衝區"""
         # 清理主軌道緩衝區
         if self.ballast_vao: glDeleteVertexArrays(1, [self.ballast_vao]); self.ballast_vao = None
