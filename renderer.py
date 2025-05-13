@@ -149,7 +149,17 @@ def draw_track(track_obj):
         # 繪製主軌道段的道碴
         if segment.ballast_vao and segment.ballast_vertices:
             glColor3fv(BALLAST_COLOR)
+            
+            error_before_bind = glGetError()
+            if error_before_bind != GL_NO_ERROR:
+                print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (ballast) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
+                
             glBindVertexArray(segment.ballast_vao)
+            
+            error_after_bind = glGetError() # PyOpenGL 通常在操作後檢查，但我們也可以手動加
+            if error_after_bind != GL_NO_ERROR:
+                print(f"OpenGL Error {error_after_bind} AFTER glBindVertexArray (ballast) for segment line {segment.source_line_number}, VAO ID bound: {segment.ballast_vao}")
+                
             # --- MODIFICATION: Ensure vertex_count is calculated correctly ---
             # ballast_vertices stores x,y,z per vertex, so len gives total floats. Divide by 3 for vertex count.
             vertex_count = len(segment.ballast_vertices) // 3
@@ -162,15 +172,26 @@ def draw_track(track_obj):
         glColor3fv(RAIL_COLOR) # Set color before drawing
         # Main Left Rail
         if segment.rail_left_vao and segment.rail_left_vertices:
+
+            error_before_bind = glGetError()
+            if error_before_bind != GL_NO_ERROR:
+                print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (rail_left_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
+
             glBindVertexArray(segment.rail_left_vao)
+            
             vertex_count = len(segment.rail_left_vertices) // 3
             if vertex_count > 0:
                 glDrawArrays(GL_LINE_STRIP, 0, vertex_count)
             glBindVertexArray(0)
         # Main Right Rail
         if segment.rail_right_vao and segment.rail_right_vertices:
-            
+
+            error_before_bind = glGetError()
+            if error_before_bind != GL_NO_ERROR:
+                print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (rail_right_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
+
             glBindVertexArray(segment.rail_right_vao)
+            
             vertex_count = len(segment.rail_right_vertices) // 3
             if vertex_count > 0:
                 glDrawArrays(GL_LINE_STRIP, 0, vertex_count)
@@ -184,7 +205,13 @@ def draw_track(track_obj):
                 # Draw Ballast for the branch
                 if branch_def.get('ballast_vao') and branch_def.get('ballast_vertices'):
                     glColor3fv(BALLAST_COLOR) # Use same ballast color, or could be different
+                    
+                    error_before_bind = glGetError()
+                    if error_before_bind != GL_NO_ERROR:
+                        print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (branch_def ballast_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
+                    
                     glBindVertexArray(branch_def['ballast_vao'])
+                    
                     vertex_count_b_ballast = len(branch_def['ballast_vertices']) // 3
                     if vertex_count_b_ballast > 0:
                         glDrawArrays(GL_TRIANGLES, 0, vertex_count_b_ballast)
@@ -193,7 +220,13 @@ def draw_track(track_obj):
                 # Draw Left Rail for the branch
                 if branch_def.get('rail_left_vao') and branch_def.get('rail_left_vertices'):
                     glColor3fv(RAIL_COLOR) # Use same rail color
+                    
+                    error_before_bind = glGetError()
+                    if error_before_bind != GL_NO_ERROR:
+                        print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (branch_def rail_left_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
+                        
                     glBindVertexArray(branch_def['rail_left_vao'])
+                    
                     vertex_count_b_rail_l = len(branch_def['rail_left_vertices']) // 3
                     if vertex_count_b_rail_l > 0:
                         glDrawArrays(GL_LINE_STRIP, 0, vertex_count_b_rail_l)
@@ -202,7 +235,13 @@ def draw_track(track_obj):
                 # Draw Right Rail for the branch
                 if branch_def.get('rail_right_vao') and branch_def.get('rail_right_vertices'):
                     glColor3fv(RAIL_COLOR) # Use same rail color
+                    
+                    error_before_bind = glGetError()
+                    if error_before_bind != GL_NO_ERROR:
+                        print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (branch_def rail_right_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
+                        
                     glBindVertexArray(branch_def['rail_right_vao'])
+                    
                     vertex_count_b_rail_r = len(branch_def['rail_right_vertices']) // 3
                     if vertex_count_b_rail_r > 0:
                         glDrawArrays(GL_LINE_STRIP, 0, vertex_count_b_rail_r)

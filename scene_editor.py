@@ -1222,6 +1222,7 @@ class SceneEditorWindow(QMainWindow):
                     # parsed_scene.track.clear() # This might be too aggressive if only one segment changed.
                                                 # create_all_segment_buffers should handle individual segment cleanup.
                     # --- END OF MODIFICATION ---
+                    self.preview_widget.makeCurrent() # <--- ***** 重要 *****
                     parsed_scene.track.create_all_segment_buffers() # This now creates buffers for vbranches too
                 except Exception as e:
                     print(f"  Error creating track buffers for preview: {e}")

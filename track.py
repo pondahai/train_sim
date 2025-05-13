@@ -195,6 +195,8 @@ class TrackSegment:
         # It's better to call cleanup_buffers once before any setup.
         # --- END OF MODIFICATION ---
 
+        error = glGetError()
+        if error != GL_NO_ERROR: print(f"GL Error {error} at start of setup_buffers for segment line {self.source_line_number}")
         # --- Ballast VBO/VAO ---
         if self.ballast_vertices:
             ballast_data = np.array(self.ballast_vertices, dtype=np.float32)
@@ -207,6 +209,10 @@ class TrackSegment:
             glBufferData(GL_ARRAY_BUFFER, ballast_data.nbytes, ballast_data, GL_STATIC_DRAW)
 
             self.ballast_vao = glGenVertexArrays(1)
+            
+            error = glGetError() # Check before Gen
+            if error != GL_NO_ERROR: print(f"GL Error {error} before glGenVertexArrays (ballast) for line {self.source_line_number}")
+            
             glBindVertexArray(self.ballast_vao)
             glBindBuffer(GL_ARRAY_BUFFER, self.ballast_vbo)
             # 位置屬性 (location=0)
@@ -231,6 +237,9 @@ class TrackSegment:
             glBindBuffer(GL_ARRAY_BUFFER, self.rail_left_vbo)
             glBufferData(GL_ARRAY_BUFFER, rail_left_data.nbytes, rail_left_data, GL_STATIC_DRAW)
 
+            error = glGetError() # Check before Gen
+            if error != GL_NO_ERROR: print(f"GL Error {error} before glGenVertexArrays (rail_left_vao) for line {self.source_line_number}")
+
             self.rail_left_vao = glGenVertexArrays(1)
             glBindVertexArray(self.rail_left_vao)
             glBindBuffer(GL_ARRAY_BUFFER, self.rail_left_vbo)
@@ -251,6 +260,9 @@ class TrackSegment:
             self.rail_right_vbo = glGenBuffers(1)
             glBindBuffer(GL_ARRAY_BUFFER, self.rail_right_vbo)
             glBufferData(GL_ARRAY_BUFFER, rail_right_data.nbytes, rail_right_data, GL_STATIC_DRAW)
+
+            error = glGetError() # Check before Gen
+            if error != GL_NO_ERROR: print(f"GL Error {error} before glGenVertexArrays (rail_right_vao) for line {self.source_line_number}")
 
             self.rail_right_vao = glGenVertexArrays(1)
             glBindVertexArray(self.rail_right_vao)
@@ -275,6 +287,10 @@ class TrackSegment:
                 branch_def['ballast_vbo'] = glGenBuffers(1)
                 glBindBuffer(GL_ARRAY_BUFFER, branch_def['ballast_vbo'])
                 glBufferData(GL_ARRAY_BUFFER, b_ballast_data.nbytes, b_ballast_data, GL_STATIC_DRAW)
+                
+                error = glGetError() # Check before Gen
+                if error != GL_NO_ERROR: print(f"GL Error {error} before glGenVertexArrays (branch_def ballast_vao) for line {self.source_line_number}")
+                
                 branch_def['ballast_vao'] = glGenVertexArrays(1)
                 glBindVertexArray(branch_def['ballast_vao'])
                 glBindBuffer(GL_ARRAY_BUFFER, branch_def['ballast_vbo'])
@@ -293,6 +309,10 @@ class TrackSegment:
                 branch_def['rail_left_vbo'] = glGenBuffers(1)
                 glBindBuffer(GL_ARRAY_BUFFER, branch_def['rail_left_vbo'])
                 glBufferData(GL_ARRAY_BUFFER, b_rail_l_data.nbytes, b_rail_l_data, GL_STATIC_DRAW)
+
+                error = glGetError() # Check before Gen
+                if error != GL_NO_ERROR: print(f"GL Error {error} before glGenVertexArrays (branch_def rail_left_vao) for line {self.source_line_number}")
+
                 branch_def['rail_left_vao'] = glGenVertexArrays(1)
                 glBindVertexArray(branch_def['rail_left_vao'])
                 glBindBuffer(GL_ARRAY_BUFFER, branch_def['rail_left_vbo'])
@@ -311,6 +331,10 @@ class TrackSegment:
                 branch_def['rail_right_vbo'] = glGenBuffers(1)
                 glBindBuffer(GL_ARRAY_BUFFER, branch_def['rail_right_vbo'])
                 glBufferData(GL_ARRAY_BUFFER, b_rail_r_data.nbytes, b_rail_r_data, GL_STATIC_DRAW)
+
+                error = glGetError() # Check before Gen
+                if error != GL_NO_ERROR: print(f"GL Error {error} before glGenVertexArrays (branch_def rail_right_vao) for line {self.source_line_number}")
+
                 branch_def['rail_right_vao'] = glGenVertexArrays(1)
                 glBindVertexArray(branch_def['rail_right_vao'])
                 glBindBuffer(GL_ARRAY_BUFFER, branch_def['rail_right_vbo'])
