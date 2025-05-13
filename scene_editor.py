@@ -343,13 +343,27 @@ class PreviewGLWidget(QGLWidget):
             print(f"Error drawing scene contents in preview: {e}")
 
     def update_preview(self):
-        """由 QTimer 觸發的更新迴圈"""
+        """由 QTimer 触发的更新循环，主要处理键盘移动导致的位置变化"""
         current_time = time.time()
         dt = current_time - self._last_update_time
         self._last_update_time = current_time
         dt = min(dt, 0.1) # Clamp dt
+
+        # --- 记录位置变化 ---
+        position_changed = False
+        old_pos = np.copy(self._camera.base_position)
+
+        # 处理键盘移动
         self._update_camera_position(dt)
-        self.update() # Request repaint
+
+        # 检查位置是否变化
+        if not np.allclose(old_pos, self._camera.base_position, atol=1e-6):
+            position_changed = True
+
+        # --- 仅在位置改变时请求重绘 ---
+        # 角度变化现在由 mouseMoveEvent 立即触发更新
+        if position_changed:
+            self.update() # Request repaint ONLY if camera moved via keyboard
 
     def _update_camera_position(self, dt):
         """根據按下的按鍵更新攝影機位置"""
@@ -393,26 +407,48 @@ class PreviewGLWidget(QGLWidget):
 
     def update_scene(self, scene_object, background_info=None):
         """接收新的場景數據和對應的背景資訊"""
+        should_update = False
         if isinstance(scene_object, Scene) or scene_object is None:
-            self._scene_data = scene_object
-            self._current_background_info = background_info
-            # Don't call self.update() here, let the timer handle repaints
+            # 检查场景对象本身或背景信息是否真的改变了
+            if self._scene_data is not scene_object or self._current_background_info != background_info:
+                 self._scene_data = scene_object
+                 self._current_background_info = background_info
+                 should_update = True
+            # Don't call self.update() here automatically, let external changes trigger it
         else:
             print("Editor Preview received invalid scene data type.")
+
+        # --- 如果数据确实更新了，触发一次重绘 ---
+        if should_update:
+            # print("Scene data updated, requesting repaint.") # Debug
+            self.update() # Explicitly request repaint for scene changes
 
     def keyPressEvent(self, event):
         key = event.key()
         self._keys_pressed.add(key)
+        should_update = False # Flag to check if we need an immediate update
+
         if key == Qt.Key_Tab:
             self.toggle_mouse_lock()
+            should_update = True # Update to show/hide cursor immediately
         elif key == Qt.Key_G:
             self.show_ground_flag = not self.show_ground_flag
-            self.update() # Trigger immediate repaint to reflect ground change
+            should_update = True # Update to show/hide ground immediately
+            print(f"3D Preview Ground: {'ON' if self.show_ground_flag else 'OFF'}") # Feedback
         elif key == Qt.Key_Escape:
             if self._mouse_locked:
                 self._release_mouse()
-        event.accept()
+                should_update = True # Update to show cursor immediately
 
+        # 如果是移动键，不需要立即更新，让 timer loop 在下一帧检测变化
+        # if key in [Qt.Key_W, Qt.Key_S, Qt.Key_A, Qt.Key_D, Qt.Key_Space, Qt.Key_Q]:
+        #    pass # Let the timer handle updates for movement
+
+        if should_update:
+            self.update() # Trigger immediate repaint if needed
+
+        event.accept()
+        
     def keyReleaseEvent(self, event):
         if not event.isAutoRepeat():
             self._keys_pressed.discard(event.key())
@@ -421,24 +457,46 @@ class PreviewGLWidget(QGLWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and not self._mouse_locked:
             self.toggle_mouse_lock()
+            # toggle_mouse_lock 内部会调用 update()
         event.accept()
 
     def mouseMoveEvent(self, event):
         if self._mouse_locked:
             current_pos = event.pos()
             delta = current_pos - self._last_mouse_pos
+
+            # --- 记录更新前的角度 ---
+            old_yaw = self._camera.yaw
+            old_pitch = self._camera.pitch
+
+            # --- 更新相机角度 ---
             self._camera.update_angles(delta.x(), delta.y())
-            # Center cursor (optional, can cause jitter)
+
+            # --- 检查角度是否真的改变了 ---
+            # 这可以防止因微小的、未改变角度的 delta (可能由光标居中引起) 触发不必要的更新
+            angles_changed = (old_yaw != self._camera.yaw or old_pitch != self._camera.pitch)
+
+            # --- 居中光标 (保持不变) ---
             center_pos = QPoint(self.width() // 2, self.height() // 2)
-            if current_pos != center_pos:
+            # 仅当光标实际移出中心且角度已改变时才重置光标位置
+            if current_pos != center_pos and angles_changed:
                 QCursor.setPos(self.mapToGlobal(center_pos))
                 self._last_mouse_pos = center_pos
             else:
+                 # 否则，只更新最后的位置，不重置光标（避免在中心点时的抖动）
                 self._last_mouse_pos = current_pos
-        else:
-            self._last_mouse_pos = event.pos() # Update last pos even when not locked
-        event.accept()
 
+
+            # --- 如果角度改变了，立即触发重绘 ---
+            if angles_changed:
+                self.update() # <--- !! 添加这一行 !!
+
+        else:
+            # 鼠标未锁定时，仍然更新 last_mouse_pos，但不触发更新
+            self._last_mouse_pos = event.pos()
+
+        event.accept()
+        
     def focusOutEvent(self, event):
         if self._mouse_locked:
             self._release_mouse()
@@ -454,6 +512,7 @@ class PreviewGLWidget(QGLWidget):
             center_pos = QPoint(self.width() // 2, self.height() // 2)
             self._last_mouse_pos = center_pos
             QCursor.setPos(self.mapToGlobal(center_pos)) # Move cursor to center
+            self.update() # Update to reflect cursor change
 
     def _release_mouse(self):
         if self._mouse_locked:
@@ -461,8 +520,11 @@ class PreviewGLWidget(QGLWidget):
             self.setCursor(Qt.ArrowCursor)
             self._mouse_locked = False
             self._camera.set_mouse_lock(False)
+            self.update() # Update to reflect cursor change
 
     def toggle_mouse_lock(self):
+        # 这个函数本身调用 _grab_mouse 或 _release_mouse，
+        # 而这两个函数内部已经调用了 self.update()，所以这里不需要再调用
         if self._mouse_locked:
             self._release_mouse()
         else:

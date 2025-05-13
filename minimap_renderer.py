@@ -912,8 +912,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 sum_y = sum(coord[1] for coord in map_coords)
                 center = (sum_x / 4, sum_y / 4)
 
-                # 顯示Y值
-                label_text=f"{wy:.1f}";
+                # 顯示line_num:Y值
+                label_text=f"{line_num}:{wy:.1f}";
                 label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR
                 try:
                     if coord_label_font and not is_dragging:
@@ -1014,8 +1014,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                                 )
                         glEnd()
 
-                # 顯示Y值
-                label_text=f"{wy:.1f}";
+                # 顯示line_num:Y值
+                label_text=f"{line_num}:{wy:.1f}";
                 label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR
                 try:
                     if coord_label_font and not is_dragging: # --- MODIFICATION: Added coord_label_font check ---
@@ -1039,7 +1039,6 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         point_size = min_pt+(max_pt-min_pt)*zoom_ratio
         glPointSize(max(1.0, point_size))
         
-        glBegin(GL_POINTS)
         for item in scene.trees:
             line_num, tree = item # 解包行號和數據元組
             if line_num not in highlight_line_nums: # 只處理非高亮的
@@ -1047,15 +1046,29 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                 # Basic point culling
                 if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
+                    glBegin(GL_POINTS)
                     glVertex2f(map_x, map_y)
-        glEnd() # 結束非高亮點的繪製
-        
+                    glEnd() # 結束非高亮點的繪製
+
+                # --- 繪製 line_num:Y 座標標籤 ---
+                label_text = f"{line_num}:{ty:.1f}"
+                label_color = MINIMAP_DYNAMIC_TREE_COLOR 
+                try:
+                    if coord_label_font and not is_dragging: # 確保字體存在
+                        text_surface = coord_label_font.render(label_text, True, label_color)
+                        # 計算繪製位置 (例如在圓心右側)
+                        dx = map_x + 2 # 加一點偏移
+                        dy = map_y - text_surface.get_height() / 2
+                        renderer._draw_text_texture(text_surface, dx, dy)
+                except Exception as e:
+                    pass # 忽略繪製標籤錯誤
+
+
         # --- 繪製高亮的樹 ---
         if highlight_line_nums: # 只有當有需要高亮的行時才執行
             glColor3f(1.0, 1.0, 0.0) # 高亮顏色
             glPointSize(max(1.0, point_size) * 1.5) # 高亮點可以稍微大一點 (示例)
 
-            glBegin(GL_POINTS)
             for item in scene.trees:
                 line_num, tree_data = item
                 if line_num in highlight_line_nums: # 只處理高亮的
@@ -1063,8 +1076,22 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                     # Basic point culling
                     if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
+                        glBegin(GL_POINTS)
                         glVertex2f(map_x, map_y)
-            glEnd() # 結束高亮點的繪製
+                        glEnd() # 結束高亮點的繪製
+
+                    # --- 繪製 line_num:Y 座標標籤 ---
+                    label_text = f"{line_num}:{ty:.1f}"
+                    label_color = MINIMAP_DYNAMIC_TREE_COLOR 
+                    try:
+                        if coord_label_font and not is_dragging: # 確保字體存在
+                            text_surface = coord_label_font.render(label_text, True, label_color)
+                            # 計算繪製位置 (例如在圓心右側)
+                            dx = map_x + 2 # 加一點偏移
+                            dy = map_y - text_surface.get_height() / 2
+                            renderer._draw_text_texture(text_surface, dx, dy)
+                    except Exception as e:
+                        pass # 忽略繪製標籤錯誤
 
         # --- Draw Spheres (Circles) Dynamically ---
         num_circle_segments_sphere = 12 # 圓的邊數 (可以根據縮放調整)
@@ -1099,8 +1126,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                                    center_map_y + radius_map * math.sin(angle))
                     glEnd()
 
-                # --- 繪製 Y 座標標籤 ---
-                label_text = f"{wy:.1f}"
+                # --- 繪製 line_num:Y 座標標籤 ---
+                label_text = f"{line_num}:{wy:.1f}"
                 label_color = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_SPHERE_LABEL_COLOR
                 try:
                     if coord_label_font and not is_dragging: # 確保字體存在
@@ -1166,7 +1193,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                         glEnd()
 
                     # --- 繪製高度標籤 ---
-                    label_text = f"{peak_height:.1f}m" # 格式化高度
+                    label_text = f"{line_num}:{peak_height:.1f}m" # 格式化高度
                     try:
                         if coord_label_font and not is_dragging: # 確保字體已設置
                             text_surface = coord_label_font.render(label_text, True, label_color)
