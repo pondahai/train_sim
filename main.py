@@ -18,6 +18,9 @@ import minimap_renderer # *** NEW: Import the minimap module ***
 from camera import Camera
 from tram import Tram
 
+import tkinter as tk
+from tkinter import filedialog
+
 ## Keep profiler if used
 # import cProfile
 # import pstats
@@ -36,6 +39,102 @@ hud_font = None
 
 # --- NEW: Global for active background ---
 active_background_info = None
+
+
+def show_context_menu(current_scene_filepath):
+    root = tk.Tk()
+    root.withdraw() # 隱藏主窗口
+
+    selected_action = None # 用於存儲用戶的選擇
+    new_filepath = None
+
+    def on_load_scene():
+        nonlocal selected_action, new_filepath
+        selected_action = "load_scene"
+        # 暫時解除 Pygame 的滑鼠捕獲，如果有的話
+        pygame_mouse_grabbed = pygame.event.get_grab()
+        if pygame_mouse_grabbed:
+            pygame.event.set_grab(False)
+            pygame.mouse.set_visible(True)
+
+        # 確定初始目錄
+        initial_dir = os.getcwd()
+        if current_scene_filepath and os.path.exists(os.path.dirname(current_scene_filepath)):
+            initial_dir = os.path.dirname(current_scene_filepath)
+        
+        filepath = filedialog.askopenfilename(
+            parent=root, # 確保對話框在 tkinter 窗口之上
+            title="選擇場景檔案",
+            initialdir=initial_dir,
+            filetypes=(("場景檔案", "*.txt"), ("所有檔案", "*.*"))
+        )
+        if filepath:
+            new_filepath = filepath
+        
+        if pygame_mouse_grabbed: # 恢復滑鼠捕獲
+            pygame.event.set_grab(True)
+            pygame.mouse.set_visible(False) # 如果之前不可見
+        
+        menu_window.destroy()
+
+
+    def on_exit_app():
+        nonlocal selected_action
+        selected_action = "exit"
+        menu_window.destroy()
+
+    # 創建一個頂層小窗口作為選單
+    menu_window = tk.Toplevel(root)
+    menu_window.title("選單")
+    menu_window.resizable(False, False)
+    # 讓選單窗口置頂，並獲取焦點
+    menu_window.attributes('-topmost', True)
+    menu_window.grab_set() # 捕獲事件，使其成為模態
+
+    # 計算選單窗口位置 (例如在滑鼠點擊位置附近)
+    # 注意：pygame.mouse.get_pos() 是相對於 Pygame 窗口的
+    # 我們需要將其轉換為螢幕座標
+    screen_x, screen_y = pygame.mouse.get_pos() # 獲取 Pygame 窗口內的滑鼠座標
+    # 這一步轉換可能不夠完美，因為 tk.Toplevel 的 geometry 是相對於螢幕的
+    # pygame.display.Info() 可以獲取窗口位置，但稍微複雜
+    # 簡單起見，先放在螢幕中間或一個固定偏移
+    # menu_window.geometry(f"+{root.winfo_screenwidth()//2-50}+{root.winfo_screenheight()//2-30}") # 居中
+    # 或者嘗試基於 Pygame 窗口位置（如果能獲取到）
+    try:
+        # 嘗試獲取 Pygame 窗口在螢幕上的信息 (這部分可能不夠通用或可靠)
+        # display_info = pygame.display.get_wm_info() # SDL1
+        # display_info = pygame.display.get_window_manager_info() # SDL2 (可能需要特定導入)
+        # 更好的方式可能是直接在螢幕中間彈出
+        # 或者，讓選單出現在 Pygame 窗口的大致中心
+        pygame_win_info = pygame.display.Info()
+        px, py = pygame_win_info.current_w // 2, pygame_win_info.current_h // 2 # Pygame 窗口中心
+        menu_window.geometry(f"+{px-50}+{py-30}") # 相對螢幕，但定位在 Pygame 窗口中心附近
+    except Exception:
+        # Fallback to screen center
+        menu_window.geometry(f"+{root.winfo_screenwidth()//2-50}+{root.winfo_screenheight()//2-30}")
+
+
+    load_button = tk.Button(menu_window, text="載入場景 (Load Scene)", command=on_load_scene, width=20)
+    load_button.pack(pady=5, padx=10)
+
+    exit_button = tk.Button(menu_window, text="離開 (Exit)", command=on_exit_app, width=20)
+    exit_button.pack(pady=5, padx=10)
+
+    menu_window.protocol("WM_DELETE_WINDOW", menu_window.destroy) # 處理點擊關閉按鈕
+    
+    # 等待選單窗口關閉
+    root.wait_window(menu_window)
+    
+    try:
+        root.destroy() # 銷毀隱藏的根窗口
+    except tk.TclError:
+        pass # 可能已經被銷毀
+
+    if selected_action == "load_scene":
+        return selected_action, new_filepath
+    elif selected_action == "exit":
+        return selected_action, None
+    return None, None # 沒有選擇或關閉了選單
 
 def main():
     global hud_font, active_background_info # <--- Add active_background_info
@@ -118,6 +217,9 @@ def main():
     show_hud_info = False
     show_cab = True
 
+    # --- Global variable to store current scene file path for the menu ---
+    current_loaded_scene_file = "scene.txt" # Initialize with default
+
     # --- Main Loop ---
     while running:
         dt = clock.tick(TARGET_FPS) / 1000.0
@@ -189,8 +291,60 @@ def main():
                 elif event.key == pygame.K_PAGEDOWN: minimap_renderer.zoom_simulator_minimap(minimap_renderer.MINIMAP_ZOOM_FACTOR)
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                 if not camera_instance.mouse_locked and event.button == 1:
-                     camera_instance.set_mouse_lock(True); pygame.mouse.set_visible(False); pygame.event.set_grab(True)
+                if event.button == 1: # 左鍵
+                    if not camera_instance.mouse_locked and event.button == 1:
+                         camera_instance.set_mouse_lock(True); pygame.mouse.set_visible(False); pygame.event.set_grab(True)
+                elif event.button == 3: # 右鍵
+                    # 釋放滑鼠鎖定（如果有的話），以便tkinter窗口能正常工作
+                    mouse_was_locked = camera_instance.mouse_locked
+                    if mouse_was_locked:
+                        camera_instance.set_mouse_lock(False)
+                        pygame.mouse.set_visible(True)
+                        pygame.event.set_grab(False)
+
+                    action, filepath_from_menu = show_context_menu(current_loaded_scene_file)
+
+                    if mouse_was_locked: # 恢復滑鼠鎖定
+                        # 確保在恢復前 camera 實例仍然有效
+                        if camera_instance: # 簡單檢查
+                            camera_instance.set_mouse_lock(True)
+                            pygame.mouse.set_visible(False)
+                            pygame.event.set_grab(True)
+                    
+                    if action == "load_scene" and filepath_from_menu:
+                        print(f"選單選擇：載入場景檔案 '{filepath_from_menu}'")
+                        
+                        if scene_parser.load_scene(filepath=filepath_from_menu, force_reload=True):
+                            scene = scene_parser.get_current_scene()
+                            current_loaded_scene_file = filepath_from_menu 
+                            
+                            active_background_info = scene.initial_background_info if scene else None
+                            minimap_renderer.bake_static_map_elements(scene)
+                            
+                            tram_instance.track = scene.track if scene else None
+                            if scene and scene.is_render_ready:
+                                tram_instance.position = np.copy(scene.start_position)
+                                start_angle_rad_main = math.radians(scene.start_angle_deg)
+                                tram_instance.forward_vector_xz = (math.cos(start_angle_rad_main), math.sin(start_angle_rad_main))
+                                tram_instance.distance_on_track = 0.0
+                                tram_instance.current_speed = 0.0
+                                print(f"場景 '{filepath_from_menu}' 已成功載入並準備就緒。電車已重置。")
+                            elif scene:
+                                print(f"警告: 場景 '{filepath_from_menu}' 已載入但未完全準備好渲染。")
+                                tram_instance.position = np.array([0.0, 0.0, 0.0])
+                                tram_instance.forward_vector_xz = (1.0, 0.0)
+                            else:
+                                print(f"錯誤: scene_parser.load_scene 返回的 scene 為 None。")
+                                tram_instance.position = np.array([0.0, 0.0, 0.0])
+                                tram_instance.forward_vector_xz = (1.0, 0.0)
+                                active_background_info = None
+                                minimap_renderer.bake_static_map_elements(scene_parser.get_current_scene())
+                        else:
+                            print(f"通過選單載入場景 '{filepath_from_menu}' 失敗。模擬器將保留原場景（如果存在）。")
+                            scene = scene_parser.get_current_scene() 
+                    elif action == "exit":
+                        print("選單選擇：離開")
+                        running = False
             elif event.type == pygame.MOUSEWHEEL: tram_instance.adjust_speed(event.y)
             elif event.type == pygame.MOUSEMOTION:
                 if camera_instance.mouse_locked: dx, dy = event.rel; camera_instance.update_angles(dx, dy)

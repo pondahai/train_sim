@@ -71,6 +71,7 @@ class Scene:
         # Let's include the texture ID for skydome here if loaded.
         self.background_triggers = []
 
+        self.is_render_ready = False # 新增標誌
 
     def clear(self):
         self.track.clear()
@@ -90,6 +91,78 @@ class Scene:
         self.initial_background_info = None
         self.background_triggers = []
 
+    def clear_content(self): # 用於清空場景內容，但不一定釋放 OpenGL 資源
+        self.track = Track() # 創建一個新的空軌道
+        self.buildings = []
+        # ... (清空其他列表) ...
+        self.map_filename = None
+        # ...
+        self.initial_background_info = None
+        self.background_triggers = []
+        self.is_render_ready = False
+
+    def cleanup_resources(self):
+        """清理與此場景相關的 OpenGL 資源，主要是軌道緩衝區。"""
+        if self.track:
+            self.track.clear() # Track.clear() 應負責清理其 VBOs/VAOs
+        # 如果 Scene 還管理其他 OpenGL 資源（例如，直接的紋理ID列表），也在此清理
+        self.is_render_ready = False
+        print(f"Scene resources cleaned up.")
+
+    def populate_from_lines(self, lines_list, load_textures=True):
+        """用解析器填充此 Scene 實例的內容。會先清空現有內容。"""
+        self.clear_content() # 先清空當前 Scene 的數據
+        # _parse_scene_content 應該被修改或有一個輔助函數
+        # 它不再創建新的 Scene，而是填充傳入的 Scene 實例
+        # 或者，_parse_scene_content 仍然返回一個新 Scene，然後我們手動複製其內容
+        # 為了簡單起見，我們先假設 _parse_scene_content 返回一個新 Scene
+        
+        temp_parsed_scene = _parse_scene_content(lines_list, load_textures) # 假設這個函數依然返回新的 Scene
+        if temp_parsed_scene:
+            # 將 temp_parsed_scene 的屬性複製到 self
+            self.track = temp_parsed_scene.track
+            self.buildings = temp_parsed_scene.buildings
+            self.trees = temp_parsed_scene.trees
+            self.cylinders = temp_parsed_scene.cylinders
+            self.spheres = temp_parsed_scene.spheres
+            self.hills = temp_parsed_scene.hills
+            self.start_position = temp_parsed_scene.start_position
+            self.start_angle_deg = temp_parsed_scene.start_angle_deg
+            self.map_filename = temp_parsed_scene.map_filename
+            self.map_world_center_x = temp_parsed_scene.map_world_center_x
+            self.map_world_center_z = temp_parsed_scene.map_world_center_z
+            self.map_world_scale = temp_parsed_scene.map_world_scale
+            self.initial_background_info = temp_parsed_scene.initial_background_info
+            self.background_triggers = temp_parsed_scene.background_triggers
+            return True
+        return False
+
+    def prepare_for_render(self):
+        """準備場景用於渲染，例如創建軌道緩衝區。"""
+        if self.track:
+            print(f"Scene: Preparing track for render (creating buffers)...")
+            self.track.create_all_segment_buffers() # Track 內部應處理好 VBO/VAO
+            # 這裡可以檢查 segment.is_buffer_ready
+            all_segments_ready = all(s.is_buffer_ready for s in self.track.segments if hasattr(s, 'is_buffer_ready'))
+            if all_segments_ready and self.track.segments: # 確保有軌道段且都準備好了
+                self.is_render_ready = True
+                print("Scene: Track is render ready.")
+            elif not self.track.segments:
+                self.is_render_ready = True # 空軌道也算準備好了（沒東西渲染）
+                print("Scene: Track is empty, render ready.")
+            else:
+                self.is_render_ready = False
+                print("Scene: Track not fully render ready.")
+        else:
+            self.is_render_ready = True # 沒有軌道也算準備好了
+            print("Scene: No track, render ready.")
+        
+        # 如果還有其他需要在渲染前準備的資源，可以在這裡處理
+        # 例如，預載入一些一次性的紋理或模型到 GPU
+
+        # 小地圖烘焙也可以考慮作為 prepare_for_render 的一部分，或者由外部調用
+        # minimap_renderer.bake_static_map_elements(self)
+        
 # --- Global state for scene parsing ---
 scene_file_path = "scene.txt"
 last_modified_time = 0
@@ -689,7 +762,7 @@ def parse_scene_file(filepath, load_textures=True):
         return Scene() # Return empty scene on other errors? Or None? Let's return empty.
 
 # --- load_scene (logic unchanged, relies on parse_scene_file) ---
-def load_scene(force_reload=False):
+def load_scene(force_reload=False, filepath=None):
     """
     Loads or reloads the scene file if modified.
     Clears old resources (track buffers, texture cache) before reloading.
@@ -697,55 +770,95 @@ def load_scene(force_reload=False):
     """
     global last_modified_time, current_scene, scene_file_path
 
+    # --- 決定實際要載入的路徑 ---
+    path_to_use = filepath if filepath is not None else scene_file_path
+    # -------------------------
+
     try:
         # Texture loader check is done inside parse functions if load_textures=True
-        if not os.path.exists(scene_file_path): # Handle file not found earlier
-            raise FileNotFoundError
+        if not os.path.exists(path_to_use): # Handle file not found earlier
+            # 如果指定了檔案路徑但不存在，這是一個明確的錯誤
+            if filepath is not None:
+                print(f"錯誤: 指定的場景檔案 '{filepath}' 不存在。")
+                # 這種情況下，我們可能不應該繼續清理或修改 current_scene
+                # 可以選擇返回 False，或者如果希望清空場景則繼續
+                # 為了安全，如果指定檔案不存在，直接返回 False，不改變當前狀態
+                return False
+            # 如果是預設路徑不存在，則按原來的 FileNotFoundError 處理
+            raise FileNotFoundError(f"預設場景檔案 '{path_to_use}' 未找到。")
 
-        current_mod_time = os.path.getmtime(scene_file_path)
-        needs_reload = force_reload or current_mod_time != last_modified_time
-
+        current_mod_time = os.path.getmtime(path_to_use)
+        needs_reload = (filepath is not None) or \
+                       force_reload or \
+                       (filepath is None and current_mod_time != last_modified_time)
+        
         if needs_reload:
             print(f"偵測到場景檔案變更或強制重新載入 '{scene_file_path}'...")
 
             # --- 1. Cleanup OLD scene resources ---
-            if current_scene and current_scene.track:
-                 # print("清理舊軌道緩衝區...")
-                 current_scene.track.clear() # Cleans up track VBOs/VAOs
+            if current_scene: # 確保 current_scene 不是 None
+                if hasattr(current_scene, 'cleanup_resources') and callable(current_scene.cleanup_resources):
+                    # print("清理舊場景資源 (via Scene.cleanup_resources)...") # 可選調試
+                    current_scene.cleanup_resources() # 調用 Scene 自己的清理方法
+                elif current_scene.track: # 後備：如果沒有 cleanup_resources，但有 track
+                    # print("清理舊軌道緩衝區 (直接)...") # 可選調試
+                    current_scene.track.clear()
 
             if texture_loader:
-                # print("清理物件紋理快取...")
-                texture_loader.clear_texture_cache() # Includes skydome textures loaded here
+                # print("清理物件紋理快取...") # 可選調試
+                texture_loader.clear_texture_cache()
 
             # --- 2. Parse NEW scene data ---
-            new_scene_data = parse_scene_file(scene_file_path, load_textures=True)
+            new_scene_data = parse_scene_file(path_to_use, load_textures=True)
 
             if new_scene_data:
-                current_scene = new_scene_data # Replace scene object
-                last_modified_time = current_mod_time
-                print("場景已成功載入/重新載入 (等待外部處理緩衝區和烘焙)。")
-                return True # Indicate successful reload, external steps needed
+                current_scene = new_scene_data # 更新全域的 current_scene
+                
+                # 更新檔案修改時間 (僅當我們載入的是預設的 scene_file_path 且沒有強制指定 filepath 時)
+                if filepath is None: # 只有當載入的是預設的全域 scene_file_path 時，才更新 last_modified_time
+                    last_modified_time = current_mod_time
+                
+                # --- 新增：在 current_scene 被賦值後，調用 prepare_for_render ---
+                if hasattr(current_scene, 'prepare_for_render') and callable(current_scene.prepare_for_render):
+                    print(f"為新載入的場景 '{path_to_use}' 準備渲染資源...")
+                    current_scene.prepare_for_render()
+                # ------------------------------------------------------------
+                
+                print(f"場景 '{path_to_use}' 已成功載入/重新載入。")
+                return True # 指示成功重載
             else:
-                print("場景載入失敗，保留舊場景 (或變為空場景)。")
-                if current_scene: current_scene.clear()
-                return False # Indicate failure
+                print(f"場景檔案 '{path_to_use}' 載入失敗，但解析返回 None。可能保留舊場景或變為空。")
+                # 這裡可以選擇是否要清空 current_scene
+                # current_scene.clear_content() # 或者 current_scene.cleanup_resources() 然後 current_scene = Scene()
+                # current_scene.prepare_for_render() # 即使是空場景，也調用一下
+                return False # 指示失敗
 
-        return False # No reload needed
+        return False # 不需要重載
 
     except FileNotFoundError:
-        print(f"錯誤: 場景檔案 '{scene_file_path}' 在檢查更新時未找到。")
-        if current_scene and (current_scene.track.segments or current_scene.map_filename or current_scene.initial_background_info): # Check if scene has content
+        # 這個 FileNotFoundError 主要對應預設 scene_file_path 找不到的情況
+        print(f"錯誤: 場景檔案 '{path_to_use}' (在 load_scene 中) 未找到。")
+        if current_scene and (current_scene.track.segments or current_scene.map_filename or current_scene.initial_background_info):
             print("清理當前場景...")
-            if current_scene.track: current_scene.track.clear()
+            if hasattr(current_scene, 'cleanup_resources') and callable(current_scene.cleanup_resources):
+                current_scene.cleanup_resources()
+            elif current_scene.track: current_scene.track.clear()
             if texture_loader: texture_loader.clear_texture_cache()
-            current_scene.clear() # Clear the Scene object itself
-        last_modified_time = 0 # Reset timestamp
-        return True # Indicate scene changed (disappeared), external cleanup might be needed
+            current_scene.clear_content() # 清空內容，但不一定是新 Scene()
+            # current_scene = Scene() # 或者直接賦值一個新的空場景
+        
+        # 為空場景也調用 prepare_for_render (是安全的)
+        if hasattr(current_scene, 'prepare_for_render') and callable(current_scene.prepare_for_render):
+            current_scene.prepare_for_render()
+
+        if filepath is None: # 只有當檢查的是預設路徑時才重置時間戳
+            last_modified_time = 0
+        return True # 指示場景已更改（變為空或已清理），外部可能需要更新
 
     except Exception as e:
-        print(f"檢查場景檔案更新時發生錯誤: {e}")
+        print(f"檢查或載入場景檔案 '{path_to_use}' 更新時發生錯誤: {e}")
         import traceback
-        traceback.print_exc() # Print stack trace for debugging
+        traceback.print_exc()
         return False
 
 # --- get_current_scene (unchanged) ---

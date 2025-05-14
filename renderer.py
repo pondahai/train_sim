@@ -24,7 +24,7 @@ LEVER_COLOR = (0.8, 0.1, 0.1) # Keep
 NEEDLE_COLOR = (0.0, 0.0, 0.0) # Keep
 TREE_FALLBACK_COLOR = (0.1, 0.6, 0.15) # 一個樹木的綠色
 ALPHA_TEST_THRESHOLD = 0.5 # 常用的值，您可以調整 (0.0 到 1.0)
-CYLINDER_SLICES = 16 # Keep (maybe reduce default slightly?)
+CYLINDER_SLICES = 32 # Keep (maybe reduce default slightly?)
 
 # --- Minimap Parameters REMOVED ---
 
@@ -355,31 +355,122 @@ def draw_cylinder(radius, height, texture_id=None,
     if quadric:
         gluQuadricTexture(quadric, GL_TRUE);
         gluQuadricNormals(quadric, GLU_SMOOTH)
-        glMatrixMode(GL_TEXTURE);
-        glPushMatrix();
+        
+        # --- 1. 處理圓柱側面 (保持不變) ---
+        glMatrixMode(GL_TEXTURE)
+        glPushMatrix() # 保存側面之前的紋理矩陣 (可能是單位矩陣)
         glLoadIdentity()
-        glTranslatef(u_offset, v_offset, 0)
-        if uv_mode == 0:
-            safe_uscale = uscale if uscale > 1e-6 else 1e-6
-            safe_vscale = vscale if vscale > 1e-6 else 1e-6
-            glScalef(1.0 / safe_uscale, 1.0 / safe_vscale, 1.0)
+        # 應用側面的 UV 變換 (平移、uv_mode=0 的縮放)
+        # 為了與 _calculate_uv 的旋轉中心一致，平移和縮放可能需要在旋轉之後或之前特定處理
+        # 簡化：先平移，再縮放 (uv_mode=0)，旋轉由 _calculate_uv 內部處理
+        # 但 gluCylinder 的旋轉是模型變換，不是紋理變換，所以這裡的 tex_angle_deg 不直接用 glRotatef
+        
+        # 參考 _calculate_uv 的邏輯：先移到中心，旋轉，再移回來，然後平移
+        # 但 gluCylinder 的 UV 是柱面展開，tex_angle_deg 更像是 U 方向的偏移
+        # 這裡的 u_offset, v_offset, uscale, vscale (for uv_mode=0) 用於側面
+        temp_u_offset_cyl = u_offset
+        temp_v_offset_cyl = v_offset
+        
+        # 如果 tex_angle_deg != 0，對於側面，它更像是 U 方向的滾動
+        # 我們可以將其轉換為一個 U 偏移
+        # 一個完整的圓周對應 UV 的 U 方向從 0 到 1 (或 uscale，如果 uv_mode=1)
+        # angle_rad_cyl_tex = math.radians(tex_angle_deg)
+        # u_shift_from_angle = (angle_rad_cyl_tex / (2 * math.pi)) # 假設U方向0-1對應360度
+        # temp_u_offset_cyl += u_shift_from_angle
+
+        glTranslatef(temp_u_offset_cyl, temp_v_offset_cyl, 0)
+        if uv_mode == 0: # 世界單位縮放 (側面)
+            # 這裡的 uscale/vscale 是每個世界單位對應多少紋理單位
+            # 所以 glScalef 應該是 1.0 / scale
+            safe_uscale_cyl = uscale if abs(uscale) > 1e-6 else 1e-6
+            safe_vscale_cyl = vscale if abs(vscale) > 1e-6 else 1e-6
+            glScalef(1.0 / safe_uscale_cyl, 1.0 / safe_vscale_cyl, 1.0)
+        elif uv_mode == 1: # 相對縮放 (側面，紋理重複次數)
+            # 這裡的 uscale/vscale 是紋理在整個U/V長度上的重複次數
+            # gluCylinder 的U從0到1對應圓周，V從0到1對應高度
+            glScalef(uscale, vscale, 1.0)
+
+
         glMatrixMode(GL_MODELVIEW)
         gluCylinder(quadric, radius, radius, height, CYLINDER_SLICES, 1)
-        glMatrixMode(GL_TEXTURE);
-        glLoadIdentity();
-        glMatrixMode(GL_MODELVIEW) # Reset texture matrix for caps
-        glPushMatrix();
-        glRotatef(180, 1, 0, 0);
-        gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1);
+        
+        # 恢復到繪製側面之前的紋理矩陣狀態 (很可能是單位矩陣)
+        glMatrixMode(GL_TEXTURE)
+        glPopMatrix() # 彈出為側面設置的紋理矩陣
+        glMatrixMode(GL_MODELVIEW)
+
+
+        # --- 2. 處理上下圓盤 (Caps) ---
+        glMatrixMode(GL_TEXTURE)
+        glPushMatrix() # 為圓盤保存當前的紋理矩陣 (可能是單位矩陣)
+        glLoadIdentity() # 開始為圓盤設置新的紋理矩陣
+
+        # 圓盤的 UV 中心通常被認為是 (0.5, 0.5)
+        # 我們希望所有變換都圍繞這個中心點 (或者如果 uv_mode=0，則基於世界單位)
+
+        # 步驟 a: 將 gluDisk 生成的 UV (假設範圍 0-1) 的中心 (0.5, 0.5) 平移到原點 (0,0)
+        glTranslatef(0.5, 0.5, 0.0)
+
+        # 步驟 b: 應用紋理自身的二維旋轉
+        glRotatef(tex_angle_deg, 0, 0, 1) # 繞 Z 軸旋轉（在 2D UV 空間中）
+
+        # 步驟 c: 應用縮放
+        if uv_mode == 0: # 世界單位/絕對縮放
+            # gluDisk 的 UV 0-1 對應圓盤直徑 2*radius
+            # 我們希望 uscale/vscale 是紋理在世界單位下的尺寸
+            # 所以 UV 需要乘以 (radius / uscale)
+            # 但 gluDisk 的 UV 映射比較複雜，直接用 radius 可能不准確
+            # 一個近似：假設 gluDisk 的 UV (0,0) 到 (1,1) 覆蓋了圓盤的外接正方形
+            # 如果 uscale 是10個世界單位，半徑是2，那麼紋理應該重複 2*radius / uscale 次
+            # (2*radius) / uscale 是紋理在這個直徑上的重複次數
+            # 所以 UV 需要乘以這個值
+            # 這裡需要實驗，先用一個簡化模型：
+            # 假設我們希望 uscale 是紋理鋪滿 N 個圓盤直徑的 N 值
+            # safe_uscale = uscale if abs(uscale) > 1e-6 else 1e-6
+            # safe_vscale = vscale if abs(vscale) > 1e-6 else 1e-6
+            # glScalef(1.0 / safe_uscale, 1.0 / safe_vscale, 1.0)
+            # 另一種理解 uv_mode=0 的方式是：uscale 是紋理本身在U方向的世界寬度
+            # gluDisk 的 U 方向 0-1 對應了 2*radius 的世界寬度。
+            # 所以，生成的 u_glu 需要轉換成世界單位 (u_glu * 2*radius)，然後再除以 uscale (紋理的世界寬度)
+            # 最終的縮放因子是 (2*radius / uscale)
+            actual_uscale_factor = (2 * radius) / (uscale if abs(uscale) > 1e-6 else 1e-6)
+            actual_vscale_factor = (2 * radius) / (vscale if abs(vscale) > 1e-6 else 1e-6)
+            glScalef(actual_uscale_factor, actual_vscale_factor, 1.0)
+
+        elif uv_mode == 1: # 相對縮放 (紋理重複次數)
+            # uscale, vscale 直接表示紋理在圓盤 UV 0-1 範圍內的重複次數
+            safe_uscale = uscale if abs(uscale) > 1e-6 else 1e-6
+            safe_vscale = vscale if abs(vscale) > 1e-6 else 1e-6
+            glScalef(safe_uscale, safe_vscale, 1.0)
+        
+        # 步驟 d: 將 UV 中心平移回 (0.5, 0.5)
+        glTranslatef(-0.5, -0.5, 0.0)
+        
+        # 步驟 e: 最後應用 u_offset, v_offset (這些是最終的平移)
+        glTranslatef(u_offset, v_offset, 0.0)
+
+        glMatrixMode(GL_MODELVIEW) # 切換回模型視圖準備繪製 gluDisk
+
+        # 繪製底部圓盤
+        glPushMatrix()
+        glRotatef(180, 1, 0, 0)
+        gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1)
         glPopMatrix()
-        glPushMatrix();
-        glTranslatef(0, 0, height);
-        gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1);
+
+        # 繪製頂部圓盤 (使用相同的紋理矩陣)
+        glPushMatrix()
+        glTranslatef(0, 0, height)
+        gluDisk(quadric, 0, radius, CYLINDER_SLICES, 1)
         glPopMatrix()
+
+        # 恢復紋理矩陣
+        glMatrixMode(GL_TEXTURE)
+        glPopMatrix() # 彈出為圓盤設置的紋理矩陣
+        glMatrixMode(GL_MODELVIEW)
+
         gluDeleteQuadric(quadric)
-        glMatrixMode(GL_TEXTURE);
-        glPopMatrix();
-        glMatrixMode(GL_MODELVIEW) # Restore texture matrix
+
+        
     else: print("Error creating GLU quadric object for cylinder.")
     glBindTexture(GL_TEXTURE_2D, 0)
     glEnable(GL_TEXTURE_2D)

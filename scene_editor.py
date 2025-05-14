@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QSplitter,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView,
     QVBoxLayout, QSizePolicy, QMenuBar, QAction, QMessageBox, QStatusBar,
-    QDockWidget # 用於可停靠視窗
+    QDockWidget, QFileDialog  # 用於可停靠視窗
 )
 # --- 新增：導入 KeySequence ---
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QTimer, QStandardPaths, pyqtSlot # QTimer 用於預覽更新
@@ -646,7 +646,7 @@ class SceneTableWidget(QTableWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._data_modified = False
-        self._filepath = SCENE_FILE
+        self._filepath = None 
         self._command_hints = scene_parser.COMMAND_HINTS
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         # --- 修改：啟用擴展選擇模式 ---
@@ -680,97 +680,97 @@ class SceneTableWidget(QTableWidget):
             final_width = max(self.MIN_COLUMN_WIDTH, text_width + self.HEADER_PADDING)
             self.setColumnWidth(col, final_width)
 
-    def load_scene_file(self):
-        remember_row = self._last_active_row # Remember last active row before clearing
+    def load_scene_file(self, filepath_to_load):
+        remember_row = self._last_active_row 
         self.clear()
         self.setRowCount(0)
         self.setColumnCount(0)
+        self._filepath = None # Reset filepath initially
 
-        if not os.path.exists(self._filepath):
+        if not filepath_to_load or not os.path.exists(filepath_to_load): # Check if path is valid
+            # If no path or path doesn't exist, set to empty state
             self.insertRow(0)
             self.setColumnCount(1)
             self.setHorizontalHeaderLabels(["Command"])
             self._resize_columns_to_header_labels()
-            return False
+            self._data_modified = False # No data loaded, so not modified from this "empty" state
+            return False # Indicate failure to load specified file
 
         try:
-            with open(self._filepath, 'r', encoding='utf-8') as f:
+            with open(filepath_to_load, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
 
-            if not lines: # Handle empty file
+            self._filepath = filepath_to_load # <--- 更新：成功打開檔案後設定路徑
+
+            if not lines: 
                 self.insertRow(0)
                 self.setColumnCount(1)
                 self.setHorizontalHeaderLabels(["Command"])
                 self._resize_columns_to_header_labels()
-                return True
+                self._data_modified = False # Empty file, not modified from this state
+                # self.sceneDataChanged.emit() # Emit even for empty, so previews clear
+                return True # Empty file is still a "successful" load of that file
 
-            # Determine max columns needed
             max_cols = 0
             for line in lines:
                 stripped_line = line.strip()
                 if stripped_line and not stripped_line.startswith('#'):
                     max_cols = max(max_cols, len(stripped_line.split()))
-            max_cols = max(1, max_cols) # Ensure at least one column
+            max_cols = max(1, max_cols) 
 
-            self.setColumnCount(max_cols+8)
-            # self.setHorizontalHeaderLabels([f"P{i}" for i in range(max_cols)]) # Initial generic headers
+            self.setColumnCount(max_cols + 8) # Add some buffer columns
             self.setRowCount(len(lines))
 
-            self.blockSignals(True) # Block signals during population
+            self.blockSignals(True) 
             try:
                 for row, line in enumerate(lines):
                     self.setVerticalHeaderItem(row, QTableWidgetItem(str(row + 1)))
                     parts = line.strip().split()
                     for col, part in enumerate(parts):
-                        # --- 假設這裡的 item 已經是可編輯的 (根據你的確認) ---
                         item = QTableWidgetItem(part)
-                        # 如果需要，在這裡添加 flags 設定
-                        # flags = item.flags() | Qt.ItemIsEditable
-                        # item.setFlags(flags)
                         self.setItem(row, col, item)
-                    # Fill remaining cells in the row with empty items
-                    for col in range(len(parts), max_cols):
-                        # --- 假設這裡的 item 也已經是可編輯的 ---
+                    for col in range(len(parts), self.columnCount()): # Fill to actual column count
                         item = QTableWidgetItem("")
-                        # flags = item.flags() | Qt.ItemIsEditable
-                        # item.setFlags(flags)
                         self.setItem(row, col, item)
             finally:
                 self.blockSignals(False)
 
             self._data_modified = False
-            # --- MODIFICATION: Trigger _on_current_cell_changed to set initial headers ---
             if self.rowCount() > 0:
-                self._on_current_cell_changed(0,0, -1,-1) # Simulate a cell change to set headers
-            else: # If file was empty or only comments, set default headers
-                 self.setHorizontalHeaderLabels(["Command"] + [f"P{i+1}" for i in range(max_cols-1 if max_cols > 0 else 0)])
-                 self._resize_columns_to_header_labels()
-            # --- END OF MODIFICATION ---
-            # self._resize_columns_to_header_labels() # Called by _on_current_cell_changed or above
-            self.sceneDataChanged.emit() 
+                self._on_current_cell_changed(0, 0, -1, -1) 
+            else: 
+                self.setHorizontalHeaderLabels(["Command"] + [f"P{i+1}" for i in range(max_cols-1 if max_cols > 0 else 0)])
+                self._resize_columns_to_header_labels()
+            # self.sceneDataChanged.emit() # Moved to SceneEditorWindow after this returns
 
-            # Restore selection/scroll position
             new_row_count = self.rowCount()
             if 0 <= remember_row < new_row_count:
-                item_to_scroll = self.item(remember_row, 0) # Check if item exists
+                item_to_scroll = self.item(remember_row, 0) 
                 if item_to_scroll:
                     self.setCurrentCell(remember_row, 0)
                     self.scrollToItem(item_to_scroll, QAbstractItemView.PositionAtCenter)
-                    self._last_active_row = remember_row # Restore remembered row
-                    # print(f"跳轉到行: {remember_row + 1}")
+                    self._last_active_row = remember_row 
             else:
-                self._last_active_row = -1 # Reset if row is invalid
-
+                self._last_active_row = -1 
             return True
 
         except Exception as e:
-            print(f"Error loading scene file '{self._filepath}': {e}")
+            print(f"Error loading scene file '{filepath_to_load}': {e}")
             self.clear()
             self.setRowCount(0)
             self.setColumnCount(0)
-            self._last_active_row = -1 # Reset on error
+            self._filepath = None # <--- 更新：載入失敗，路徑無效
+            self._last_active_row = -1 
             return False
 
+    def get_current_filepath(self):
+        """Returns the path of the currently loaded file."""
+        return self._filepath
+
+    def set_current_filepath(self, filepath):
+        """Sets the internal filepath. Called by the main window after save as."""
+        self._filepath = filepath
+        
     def get_scene_lines(self):
         lines = []
         for row in range(self.rowCount()):
@@ -1108,7 +1108,8 @@ class SceneEditorWindow(QMainWindow):
         self.setWindowTitle(EDITOR_WINDOW_TITLE)
         self.setGeometry(100, 100, INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT)
         self.settings_filepath = "editor_settings.json" # <--- 新增属性
-
+        self._current_scene_filepath = None
+        
         # Pygame/Loader Init
         pygame.init()
         pygame.font.init()
@@ -1146,6 +1147,17 @@ class SceneEditorWindow(QMainWindow):
 
         print("Scene Editor Initialized.")
 
+    def _update_window_title(self):
+        """Updates the window title based on the current file and modified state."""
+        base_title = EDITOR_WINDOW_TITLE
+        filename_part = "Untitled"
+        if self._current_scene_filepath:
+            filename_part = os.path.basename(self._current_scene_filepath)
+        
+        modified_indicator = "*" if self.table_widget.is_modified() else ""
+        
+        self.setWindowTitle(f"{base_title} - {filename_part}{modified_indicator}")
+        
     def _save_settings(self):
         """Saves the current editor operational parameters to a JSON file."""
         settings = {}
@@ -1169,6 +1181,13 @@ class SceneEditorWindow(QMainWindow):
             settings['table'] = {
                 'last_active_row': self.table_widget._last_active_row
             }
+
+            # --- 新增：保存最後開啟的檔案 ---
+            if self._current_scene_filepath: # 只在有有效路徑時保存
+                settings['last_scene_file'] = self._current_scene_filepath
+            elif 'last_scene_file' in settings: # 如果之前有但現在沒有了，可以選擇移除或保留
+                pass # 或者 del settings['last_scene_file']
+            # -----------------------------
 
             with open(self.settings_filepath, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, indent=4)
@@ -1220,6 +1239,14 @@ class SceneEditorWindow(QMainWindow):
                 else:
                     self.table_widget._last_active_row = -1 # Reset if invalid
 
+            # --- 新增：載入並設定最後開啟的檔案路徑 ---
+            if 'last_scene_file' in settings:
+                self._current_scene_filepath = settings.get('last_scene_file')
+                print(f"Editor settings: last_scene_file set to '{self._current_scene_filepath}'") # Debug
+            else:
+                self._current_scene_filepath = None # 確保如果設定中沒有，則為 None
+            # ---------------------------------------
+
             self.statusBar.showMessage("Editor settings loaded.", 2000)
             # print(f"Editor settings loaded from {self.settings_filepath}") # Debug
             return True
@@ -1231,8 +1258,10 @@ class SceneEditorWindow(QMainWindow):
     def _check_all_gl_ready(self):
         if self._minimap_gl_ready and self._preview_gl_ready:
             print("All OpenGL Widgets Initialized. Loading initial scene...")
+            # --- 修改：先載入設定檔 ---
+            self._load_settings()  # 這會嘗試設定 self._current_scene_filepath
+            # -----------------------
             self.load_initial_scene()
-            self._load_settings()      # <--- 在场景加载后加载编辑器设置
 
     def _on_minimap_gl_ready(self):
         self._minimap_gl_ready = True
@@ -1278,22 +1307,52 @@ class SceneEditorWindow(QMainWindow):
         self.table_widget.currentCellChanged.connect(self._on_table_selection_changed)
 
         self.minimap_widget.center3DPreviewAt.connect(self.preview_widget.set_camera_xz_position)
+        
+        # --- 新增：連接 itemChanged 用於標題更新 ---
+        self.table_widget.itemChanged.connect(self._on_table_item_changed_for_title)
+        # -----------------------------------------
 
+    def _on_table_item_changed_for_title(self, item):
+        """Called when a table item is changed, updates the window title if modified."""
+        if self.table_widget.is_modified(): # is_modified 應該由 table_widget._on_item_changed 設置
+            self._update_window_title()
+            
     def _setup_menu(self):
         menubar = self.menuBar()
         # File Menu
         file_menu = menubar.addMenu('&File')
-        save_action = QAction('&Save', self)
-        save_action.setShortcut(QKeySequence.Save) # Use standard shortcut
-        save_action.setStatusTip('Save scene file')
-        save_action.triggered.connect(self.save_scene_file)
-        file_menu.addAction(save_action)
 
+        # --- 新增：Open Action ---
+        open_action = QAction('&Open...', self)
+        open_action.setShortcut(QKeySequence.Open)
+        open_action.setStatusTip('Open scene file')
+        open_action.triggered.connect(self.open_scene_file_dialog)
+        file_menu.addAction(open_action)
+        # ------------------------
+
+        # --- 修改：Save Action ---
+        save_action = QAction('&Save', self)
+        save_action.setShortcut(QKeySequence.Save)
+        save_action.setStatusTip('Save current scene file')
+        save_action.triggered.connect(self.save_current_scene_file) # 改為調用新方法
+        file_menu.addAction(save_action)
+        # -----------------------
+
+        # --- 新增：Save As Action ---
+        save_as_action = QAction('Save &As...', self)
+        save_as_action.setShortcut(QKeySequence.SaveAs)
+        save_as_action.setStatusTip('Save current scene to a new file')
+        save_as_action.triggered.connect(self.save_scene_file_as_dialog)
+        file_menu.addAction(save_as_action)
+        # -------------------------
+
+        # --- 修改：Reload Action ---
         reload_action = QAction('&Reload', self)
-        reload_action.setShortcut(QKeySequence.Refresh) # Use standard shortcut (F5 or Ctrl+R)
-        reload_action.setStatusTip('Reload scene file from disk')
-        reload_action.triggered.connect(self.ask_reload_scene)
+        reload_action.setShortcut(QKeySequence.Refresh)
+        reload_action.setStatusTip('Reload current scene file from disk')
+        reload_action.triggered.connect(self.ask_reload_current_scene) # 改為調用新方法
         file_menu.addAction(reload_action)
+        # ------------------------
 
         file_menu.addSeparator()
 
@@ -1330,33 +1389,124 @@ class SceneEditorWindow(QMainWindow):
         self.statusBar.showMessage("Ready", 3000) # Initial message
 
     def load_initial_scene(self):
-        """Loads the scene file and triggers preview updates."""
-        if self.table_widget.load_scene_file():
-            self.statusBar.showMessage(f"Loaded '{SCENE_FILE}'", 5000)
-        else:
-            self.statusBar.showMessage(f"Failed to load '{SCENE_FILE}'", 5000)
-            self.update_previews() # Ensure previews are cleared/updated even on fail
+        """Loads the scene file and triggers preview updates.
+        Uses _current_scene_filepath if set, otherwise defaults to SCENE_FILE.
+        """
+        filepath_to_load = self._current_scene_filepath if self._current_scene_filepath and os.path.exists(self._current_scene_filepath) else SCENE_FILE
+        
+        if not os.path.exists(filepath_to_load) and filepath_to_load == self._current_scene_filepath:
+            # If the last_scene_file from settings doesn't exist, try SCENE_FILE
+            print(f"Initial file '{filepath_to_load}' not found, trying default '{SCENE_FILE}'.")
+            filepath_to_load = SCENE_FILE
 
-    def save_scene_file(self):
+        if self.table_widget.load_scene_file(filepath_to_load):
+            # load_scene_file in table_widget now sets its internal _filepath
+            self._current_scene_filepath = self.table_widget.get_current_filepath() # Get the actual loaded path
+            if self._current_scene_filepath:
+                self.statusBar.showMessage(f"Loaded '{os.path.basename(self._current_scene_filepath)}'", 5000)
+            else: # Should not happen if load_scene_file returned True
+                self.statusBar.showMessage(f"Loaded '{filepath_to_load}', but path tracking issue.", 5000)
+        else:
+            # If the primary or default SCENE_FILE fails
+            self.statusBar.showMessage(f"Failed to load '{filepath_to_load}'. Editor may be empty.", 5000)
+            self._current_scene_filepath = None # Ensure it's None if no file is loaded
+            # Ensure table is cleared and shows "Untitled"
+            self.table_widget.clear()
+            self.table_widget.setRowCount(0)
+            self.table_widget.setColumnCount(1) # Minimal one column for "Command"
+            self.table_widget.setHorizontalHeaderLabels(["Command"])
+
+        self.update_previews()
+        self._update_window_title()
+        
+    def _save_to_filepath(self, filepath_to_save):
+        """Saves the current table content to the specified filepath."""
+        if not filepath_to_save: # Should not happen if called by save_current or save_as
+            QMessageBox.warning(self, "Save Error", "No filepath specified for saving.")
+            return False
+
         lines = self.table_widget.get_scene_lines()
         try:
             content_to_write = "\n".join(lines)
-            # Ensure trailing newline unless empty
             if content_to_write and not content_to_write.endswith('\n'):
                 content_to_write += '\n'
-            with open(SCENE_FILE, 'w', encoding='utf-8') as f:
+            elif not content_to_write: # Handle empty file save
+                content_to_write = '\n' # Save at least a newline for an empty file
+
+            with open(filepath_to_save, 'w', encoding='utf-8') as f:
                 f.write(content_to_write)
-            self.table_widget.mark_saved() # Reset modified flag
-            self.statusBar.showMessage(f"Saved '{SCENE_FILE}'", 3000)
-
-            self._save_settings() # <--- 新增：保存场景文件时也保存编辑器设置
-
+            
+            self.table_widget.mark_saved()
+            self._current_scene_filepath = filepath_to_save # Update current path
+            self.table_widget.set_current_filepath(filepath_to_save) # Inform table widget too
+            self._update_window_title()
+            self.statusBar.showMessage(f"Saved '{os.path.basename(filepath_to_save)}'", 3000)
+            self._save_settings() # Save editor settings (including new last_scene_file)
             return True
         except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Could not save file '{SCENE_FILE}':\n{e}")
-            self.statusBar.showMessage("Save failed", 5000)
+            QMessageBox.critical(self, "Save Error", f"Could not save file '{filepath_to_save}':\n{e}")
+            self.statusBar.showMessage(f"Save failed for '{os.path.basename(filepath_to_save)}'", 5000)
             return False
 
+    def save_current_scene_file(self):
+        """Saves the scene to the current filepath, or prompts for Save As if no path."""
+        if self._current_scene_filepath:
+            return self._save_to_filepath(self._current_scene_filepath)
+        else:
+            return self.save_scene_file_as_dialog()
+
+    def save_scene_file_as_dialog(self):
+        """Opens a Save As dialog and saves the scene to the chosen file."""
+        initial_dir = os.getcwd()
+        if self._current_scene_filepath:
+            initial_dir = os.path.dirname(self._current_scene_filepath)
+        
+        # 使用 QStandardPaths 獲取推薦的初始目錄，例如文件目錄
+        # default_dir = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
+        # initial_path = os.path.join(default_dir, os.path.basename(self._current_scene_filepath or "untitled.txt"))
+
+        filePath, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Scene As",
+            self._current_scene_filepath or os.path.join(initial_dir, "untitled.txt"), # Start in current dir or last file's dir
+            "Text Files (*.txt);;All Files (*)"
+        )
+        if filePath:
+            return self._save_to_filepath(filePath)
+        return False # Dialog cancelled
+
+    def open_scene_file_dialog(self):
+        """Opens a file dialog to choose a scene file to load."""
+        if self.table_widget.is_modified():
+            reply = QMessageBox.question(self, 'Open File',
+                                         "Discard current changes and open a new file?",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+
+        initial_dir = os.getcwd()
+        if self._current_scene_filepath:
+            initial_dir = os.path.dirname(self._current_scene_filepath)
+
+        filePath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Scene File",
+            initial_dir, # Start in current dir or last file's dir
+            "Text Files (*.txt);;All Files (*)"
+        )
+        if filePath:
+            if self.table_widget.load_scene_file(filePath):
+                self._current_scene_filepath = filePath
+                self.table_widget.set_current_filepath(filePath) # Inform table
+                self._update_window_title()
+                self.update_previews()
+                self.statusBar.showMessage(f"Opened '{os.path.basename(filePath)}'", 3000)
+                self._save_settings() # Save new last_scene_file to settings
+            else:
+                QMessageBox.critical(self, "Open Error", f"Could not load file '{filePath}'.")
+                # Keep current state or clear? For now, keep.
+                self._update_window_title() # Reflect that the file didn't change
+                
     def update_previews(self):
         """解析表格數據，更新小地圖和 3D 預覽 (包含背景)"""
         # print("Updating editor previews...") # 可選的調試信息
@@ -1459,88 +1609,75 @@ class SceneEditorWindow(QMainWindow):
             print(f"Error updating 3D preview widget: {e}")
 
 
-    def ask_reload_scene(self):
+    def ask_reload_current_scene(self):
+        """Asks to reload the current scene file from disk."""
+        if not self._current_scene_filepath or not os.path.exists(self._current_scene_filepath):
+            QMessageBox.information(self, "Reload Scene", "No current file to reload or file does not exist.")
+            return
+
         if self.table_widget.is_modified():
             reply = QMessageBox.question(self, 'Reload Scene',
-                                         "Discard current changes and reload from disk?",
+                                         f"Discard current changes and reload '{os.path.basename(self._current_scene_filepath)}' from disk?",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.No:
                 return
-        # Proceed with reload
-        self.load_initial_scene()
+        
+        # Proceed with reload for the _current_scene_filepath
+        if self.table_widget.load_scene_file(self._current_scene_filepath):
+            self._update_window_title()
+            self.update_previews()
+            self.statusBar.showMessage(f"Reloaded '{os.path.basename(self._current_scene_filepath)}'", 3000)
+        else:
+            QMessageBox.critical(self, "Reload Error", f"Could not reload file '{self._current_scene_filepath}'.")
 
     def closeEvent(self, event):
-        # 先尝试保存设置，无论场景是否有修改
-        # 这样即使用户选择 Discard 场景更改，编辑器设置也会被保存
-        settings_saved_on_exit = self._save_settings() # <--- 新增：尝试在退出前保存设置
+        settings_saved_on_exit = self._save_settings() 
         if not settings_saved_on_exit:
-             # 如果保存设置失败，可以给用户一个提示，但通常不阻止退出
-             # QMessageBox.warning(self, "Settings Save Error", "Could not save editor settings on exit.")
              pass
             
-        # Check for unsaved changes before closing
         if self.table_widget.is_modified():
             reply = QMessageBox.question(self, 'Exit Editor',
                                          "You have unsaved changes. Save before exiting?",
                                          QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                                         QMessageBox.Cancel) # Default to Cancel
+                                         QMessageBox.Cancel) 
 
             if reply == QMessageBox.Save:
-                if not self.save_scene_file():
-                    event.ignore() # Prevent closing if save failed
+                # --- 修改：調用 save_current_scene_file ---
+                if not self.save_current_scene_file(): # This handles if _current_scene_filepath is None
+                # ----------------------------------------
+                    event.ignore() 
                     return
             elif reply == QMessageBox.Discard:
-                pass # Proceed with closing
-            else: # Cancel
-                event.ignore() # Prevent closing
+                pass 
+            else: 
+                event.ignore() 
                 return
 
-        # Cleanup resources
+        # ... (其餘 cleanup 邏輯保持不變) ...
         print("Cleaning up editor resources...")
         if hasattr(self, 'preview_widget') and self.preview_widget._timer.isActive():
             self.preview_widget._timer.stop()
             print("Stopped preview timer.")
 
-        # Cleanup renderer resources (minimap FBO, dynamic textures)
         minimap_renderer.cleanup_minimap_renderer()
-        # Cleanup track buffers from the last parsed scene in the editor
-        last_scene_in_editor = self.preview_widget._scene_data # Get scene from preview
+        last_scene_in_editor = self.preview_widget._scene_data 
         if last_scene_in_editor and last_scene_in_editor.track:
             last_scene_in_editor.track.clear()
             print("Cleaned up track buffers from editor's last scene.")
-        # Clear global texture caches (important!)
         if texture_loader:
             texture_loader.clear_texture_cache()
         if hasattr(renderer, 'skybox_texture_cache'):
              for tex_id in renderer.skybox_texture_cache.values():
                  try:
-                     # --- 修復：glIsTexture 可能在上下文丟失後出錯 ---
-                     # if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
-                     # 直接嘗試刪除，忽略可能的錯誤
                      glDeleteTextures(1, [tex_id])
-                     # ------------------------------------------------
                  except Exception as cleanup_error: print(f"Warn: Error cleaning up skybox texture {tex_id}: {cleanup_error}")
              renderer.skybox_texture_cache.clear()
              print("Skybox texture cache cleared.")
 
-
-        # Quit Pygame subsystems if initialized
         if pygame.font.get_init():
             pygame.font.quit()
-        # --- 移除 pygame.display.quit()，因為我們沒有初始化顯示 ---
-#         if pygame.display.get_init():
-#             pygame.display.quit()
-        # -------------------------------------------------
-        # pygame.quit() # Call this last if needed, might interfere with Qt event loop if called too early
-
         print("Editor cleanup complete.")
-        event.accept() # Allow window to close
-
-#         ## Keep profiler cleanup if used
-#         print("profiler,disable()")
-#         profiler.disable()
-#         stats = pstats.Stats(profiler).sort_stats('cumulative')
-#         stats.print_stats(20); stats.dump_stats('profile_results.prof')
+        event.accept()
 
     def _on_table_selection_changed(self, current_row, current_column, previous_row, previous_column):
         # --- 高亮邏輯 ---
