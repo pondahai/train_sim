@@ -681,9 +681,11 @@ def draw_simulator_minimap(scene: Scene, tram: Tram, screen_width, screen_height
 
 
 # --- Editor Runtime Drawing (DYNAMIC RENDERING RESTORED) ---
-def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, widget_width, widget_height, is_dragging, highlight_line_nums: set = set()):
+def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, widget_width, widget_height, is_dragging, highlight_line_nums: set = set(), line_to_focus_on: int = -1):
     """ Draws the EDITOR minimap preview using DYNAMIC rendering (like original). """
     global editor_bg_texture_id, editor_bg_width_px, editor_bg_height_px, editor_current_map_filename
+#     print(f"draw_editor_preview -> highlight_line_nums:{highlight_line_nums}, line_to_focus_on:{line_to_focus_on}")
+    focused_element_world_x, focused_element_world_z = None, None
 
     widget_center_x_screen = widget_width / 2.0
     widget_center_y_screen = widget_height / 2.0
@@ -885,6 +887,9 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 if line_num in highlight_line_nums:
                     glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
                     glLineWidth(3.0) # 可以加粗線條
+                    if line_num == line_to_focus_on:
+                        focused_element_world_x = wx
+                        focused_element_world_z = wz                        
                 else:
                     glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
                     glLineWidth(2.0) # 正常線條寬度
@@ -933,11 +938,15 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             line_num, cyl = item # 解包行號和數據元組
             # 注意來自scene_parser那邊的剖析結果的變數排列
             c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, *_ = cyl;
+            
             glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # --- MODIFICATION: Added GL_LINE_BIT ---
             try:
                 if line_num in highlight_line_nums:
                     glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
                     glLineWidth(3.0) # 可以加粗線條
+                    if line_num == line_to_focus_on:
+                        focused_element_world_x = wx
+                        focused_element_world_z = wz                        
                 else:
                     glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
                     glLineWidth(2.0) # 正常線條寬度
@@ -1092,6 +1101,10 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                             renderer._draw_text_texture(text_surface, dx, dy)
                     except Exception as e:
                         pass # 忽略繪製標籤錯誤
+                    
+                    if line_num == line_to_focus_on:
+                        focused_element_world_x = tx
+                        focused_element_world_z = tz                        
 
         # --- Draw Spheres (Circles) Dynamically ---
         num_circle_segments_sphere = 12 # 圓的邊數 (可以根據縮放調整)
@@ -1111,6 +1124,9 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 if is_highlighted:
                     glColor3f(1.0, 1.0, 0.0) # 高亮黃色
                     glLineWidth(3.0)
+                    if line_num == line_to_focus_on:
+                        focused_element_world_x = wx
+                        focused_element_world_z = wz                        
                 else:
                     glColor3fv(MINIMAP_DYNAMIC_SPHERE_COLOR)
                     glLineWidth(2.0)
@@ -1159,10 +1175,14 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 
             # --- 檢查是否在可見範圍內 (簡單檢查中心點) ---
             is_visible = 0 <= center_map_x <= widget_width and 0 <= center_map_y <= widget_height
+            # --- 檢查高亮狀態 ---
+            is_highlighted = line_num in highlight_line_nums
+            
+            if is_highlighted and line_num == line_to_focus_on:
+                focused_element_world_x = cx
+                focused_element_world_z = cz                        
 
             if is_visible:
-                # --- 檢查高亮狀態 ---
-                is_highlighted = line_num in highlight_line_nums
 
                 # --- 保存和設置繪製狀態 ---
                 glPushAttrib(GL_CURRENT_BIT | GL_POINT_BIT | GL_LINE_BIT)
@@ -1229,6 +1249,9 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                         glColor3f(1.0, 1.0, 0.0) 
                         glLineWidth(highlight_track_line_width)        
                         glPointSize(highlight_point_size)         
+                        if segment.source_line_number == line_to_focus_on:
+                            focused_element_world_x = segment.points[0][0]
+                            focused_element_world_z = segment.points[0][2]                        
                     else:
                         glColor3fv(MINIMAP_TRACK_COLOR)
                         glLineWidth(default_track_line_width)
@@ -1286,6 +1309,9 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                                 glColor3f(1.0, 0.8, 0.2) # Slightly different highlight (e.g., orange)
                                 glLineWidth(highlight_track_line_width * 0.8) # Maybe slightly thinner than main highlight  
                                 glPointSize(highlight_point_size * 0.8)      
+                                if segment.source_line_number == line_to_focus_on:
+                                    focused_element_world_x = branch_def['points'][0][0]
+                                    focused_element_world_z = branch_def['points'][0][2]                        
                             else:
                                 glColor3fv(MINIMAP_BRANCH_TRACK_COLOR) # Or a different color for vbranches
                                 glLineWidth(default_track_line_width * 0.8) # Slightly thinner than main track
@@ -1359,6 +1385,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 except Exception as e: pass
             current_gz += MINIMAP_GRID_SCALE
 
+    return focused_element_world_x, focused_element_world_z
 
 # --- Simulator Zoom Control (Keep) ---
 def zoom_simulator_minimap(factor):

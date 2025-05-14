@@ -2,6 +2,7 @@
 import sys
 import os
 import time # 用於計算 dt
+import json # <--- 新增导入
 # --- 新增：導入剪貼簿 ---
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import (
@@ -11,7 +12,7 @@ from PyQt5.QtWidgets import (
     QDockWidget # 用於可停靠視窗
 )
 # --- 新增：導入 KeySequence ---
-from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QTimer, QStandardPaths # QTimer 用於預覽更新
+from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QTimer, QStandardPaths, pyqtSlot # QTimer 用於預覽更新
 from PyQt5.QtOpenGL import QGLWidget
 # --- 新增：導入 Clipboard 和 KeySequence ---
 from PyQt5.QtGui import QFont, QFontMetrics, QCursor, QKeySequence, QClipboard # QCursor 用於滑鼠鎖定
@@ -56,6 +57,8 @@ PREVIEW_ACCEL_FACTOR = 6.0 # Shift 加速倍率
 class MinimapGLWidget(QGLWidget):
     """Custom OpenGL Widget for rendering the scene preview."""
     glInitialized = pyqtSignal()
+    # scene_editor.py -> class MinimapGLWidget
+    center3DPreviewAt = pyqtSignal(float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -77,10 +80,25 @@ class MinimapGLWidget(QGLWidget):
         except Exception as e:
             print(f"Minimap Warning: Failed to create coordinate font: {e}")
             
+        self._line_to_focus_on = -1 # 新增状态：存储请求定位的行号
+        self._trigger_focus_on_paint = False # 新增状态：标记是否需要在下次绘制时执行定位
         self.zoom_end_timer = QTimer(self)
         self.zoom_end_timer.setSingleShot(True) # 確保是單次觸發
         self.zoom_end_timer.timeout.connect(self.endZooming)
+        
+        self._potential_drag_start_pos = None # 新增：记录潜在拖拽的起始位置
+        self.DRAG_START_THRESHOLD = 5 # 移动多少像素才算开始拖拽 (可调整)
 
+    def request_focus_on_line(self, line_number: int):
+        """当表格请求小地图定位到场景文件中的某一行时调用此方法。"""
+#         print(f"MinimapGLWidget: Received request to focus on line {line_number}") # Debug
+        self._line_to_focus_on = line_number
+        self._trigger_focus_on_paint = True # 标记在下次绘制时执行聚焦
+        self.set_highlight_targets({line_number}) # 同时也设置高亮
+        # 如果 self.set_highlight_targets 内部没有调用 self.update()，则需要在这里调用
+        # 假设 set_highlight_targets 已经处理了 update()
+        self.update()
+    
     def initializeGL(self):
         r, g, b, a = minimap_renderer.EDITOR_BG_COLOR
         glClearColor(r, g, b, a)
@@ -112,9 +130,15 @@ class MinimapGLWidget(QGLWidget):
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
+        line_to_pass_for_focus = -1
+        if self._trigger_focus_on_paint and self._line_to_focus_on > 0: # 确保行号有效
+            line_to_pass_for_focus = self._line_to_focus_on
+        
+        returned_new_cx, returned_new_cz = None, None # 初始化
+    
         try:
             # 調用 minimap_renderer 進行動態繪製
-            minimap_renderer.draw_editor_preview(
+            returned_new_cx, returned_new_cz = minimap_renderer.draw_editor_preview(
                 self._scene_data,
                 self._view_center_x,
                 self._view_center_z,
@@ -122,10 +146,37 @@ class MinimapGLWidget(QGLWidget):
                 w, h,
                 self._is_dragging,
                 highlight_line_nums=self._highlight_line_numbers, # 傳遞集合
-                
+                line_to_focus_on=line_to_pass_for_focus                
             )
         except Exception as e:
             print(f"Error calling draw_editor_preview: {e}")
+
+        # 处理定位结果
+        focus_action_taken = False
+        if returned_new_cx is not None and returned_new_cz is not None and self._trigger_focus_on_paint:
+#             print(f"{returned_new_cx} {returned_new_cz}")
+            focus_action_taken = True
+            center_changed = not (math.isclose(self._view_center_x, returned_new_cx) and \
+                                  math.isclose(self._view_center_z, returned_new_cz))
+            
+            self._view_center_x = returned_new_cx
+            self._view_center_z = returned_new_cz
+            
+            if center_changed:
+                # print(f"Minimap focused: New center ({self._view_center_x:.1f}, {self._view_center_z:.1f}) for line {self._line_to_focus_on}") # Debug
+                QTimer.singleShot(0, self.update) # 使用新中心重绘
+            else:
+                # print(f"Minimap focus requested for line {self._line_to_focus_on}, but center did not change.") # Debug
+                pass # 中心未变，不需要再次 update
+            
+        elif self._trigger_focus_on_paint and line_to_pass_for_focus > 0:
+            # 如果请求了聚焦，但没有返回有效坐标
+            focus_action_taken = True # 尝试过聚焦
+            # print(f"Minimap: Could not find locatable element for line {line_to_pass_for_focus} to focus.") # Debug
+
+        if focus_action_taken: # 无论是否成功定位，只要尝试过聚焦，就重置状态
+            self._trigger_focus_on_paint = False
+            self._line_to_focus_on = -1
 
         # 繪製中心十字
         glColor3f(1.0, 0.0, 0.0) # 紅色
@@ -166,35 +217,84 @@ class MinimapGLWidget(QGLWidget):
         else:
             print("Editor Minimap received invalid scene data type.")
 
+    def _map_to_world_coords(self, screen_x_in_widget, screen_y_in_widget_gl_style):
+        # ... (代码如前一个回复所示) ...
+        widget_w = self.width()
+        widget_h = self.height()
+        if widget_w <= 0 or widget_h <= 0 or abs(self._view_range) < 1e-6:
+            return self._view_center_x, self._view_center_z
+
+        scale = min(widget_w, widget_h) / self._view_range
+
+        map_x_gl = screen_x_in_widget
+        map_y_gl = screen_y_in_widget_gl_style
+
+        delta_screen_x = map_x_gl - (widget_w / 2.0)
+        delta_screen_y = map_y_gl - (widget_h / 2.0)
+
+        world_dx_from_center = -delta_screen_x / scale
+        world_dz_from_center =  delta_screen_y / scale
+
+        target_world_x = self._view_center_x + world_dx_from_center
+        target_world_z = self._view_center_z + world_dz_from_center
+        return target_world_x, target_world_z
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self._is_dragging = True
-            self._last_mouse_pos = event.pos()
-            self.setCursor(Qt.ClosedHandCursor)
-
+            self._potential_drag_start_pos = event.pos() # 记录按下的位置
+            # 不要在这里设置 _is_dragging 或改变光标，也不要 accept
+        super().mousePressEvent(event) # 确保事件能被用于双击判断
+        
     def mouseMoveEvent(self, event):
-        if self._is_dragging:
-            delta = event.pos() - self._last_mouse_pos
-            w = self.width()
-            h = self.height()
-            if w > 0 and h > 0 and self._view_range > 0:
-                # Calculate scale based on the smaller dimension to avoid distortion
-                scale = min(w, h) / self._view_range
-                # world_dx corresponds to change in screen X
-                # world_dz corresponds to change in screen Y (flipped because screen Y down, world Z up)
-                world_dx = delta.x() / scale
-                world_dz = delta.y() / scale # 
-                self._view_center_x += world_dx
-                self._view_center_z += world_dz
+        if self._potential_drag_start_pos is not None and (event.buttons() & Qt.LeftButton): # 左键被按下且有拖拽可能
+            if not self._is_dragging: # 如果还没开始拖拽
+                # 计算移动距离
+                delta = event.pos() - self._potential_drag_start_pos
+                if delta.manhattanLength() > self.DRAG_START_THRESHOLD: # 超过阈值才开始拖拽
+                    self._is_dragging = True
+                    self._last_mouse_pos = self._potential_drag_start_pos # 或者 event.pos()，取决于你希望从哪开始算delta
+                                                                      # 使用 _potential_drag_start_pos 更准确
+                    self.setCursor(Qt.ClosedHandCursor)
+            if self._is_dragging:
+                delta = event.pos() - self._last_mouse_pos
+                w = self.width()
+                h = self.height()
+                if w > 0 and h > 0 and self._view_range > 0:
+                    # Calculate scale based on the smaller dimension to avoid distortion
+                    scale = min(w, h) / self._view_range
+                    # world_dx corresponds to change in screen X
+                    # world_dz corresponds to change in screen Y (flipped because screen Y down, world Z up)
+                    world_dx = delta.x() / scale
+                    world_dz = delta.y() / scale # 
+                    self._view_center_x += world_dx
+                    self._view_center_z += world_dz
                 self._last_mouse_pos = event.pos()
-                self.update() # Trigger repaint
+                if not self.zoom_end_timer.isActive(): # 避免在快速缩放时也因为微小移动而调用
+                    self.update() # Trigger repaint
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self._is_dragging:
-            self._is_dragging = False
-            self.setCursor(Qt.ArrowCursor)
-            self.update()
+        if event.button() == Qt.LeftButton:
+            if self._is_dragging:
+                self._is_dragging = False
+                self.setCursor(Qt.ArrowCursor)
+                if not self.zoom_end_timer.isActive(): # 避免缩放刚结束时的release也触发update
+                    self.update() # 更新一次以显示最终状态和普通光标
+            self._potential_drag_start_pos = None # 重置
+        super().mouseReleaseEvent(event)
 
+    def mouseDoubleClickEvent(self, event): # 这个方法保持不变
+        if event.button() == Qt.LeftButton:
+#             print(f"MinimapGLWidget: Left Button Double Clicked at {event.pos()}")
+            screen_y_gl = self.height() - event.pos().y()
+            world_x, world_z = self._map_to_world_coords(event.pos().x(), screen_y_gl)
+#             print(f"MinimapGLWidget: Calculated world coords ({world_x:.1f}, {world_z:.1f})")
+            self.center3DPreviewAt.emit(world_x, world_z)
+#             print(f"MinimapGLWidget: Emitted center3DPreviewAt")
+            event.accept() # 双击事件我们确实处理了
+        else:
+            super().mouseDoubleClickEvent(event)
+            
     def wheelEvent(self, event):
         delta = event.angleDelta().y()
         factor = 1.0
@@ -260,6 +360,13 @@ class PreviewGLWidget(QGLWidget):
         self._current_background_info = None
         self.show_ground_flag = False # Default to not showing ground in preview
 
+    @pyqtSlot(float, float)
+    def set_camera_xz_position(self, world_x, world_z):
+        # print(f"PreviewGLWidget: Setting camera XZ to ({world_x:.1f}, {world_z:.1f})") # Debug
+        self._camera.base_position[0] = world_x
+        self._camera.base_position[2] = world_z
+        self.update()
+    
     def initializeGL(self):
         """OpenGL 初始化"""
         glClearColor(0.5, 0.7, 1.0, 1.0) # Default sky blue
@@ -868,9 +975,9 @@ class SceneTableWidget(QTableWidget):
                     num_deleted = 0
                     for row_index in sorted_rows:
                         # --- MODIFICATION: Allow deleting non-empty rows as well ---
-                        # if self.is_row_empty(row_index): 
-                        self.removeRow(row_index)
-                        num_deleted += 1
+                        if self.is_row_empty(row_index): 
+                            self.removeRow(row_index)
+                            num_deleted += 1
                         # --- END OF MODIFICATION ---
                 finally: self.blockSignals(False)
                 if num_deleted > 0:
@@ -885,6 +992,37 @@ class SceneTableWidget(QTableWidget):
         # Let the base class handle other key presses (like navigation)
         super().keyPressEvent(event)
 
+    def mousePressEvent(self, event):
+#         if event.button() == Qt.MiddleButton: # (这是功能二：表格定位小地图)
+#             row_index = self.rowAt(event.pos().y())
+#             if row_index >= 0:
+#                 file_line_number = row_index + 1
+#                 main_editor_window = self.window() # 获取父窗口 SceneEditorWindow
+#                 if hasattr(main_editor_window, 'minimap_widget') and \
+#                    hasattr(main_editor_window.minimap_widget, 'request_focus_on_line'):
+#                     main_editor_window.minimap_widget.request_focus_on_line(file_line_number)
+#                 event.accept()
+#                 return # 中键点击已处理
+        super().mousePressEvent(event) # 调用基类方法处理其他事件 (如左键选择)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton: # 确保是左键双击
+            index = self.indexAt(event.pos()) # 获取双击位置的 QModelIndex
+            if index.isValid(): # 确保点击在有效的单元格上
+                row_index = index.row()
+                file_line_number = row_index + 1 # 表格行是0-based, 文件行号是1-based
+                
+                main_editor_window = self.window() # 获取父窗口 SceneEditorWindow
+                if hasattr(main_editor_window, 'minimap_widget') and \
+                   hasattr(main_editor_window.minimap_widget, 'request_focus_on_line'):
+                    main_editor_window.minimap_widget.request_focus_on_line(file_line_number)
+                    print(f"Table double-clicked on row {row_index}: Requesting focus on line {file_line_number}") # Debug
+                event.accept()
+            else: # 如果点击在表格的空白区域
+                super().mouseDoubleClickEvent(event)
+        else:
+            super().mouseDoubleClickEvent(event)
+            
     def _on_current_cell_changed(self, currentRow, currentColumn, previousRow, previousColumn):
         # Update last active row when selection changes
         if currentRow >= 0:
@@ -969,6 +1107,7 @@ class SceneEditorWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(EDITOR_WINDOW_TITLE)
         self.setGeometry(100, 100, INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT)
+        self.settings_filepath = "editor_settings.json" # <--- 新增属性
 
         # Pygame/Loader Init
         pygame.init()
@@ -1007,10 +1146,93 @@ class SceneEditorWindow(QMainWindow):
 
         print("Scene Editor Initialized.")
 
+    def _save_settings(self):
+        """Saves the current editor operational parameters to a JSON file."""
+        settings = {}
+        try:
+            # 1. Minimap settings
+            settings['minimap'] = {
+                'center_x': self.minimap_widget._view_center_x,
+                'center_z': self.minimap_widget._view_center_z,
+                'range': self.minimap_widget._view_range
+            }
+
+            # 2. 3D Preview settings
+            cam = self.preview_widget._camera
+            settings['preview_camera'] = {
+                'position': list(cam.base_position), # Convert numpy array to list for JSON
+                'yaw': cam.yaw,
+                'pitch': cam.pitch
+            }
+
+            # 3. Table settings
+            settings['table'] = {
+                'last_active_row': self.table_widget._last_active_row
+            }
+
+            with open(self.settings_filepath, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=4)
+            self.statusBar.showMessage("Editor settings saved.", 2000)
+            # print(f"Editor settings saved to {self.settings_filepath}") # Debug
+            return True
+        except Exception as e:
+            print(f"Error saving editor settings to '{self.settings_filepath}': {e}")
+            self.statusBar.showMessage("Failed to save editor settings.", 3000)
+            return False
+        
+    def _load_settings(self):
+        """Loads editor operational parameters from a JSON file if it exists."""
+        if not os.path.exists(self.settings_filepath):
+            self.statusBar.showMessage("No editor settings file found, using defaults.", 2000)
+            return False
+
+        try:
+            with open(self.settings_filepath, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+
+            # Apply Minimap settings
+            if 'minimap' in settings:
+                mm_settings = settings['minimap']
+                self.minimap_widget._view_center_x = mm_settings.get('center_x', 0.0)
+                self.minimap_widget._view_center_z = mm_settings.get('center_z', 0.0)
+                self.minimap_widget._view_range = mm_settings.get('range', minimap_renderer.DEFAULT_MINIMAP_RANGE)
+                self.minimap_widget.update() # Trigger repaint
+
+            # Apply 3D Preview settings
+            if 'preview_camera' in settings:
+                cam_settings = settings['preview_camera']
+                cam = self.preview_widget._camera
+                cam.base_position = np.array(cam_settings.get('position', [10.0, 5.0, 10.0]), dtype=float)
+                cam.yaw = cam_settings.get('yaw', -135.0)
+                cam.pitch = cam_settings.get('pitch', -20.0)
+                self.preview_widget.update() # Trigger repaint
+
+            # Apply Table settings
+            if 'table' in settings and self.table_widget.rowCount() > 0:
+                tbl_settings = settings['table']
+                last_row = tbl_settings.get('last_active_row', -1)
+                if 0 <= last_row < self.table_widget.rowCount():
+                    self.table_widget.setCurrentCell(last_row, 0)
+                    self.table_widget._last_active_row = last_row # Explicitly set it
+                    item_to_scroll = self.table_widget.item(last_row, 0)
+                    if item_to_scroll:
+                        self.table_widget.scrollToItem(item_to_scroll, QAbstractItemView.PositionAtCenter)
+                else:
+                    self.table_widget._last_active_row = -1 # Reset if invalid
+
+            self.statusBar.showMessage("Editor settings loaded.", 2000)
+            # print(f"Editor settings loaded from {self.settings_filepath}") # Debug
+            return True
+        except Exception as e:
+            print(f"Error loading editor settings from '{self.settings_filepath}': {e}")
+            self.statusBar.showMessage("Failed to load editor settings.", 3000)
+            return False
+        
     def _check_all_gl_ready(self):
         if self._minimap_gl_ready and self._preview_gl_ready:
             print("All OpenGL Widgets Initialized. Loading initial scene...")
             self.load_initial_scene()
+            self._load_settings()      # <--- 在场景加载后加载编辑器设置
 
     def _on_minimap_gl_ready(self):
         self._minimap_gl_ready = True
@@ -1054,6 +1276,8 @@ class SceneEditorWindow(QMainWindow):
         
         # 確保有這條連接，用於觸發高亮和參數提示更新
         self.table_widget.currentCellChanged.connect(self._on_table_selection_changed)
+
+        self.minimap_widget.center3DPreviewAt.connect(self.preview_widget.set_camera_xz_position)
 
     def _setup_menu(self):
         menubar = self.menuBar()
@@ -1124,6 +1348,9 @@ class SceneEditorWindow(QMainWindow):
                 f.write(content_to_write)
             self.table_widget.mark_saved() # Reset modified flag
             self.statusBar.showMessage(f"Saved '{SCENE_FILE}'", 3000)
+
+            self._save_settings() # <--- 新增：保存场景文件时也保存编辑器设置
+
             return True
         except Exception as e:
             QMessageBox.critical(self, "Save Error", f"Could not save file '{SCENE_FILE}':\n{e}")
@@ -1243,6 +1470,14 @@ class SceneEditorWindow(QMainWindow):
         self.load_initial_scene()
 
     def closeEvent(self, event):
+        # 先尝试保存设置，无论场景是否有修改
+        # 这样即使用户选择 Discard 场景更改，编辑器设置也会被保存
+        settings_saved_on_exit = self._save_settings() # <--- 新增：尝试在退出前保存设置
+        if not settings_saved_on_exit:
+             # 如果保存设置失败，可以给用户一个提示，但通常不阻止退出
+             # QMessageBox.warning(self, "Settings Save Error", "Could not save editor settings on exit.")
+             pass
+            
         # Check for unsaved changes before closing
         if self.table_widget.is_modified():
             reply = QMessageBox.question(self, 'Exit Editor',
