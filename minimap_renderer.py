@@ -31,7 +31,7 @@ MINIMAP_ZOOM_FACTOR = 1.1
 MINIMAP_PLAYER_COLOR = (1.0, 0.0, 0.0)
 MINIMAP_PLAYER_SIZE = 12
 # Constants for Editor Preview (mostly shared, some might differ)
-EDITOR_BG_COLOR = (0.15, 0.15, 0.18, 1.0) # Editor preview BG fallback if no map texture
+EDITOR_BG_COLOR = (0.85, 0.85, 0.88, 1.0) # Editor preview BG fallback if no map texture
 # Constants used by BOTH (Simulator Overlay & Editor Dynamic Draw)
 MINIMAP_TRACK_COLOR = (1.0, 0.0, 0.0)
 MINIMAP_BRANCH_TRACK_COLOR = (1.0, 0.5, 0.0)
@@ -65,7 +65,7 @@ MINIMAP_BG_FALLBACK_COLOR = (0.2, 0.2, 0.2, 0.7) # Simulator fallback BG
 MINIMAP_BAKE_GRID_COLOR = MINIMAP_DYNAMIC_GRID_COLOR # Use same color for baked grid
 MINIMAP_BAKE_BUILDING_COLOR = (*MINIMAP_DYNAMIC_BUILDING_COLOR[:3], 0.5) # Use alpha for bake
 MINIMAP_BAKE_CYLINDER_COLOR = (*MINIMAP_DYNAMIC_CYLINDER_COLOR[:3], 0.5)
-MINIMAP_BAKE_TREE_COLOR = (*MINIMAP_DYNAMIC_TREE_COLOR[:3], 0.5)
+MINIMAP_BAKE_TREE_COLOR = (*MINIMAP_DYNAMIC_TREE_COLOR[:3], 1.0)
 # MINIMAP_BAKE_BUILDING_COLOR = tuple(int(c * 255) for c in MINIMAP_DYNAMIC_BUILDING_COLOR) + (180,)#(MINIMAP_DYNAMIC_BUILDING_COLOR, 0.8) # Use alpha for bake
 # MINIMAP_BAKE_CYLINDER_COLOR = tuple(int(c * 255) for c in MINIMAP_DYNAMIC_CYLINDER_COLOR) + (180,)#(MINIMAP_DYNAMIC_CYLINDER_COLOR, 0.8)
 
@@ -531,7 +531,7 @@ def _render_static_elements_to_fbo(scene: Scene):
     for item in scene.hills:
         line_num, hill_data = item
         try:
-            cx, height, cz, radius, *_ = hill_data # 只需要中心和半徑
+            cx, _base_y, cz, radius, _peak_h_offset, *_ = hill_data # 只需要中心和半徑
         except ValueError:
              # print(f"警告: 解包 hill 數據 (FBO烘焙) 時出錯 (來源行: {line_num})") # 可選警告
              continue
@@ -872,6 +872,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 
                 current_grid_z += MINIMAP_GRID_SCALE # Move to the next line
 
+    show_object_and_grid_labels = coord_label_font and grid_label_font and view_range < (DEFAULT_MINIMAP_RANGE * 3.0) 
+
     # --- 3. Draw Static Objects Dynamically ---
     # (Using logic from original _render_map_view)
     if scene:
@@ -921,7 +923,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text=f"{line_num}:{wy:.1f}";
                 label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR
                 try:
-                    if coord_label_font and not is_dragging:
+                    if show_object_and_grid_labels and coord_label_font and not is_dragging:
                         text_surface=coord_label_font.render(label_text,True,label_color);
                         dx=center[0] + 0;
                         dy=center[1];
@@ -1027,7 +1029,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text=f"{line_num}:{wy:.1f}";
                 label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR
                 try:
-                    if coord_label_font and not is_dragging: # --- MODIFICATION: Added coord_label_font check ---
+                    if show_object_and_grid_labels and coord_label_font and not is_dragging: # --- MODIFICATION: Added coord_label_font check ---
                         text_surface=coord_label_font.render(label_text,True,label_color);
                         dx=center_map_x + 0;
                         dy=center_map_y;
@@ -1063,7 +1065,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text = f"{line_num}:{ty:.1f}"
                 label_color = MINIMAP_DYNAMIC_TREE_COLOR 
                 try:
-                    if coord_label_font and not is_dragging: # 確保字體存在
+                    if show_object_and_grid_labels and coord_label_font and not is_dragging: # 確保字體存在
                         text_surface = coord_label_font.render(label_text, True, label_color)
                         # 計算繪製位置 (例如在圓心右側)
                         dx = map_x + 2 # 加一點偏移
@@ -1093,7 +1095,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     label_text = f"{line_num}:{ty:.1f}"
                     label_color = MINIMAP_DYNAMIC_TREE_COLOR 
                     try:
-                        if coord_label_font and not is_dragging: # 確保字體存在
+                        if show_object_and_grid_labels and coord_label_font and not is_dragging: # 確保字體存在
                             text_surface = coord_label_font.render(label_text, True, label_color)
                             # 計算繪製位置 (例如在圓心右側)
                             dx = map_x + 2 # 加一點偏移
@@ -1146,7 +1148,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text = f"{line_num}:{wy:.1f}"
                 label_color = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_SPHERE_LABEL_COLOR
                 try:
-                    if coord_label_font and not is_dragging: # 確保字體存在
+                    if show_object_and_grid_labels and coord_label_font and not is_dragging: # 確保字體存在
                         text_surface = coord_label_font.render(label_text, True, label_color)
                         # 計算繪製位置 (例如在圓心右側)
                         dx = center_map_x + radius_map + 2 # 加一點偏移
@@ -1164,7 +1166,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             line_num, hill_data = item
             try:
                 # 解包數據 (需要中心, 高度, 半徑)
-                cx, peak_height, cz, base_radius, *_ = hill_data
+                cx, base_y, cz, base_radius, peak_height_offset, *_ = hill_data
             except ValueError:
                 # print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_num})") # 可選警告
                 continue
@@ -1213,9 +1215,10 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                         glEnd()
 
                     # --- 繪製高度標籤 ---
-                    label_text = f"{line_num}:{peak_height:.1f}m" # 格式化高度
+                    peak_absolute_y = base_y + peak_height_offset
+                    label_text = f"{line_num}:{peak_absolute_y:.1f}m" # 格式化高度
                     try:
-                        if coord_label_font and not is_dragging: # 確保字體已設置
+                        if show_object_and_grid_labels and coord_label_font and not is_dragging: # 確保字體已設置
                             text_surface = coord_label_font.render(label_text, True, label_color)
                             # 計算標籤位置 (例如，中心點右上方)
                             dx = center_map_x + 5 # 稍微偏右
@@ -1288,7 +1291,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 label_text_main=f"{track_info} y: {segment.points[0][1]:.1f} ({line_num_main})"; # Added line_num
                 label_color_main = (255, 255, 0, 255) if is_highlighted_main else MINIMAP_GRID_LABEL_COLOR
                 try:
-                    if coord_label_font: # Check if font exists
+                    if show_object_and_grid_labels and coord_label_font: # Check if font exists
                         text_surface_main=coord_label_font.render(label_text_main,True,label_color_main);
                         dx_main=map_x_main_start + 5;
                         dy_main=map_y_main_start;

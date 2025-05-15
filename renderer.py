@@ -650,20 +650,21 @@ def draw_tree(x, y, z, height, texture_id=None): # 函數簽名保持不變
 #     glPopMatrix(); glPopMatrix()
 #     glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
 
-def draw_hill(center_x, peak_height, center_z, base_radius, resolution=20, texture_id=None, uscale=10.0, vscale=10.0):
+def draw_hill(center_x, base_y, center_z, base_radius, peak_height_offset, resolution=20, texture_id=None, uscale=10.0, vscale=10.0):
     """
     繪製一個基於餘弦插值的山丘。
 
     Args:
         center_x, center_z: 山峰中心的 XZ 座標。
-        peak_height: 山峰相對於基底 (y=0) 的高度。
+        base_y: 山丘基底的 Y 座標。
         base_radius: 山丘基底的半徑。
+        peak_height_offset: 山峰相對於基底 Y 的高度。
         resolution: 山丘網格的精細度 (例如 20x20 個四邊形)。
         texture_id: 應用於山丘的紋理 ID (如果為 None 則不使用紋理)。
         uscale, vscale: 紋理在 U 和 V 方向上的重複次數。
     """
     # --- 參數驗證 ---
-    if peak_height <= 0 or base_radius <= 0 or resolution < 2:
+    if peak_height_offset  <= 0 or base_radius <= 0 or resolution < 2:
         return
 
     # --- 紋理設定 ---
@@ -697,15 +698,15 @@ def draw_hill(center_x, peak_height, center_z, base_radius, resolution=20, textu
                 # 計算到中心的水平距離
                 distance = math.sqrt(world_dx**2 + world_dz**2)
 
-                # 計算高度 (使用餘弦插值)
-                height = 0.0
+                # 計算高度基於 base_y 和 peak_height_offset (使用餘弦插值)
+                height_from_base  = 0.0
                 if distance <= base_radius:
-                    height = peak_height * 0.5 * (math.cos(math.pi * distance / base_radius) + 1.0)
+                    height_from_base  = peak_height_offset  * 0.5 * (math.cos(math.pi * distance / base_radius) + 1.0)
 
                 # 計算實際世界座標
                 world_x = center_x + world_dx
                 world_z = center_z + world_dz
-                world_y = height # 高度直接是 Y 座標 (假設基底在 Y=0)
+                world_y = base_y + height_from_base  # 高度直接是 Y 座標 (使用 base_y)
 
                 # --- 計算近似法向量 ---
                 # 為了簡化，我們先給一個朝上的法向量，之後可以改進
@@ -716,7 +717,7 @@ def draw_hill(center_x, peak_height, center_z, base_radius, resolution=20, textu
                 normal_z = 0.0
                 if distance > 1e-6 and distance <= base_radius:
                      # 導數的近似值 (未歸一化)
-                     slope_factor = -peak_height * 0.5 * math.pi / base_radius * math.sin(math.pi * distance / base_radius)
+                     slope_factor = -peak_height_offset * 0.5 * math.pi / base_radius * math.sin(math.pi * distance / base_radius)
                      # 將斜率分配到 x 和 z 方向
                      normal_x = - (world_dx / distance) * slope_factor
                      normal_z = - (world_dz / distance) * slope_factor
@@ -820,14 +821,14 @@ def draw_scene_objects(scene):
         line_num, hill_data = item # 解包行號和數據
         try:
             # 解包 hill_data (與 scene_parser 中打包時一致)
-            (cx, height, cz, radius, tex_id, uscale, vscale, tex_file) = hill_data
+            (cx, base_y, cz, radius, peak_h_offset, tex_id, uscale, vscale, tex_file) = hill_data
         except ValueError:
              print(f"警告: 解包 hill 數據時出錯 (來源行: {line_num})")
              continue # 跳過這個物件
 
         # 不需要 Push/Pop Matrix，因為 draw_hill 使用絕對座標
         # 可以直接調用繪製函數
-        draw_hill(cx, height, cz, radius,
+        draw_hill(cx, base_y, cz, radius, peak_h_offset,
                   resolution=10, # 可以將解析度設為可配置或常數
                   texture_id=tex_id,
                   uscale=uscale, vscale=vscale)

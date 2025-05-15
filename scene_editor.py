@@ -975,10 +975,11 @@ class SceneTableWidget(QTableWidget):
                     num_deleted = 0
                     for row_index in sorted_rows:
                         # --- MODIFICATION: Allow deleting non-empty rows as well ---
-                        if self.is_row_empty(row_index): 
-                            self.removeRow(row_index)
-                            num_deleted += 1
+#                         if self.is_row_empty(row_index): 
+                        self.removeRow(row_index)
+                        num_deleted += 1
                         # --- END OF MODIFICATION ---
+                        
                 finally: self.blockSignals(False)
                 if num_deleted > 0:
                     self.renumber_vertical_headers() # Update row numbers
@@ -1513,78 +1514,88 @@ class SceneEditorWindow(QMainWindow):
 
         # 1. 從表格獲取當前所有行的文本內容 (這個函數本身是沒問題的)
         # lines = self.table_widget.get_scene_lines() # 我們可以直接讀取表格內容
+        current_table_lines = self.table_widget.get_scene_lines()
 
         # 2. 獲取當前表格中選中的行號
-        current_row = self.table_widget.currentRow()
-        current_table_lines = self.table_widget.get_scene_lines()
-        
-        # --- START OF MODIFICATION: Ensure texture_loader is available for parsing ---
+        base_directory_for_imports = os.getcwd() # 預設為當前工作目錄
+        current_filename_for_display = "Untitled" # 預設顯示的檔名
+
+        if self._current_scene_filepath and os.path.exists(self._current_scene_filepath):
+            base_directory_for_imports = os.path.dirname(self._current_scene_filepath)
+            current_filename_for_display = os.path.basename(self._current_scene_filepath)
+        elif self.table_widget.get_current_filepath(): # 如果表格知道自己的路徑（例如剛另存過）
+            # 這種情況較少見，通常 _current_scene_filepath 會被優先更新
+            temp_path = self.table_widget.get_current_filepath()
+            base_directory_for_imports = os.path.dirname(temp_path)
+            current_filename_for_display = os.path.basename(temp_path)
+
+
+        # --- 確保 texture_loader 可用 ---
         if scene_parser.texture_loader is None:
-            scene_parser.set_texture_loader(texture_loader) # Ensure it's set if not already
-        # --- END OF MODIFICATION ---
+            scene_parser.set_texture_loader(texture_loader)
+        # ------------------------------
 
         # 3. 使用 scene_parser 解析當前表格的 *完整* 內容
-        #    我們先獲取一次完整的 lines 列表用於解析 Scene 物件
-        current_table_lines = self.table_widget.get_scene_lines()
-        parsed_scene = scene_parser.parse_scene_from_lines(current_table_lines, load_textures=True)
+        #    我們先獲取一次完整的 lines 列表用於解析 Scene 物件        
+        parsed_scene = scene_parser.parse_scene_from_lines(current_table_lines, 
+                                                            base_dir_for_import=base_directory_for_imports,
+            filename_for_display=current_filename_for_display, load_textures=True)
 
         # --- 4. 決定 3D 預覽窗口應該顯示哪個背景 ---
-        background_info_for_preview = None # 初始化為 None (無特定背景)
+        background_info_for_preview = None 
+        current_row_in_table = self.table_widget.currentRow() # 獲取表格中當前選中的行
 
-        # 只有在場景成功解析後才繼續判斷背景
-        if parsed_scene:
-            # 預設情況下，使用場景的初始背景（如果有的話）
-            background_info_for_preview = parsed_scene.initial_background_info
+        if parsed_scene: # 只有在場景成功解析後才繼續判斷背景
+            background_info_for_preview = parsed_scene.initial_background_info # 預設使用場景的初始背景
 
-            # 如果使用者在表格中選中了一個有效的行 (current_row >= 0)
-            if current_row >= 0:
+            if current_row_in_table >= 0 and current_row_in_table < len(current_table_lines):
                 # 從當前選中的行開始，向上查找最近定義的 skybox 或 skydome 指令
+                # 注意：這裡的 current_table_lines 是原始的、未經 import 展開的表格行
+                # 我們需要解析的是這些原始行，而不是 parsed_scene 中的 background_triggers (那是基於軌道距離的)
+                
                 last_bg_info_found_upwards = None
-                table_widget_ref = self.table_widget
-                for i in range(current_row, -1, -1): # 從 current_row 倒序迭代到 0
-                    # --- >>> 修正點：獲取整行文本來解析 <<< ---
-                    row_text = ""
-                    row_parts_bg = [] # Use a different variable name to avoid conflict
-                    if i < table_widget_ref.rowCount():
-                        for j in range(table_widget_ref.columnCount()): # 遍歷該行的所有列
-                            item = table_widget_ref.item(i, j)
-                            if item and item.text():
-                                row_parts_bg.append(item.text().strip()) 
-                            else: break 
-                        row_text = " ".join(row_parts_bg) 
-                    if row_text: 
-                        parts_bg = row_text.split() # Use different var name
-                        cmd_bg = parts_bg[0].lower() if parts_bg else "" # Use different var name
-                        if cmd_bg in ["skybox", "skydome"]:
-                            if cmd_bg == "skybox" and len(parts_bg) > 1:
-                                last_bg_info_found_upwards = {'type': 'skybox', 'base_name': parts_bg[1]}
-                            elif cmd_bg == "skydome" and len(parts_bg) > 1:
-                                tex_file_to_find = parts_bg[1] 
-                                found_id = None
-                                # 檢查初始背景是否匹配
-                                if parsed_scene.initial_background_info and \
-                                   parsed_scene.initial_background_info.get('type') == 'skydome' and \
-                                   parsed_scene.initial_background_info.get('file') == tex_file_to_find:
-                                    found_id = parsed_scene.initial_background_info.get('id')
-                                if found_id is None and parsed_scene.background_triggers : # Check if triggers exist
-                                    for _, info_dict in parsed_scene.background_triggers:
-                                         if info_dict.get('type') == 'skydome' and info_dict.get('file') == tex_file_to_find:
-                                             found_id = info_dict.get('id')
-                                             if found_id: break # 找到 ID 就停止
-                                # 構建 Skydome 的信息字典
-                                last_bg_info_found_upwards = {'type': 'skydome', 'file': tex_file_to_find, 'id': found_id}
+                for i in range(current_row_in_table, -1, -1):
+                    line_text = current_table_lines[i].strip()
+                    if line_text and not line_text.startswith('#'):
+                        parts = line_text.split()
+                        cmd = parts[0].lower() if parts else ""
+                        
+                        if cmd == "skybox" and len(parts) > 1:
+                            # 為了預覽，我們只需要類型和基本名稱
+                            last_bg_info_found_upwards = {'type': 'skybox', 'base_name': parts[1]}
+                            break 
+                        elif cmd == "skydome" and len(parts) > 1:
+                            # 為了預覽，我們需要類型、檔案名，並嘗試獲取已載入的紋理ID
+                            skydome_file = parts[1]
+                            skydome_tex_id = None
+                            # 嘗試從 parsed_scene 中找到這個 skydome 的紋理 ID (如果它被定義為初始背景或觸發器)
+                            if parsed_scene.initial_background_info and \
+                               parsed_scene.initial_background_info.get('type') == 'skydome' and \
+                               parsed_scene.initial_background_info.get('file') == skydome_file:
+                                skydome_tex_id = parsed_scene.initial_background_info.get('id')
+                            
+                            if skydome_tex_id is None and parsed_scene.background_triggers:
+                                for _, bg_info_dict in parsed_scene.background_triggers:
+                                    if bg_info_dict.get('type') == 'skydome' and bg_info_dict.get('file') == skydome_file:
+                                        skydome_tex_id = bg_info_dict.get('id')
+                                        if skydome_tex_id: break
+                            
+                            # 如果在 parsed_scene 中找不到，並且 texture_loader 存在，可以嘗試即時載入 (通常不推薦在更新循環中)
+                            # 或者依賴 parsed_scene 中已有的ID
+                            if skydome_tex_id is None and texture_loader:
+                                # print(f"Preview: Attempting to dynamically load skydome texture '{skydome_file}' for preview.")
+                                skydome_tex_id = texture_loader.load_texture(skydome_file)
 
-                            # 找到第一個（最近的）背景指令後就停止向上搜索
-                            break # 退出 for 循環
 
-                # 如果向上搜索找到了背景指令，則使用它作為預覽背景
+                            last_bg_info_found_upwards = {'type': 'skydome', 'file': skydome_file, 'id': skydome_tex_id}
+                            break
+                
                 if last_bg_info_found_upwards is not None:
                     background_info_for_preview = last_bg_info_found_upwards
-                # 否則，維持使用上面設定的 initial_background_info
 
         # --- 5. 更新小地圖預覽 ---
         try:
-            # 傳遞我們為解析 Scene 而獲取的 parsed_scene
+            # 小地圖只需要解析後的 Scene 物件
             self.minimap_widget.update_scene(parsed_scene)
         except Exception as e:
             print(f"Error updating minimap widget: {e}")
@@ -1594,19 +1605,17 @@ class SceneEditorWindow(QMainWindow):
             # 為新解析的場景創建軌道渲染所需的緩衝區
             if parsed_scene and parsed_scene.track:
                 try:
-                    # --- MODIFICATION: Call clear before create_all_segment_buffers for safety ---
-                    # This ensures old buffers are gone if the track structure changed significantly
-                    # parsed_scene.track.clear() # This might be too aggressive if only one segment changed.
-                                                # create_all_segment_buffers should handle individual segment cleanup.
-                    # --- END OF MODIFICATION ---
-                    self.preview_widget.makeCurrent() # <--- ***** 重要 *****
-                    parsed_scene.track.create_all_segment_buffers() # This now creates buffers for vbranches too
+                    self.preview_widget.makeCurrent() # 確保OpenGL上下文正確
+                    parsed_scene.track.create_all_segment_buffers() # 創建主軌道和vbranch的緩衝區
                 except Exception as e:
                     print(f"  Error creating track buffers for preview: {e}")
+            
             # 將解析後的場景數據 和 決定好的預覽背景信息 傳遞給 3D 預覽窗口
             self.preview_widget.update_scene(parsed_scene, background_info_for_preview)
         except Exception as e:
             print(f"Error updating 3D preview widget: {e}")
+            import traceback
+            traceback.print_exc() # 打印更詳細的錯誤信息
 
 
     def ask_reload_current_scene(self):
