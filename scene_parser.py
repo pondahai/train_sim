@@ -72,7 +72,7 @@ class Scene:
         # Let's include the texture ID for skydome here if loaded.
         self.background_triggers = []
 
-        self.is_render_ready = False # 新增標誌
+#         self.is_render_ready = False # 新增標誌
 
         # --- 新增：用於解析過程的狀態 ---
         self.current_parse_pos = np.copy(self.start_position)
@@ -124,7 +124,7 @@ class Scene:
         if self.track:
             self.track.clear() # Track.clear() 應負責清理其 VBOs/VAOs
         # 如果 Scene 還管理其他 OpenGL 資源（例如，直接的紋理ID列表），也在此清理
-        self.is_render_ready = False
+#         self.is_render_ready = False
         print(f"Scene resources cleaned up.")
 
     def populate_from_lines(self, lines_list, load_textures=True):
@@ -155,31 +155,50 @@ class Scene:
             return True
         return False
 
-    def prepare_for_render(self):
-        """準備場景用於渲染，例如創建軌道緩衝區。"""
-        if self.track:
-            print(f"Scene: Preparing track for render (creating buffers)...")
-            self.track.create_all_segment_buffers() # Track 內部應處理好 VBO/VAO
-            # 這裡可以檢查 segment.is_buffer_ready
-            all_segments_ready = all(s.is_buffer_ready for s in self.track.segments if hasattr(s, 'is_buffer_ready'))
-            if all_segments_ready and self.track.segments: # 確保有軌道段且都準備好了
-                self.is_render_ready = True
-                print("Scene: Track is render ready.")
-            elif not self.track.segments:
-                self.is_render_ready = True # 空軌道也算準備好了（沒東西渲染）
-                print("Scene: Track is empty, render ready.")
-            else:
-                self.is_render_ready = False
-                print("Scene: Track not fully render ready.")
-        else:
-            self.is_render_ready = True # 沒有軌道也算準備好了
-            print("Scene: No track, render ready.")
+    @property # 將其作為一個屬性來訪問
+    def is_render_ready(self):
+        if not self.track: # 沒有軌道
+            return True # 可以認為是準備好了（沒東西可準備）
+        if not self.track.segments: # 有軌道物件但沒有軌道段
+            return True # 同上
         
-        # 如果還有其他需要在渲染前準備的資源，可以在這裡處理
-        # 例如，預載入一些一次性的紋理或模型到 GPU
-
-        # 小地圖烘焙也可以考慮作為 prepare_for_render 的一部分，或者由外部調用
-        # minimap_renderer.bake_static_map_elements(self)
+        # 檢查所有軌道段的緩衝區是否都已就緒
+        # 假設 TrackSegment 有 is_buffer_ready 屬性
+        for segment in self.track.segments:
+            if hasattr(segment, 'is_buffer_ready') and not segment.is_buffer_ready:
+                return False # 只要有一個軌道段沒準備好，整個場景就沒準備好
+            elif not hasattr(segment, 'is_buffer_ready'):
+                # 如果 TrackSegment 沒有 is_buffer_ready 屬性，我們無法確定，保守返回 False
+                # 或者，如果 create_all_segment_buffers 總能保證成功，這裡可以假設 True
+                print(f"警告: TrackSegment (來源: {segment.source_line_number})缺少 is_buffer_ready 屬性。")
+                return False 
+        return True # 所有軌道段都準備好了
+#     def prepare_for_render(self):
+#         """準備場景用於渲染，例如創建軌道緩衝區。"""
+#         if self.track:
+#             print(f"Scene: Preparing track for render (creating buffers)...")
+#             self.track.create_all_segment_buffers() # Track 內部應處理好 VBO/VAO
+#             # 這裡可以檢查 segment.is_buffer_ready
+#             all_segments_ready = all(s.is_buffer_ready for s in self.track.segments if hasattr(s, 'is_buffer_ready'))
+#             print(f"all_segments_ready:{all_segments_ready} self.track.segments:{self.track.segments}")
+#             if all_segments_ready and self.track.segments: # 確保有軌道段且都準備好了
+#                 self.is_render_ready = True
+#                 print("Scene: Track is render ready.")
+#             elif not self.track.segments:
+#                 self.is_render_ready = True # 空軌道也算準備好了（沒東西渲染）
+#                 print("Scene: Track is empty, render ready.")
+#             else:
+#                 self.is_render_ready = False
+#                 print("Scene: Track not fully render ready.")
+#         else:
+#             self.is_render_ready = True # 沒有軌道也算準備好了
+#             print("Scene: No track, render ready.")
+#         
+#         # 如果還有其他需要在渲染前準備的資源，可以在這裡處理
+#         # 例如，預載入一些一次性的紋理或模型到 GPU
+# 
+#         # 小地圖烘焙也可以考慮作為 prepare_for_render 的一部分，或者由外部調用
+#         # minimap_renderer.bake_static_map_elements(self)
         
 # --- Global state for scene parsing ---
 scene_file_path = "scene.txt"
@@ -558,15 +577,38 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
 
             elif command == "building":
                 # ... (building 解析邏輯，使用 scene_to_populate.current_relative_origin_pos 等)
-                base_param_count = 9; min_parts = 1 + base_param_count
-                if len(parts) < min_parts: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'building' 參數不足。"); continue
-                try: rel_x, rel_y, rel_z = map(float, parts[1:4]); rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7]); w, d, h = map(float, parts[7:10])
-                except ValueError: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'building' 基本參數無效。"); continue
+                base_param_count = 9;
+                min_parts = 1 + base_param_count
+                if len(parts) < min_parts:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'building' 參數不足。");
+                    continue
+                try:
+                    rel_x, rel_y, rel_z = map(float, parts[1:4]);
+                    rx_deg, rel_ry_deg, rz_deg = map(float, parts[4:7]);
+                    w, d, h = map(float, parts[7:10])
+                except ValueError:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'building' 基本參數無效。");
+                    continue
                 tex_file = parts[10] if len(parts) > 10 else "building.png"
                 u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale = 0.0,0.0,0.0,1,1.0,1.0
-                try: u_offset = float(parts[11]) if len(parts) > 11 else 0.0; v_offset = float(parts[12]) if len(parts) > 12 else 0.0; tex_angle_deg = float(parts[13]) if len(parts) > 13 else 0.0; uv_mode = int(parts[14]) if len(parts) > 14 else 1; uscale = float(parts[15]) if len(parts) > 15 and uv_mode == 0 else 1.0; vscale = float(parts[16]) if len(parts) > 16 and uv_mode == 0 else 1.0
+                try:
+                    u_offset = float(parts[11]) if len(parts) > 11 else 0.0;
+                    v_offset = float(parts[12]) if len(parts) > 12 else 0.0;
+                    tex_angle_deg = float(parts[13]) if len(parts) > 13 else 0.0;
+                    uv_mode = int(parts[14]) if len(parts) > 14 else 1;
+                    uscale = float(parts[15]) if len(parts) > 15 and uv_mode == 0 else 1.0;
+                    vscale = float(parts[16]) if len(parts) > 16 and uv_mode == 0 else 1.0
                 except ValueError: pass
-                tex_id = texture_loader.load_texture(tex_file) if load_textures and texture_loader else None
+#                 tex_id = texture_loader.load_texture(tex_file) if load_textures and texture_loader else None
+                # 載入紋理並獲取 alpha 信息
+                gl_texture_id = None
+                texture_has_alpha_flag = False
+                if load_textures and texture_loader:
+                    tex_info = texture_loader.load_texture(tex_file)
+                    if tex_info:
+                        gl_texture_id_from_loader = tex_info.get("id")
+                        texture_has_alpha_flag = tex_info.get("has_alpha", False)
+                    
                 origin_angle = scene_to_populate.current_relative_origin_angle_rad
                 cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a
@@ -575,7 +617,17 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 world_y = scene_to_populate.current_relative_origin_pos[1] + rel_y
                 world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z
                 absolute_ry_deg = math.degrees(-origin_angle) + rel_ry_deg - 90
-                obj_data_tuple = ("building", world_x, world_y, world_z, rx_deg, absolute_ry_deg, rz_deg, w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file)
+                obj_data_tuple = (
+                    "building",
+                    world_x, world_y, world_z,
+                    rx_deg, absolute_ry_deg, rz_deg,
+                    w, d, h,
+#                     tex_id,
+                    u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
+                    tex_file, # 原始檔名
+                    gl_texture_id_from_loader, # OpenGL 紋理 ID
+                    texture_has_alpha_flag # 新增的 Alpha 標誌
+                    )
                 scene_to_populate.buildings.append((line_identifier_for_object, obj_data_tuple))
 
             elif command == "cylinder":
@@ -588,12 +640,29 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale = 0.0,0.0,0.0,1,1.0,1.0
                 try: u_offset = float(parts[10]) if len(parts) > 10 else 0.0; v_offset = float(parts[11]) if len(parts) > 11 else 0.0; tex_angle_deg = float(parts[12]) if len(parts) > 12 else 0.0; uv_mode = int(parts[13]) if len(parts) > 13 else 1; uscale = float(parts[14]) if len(parts) > 14 and uv_mode == 0 else 1.0; vscale = float(parts[15]) if len(parts) > 15 and uv_mode == 0 else 1.0
                 except ValueError: pass
-                tex_id = texture_loader.load_texture(tex_file) if load_textures and texture_loader else None
+#                 tex_id = texture_loader.load_texture(tex_file).get("id") if load_textures and texture_loader else None
+                # 載入紋理並獲取 alpha 信息
+                gl_texture_id = None
+                texture_has_alpha_flag = False
+                if load_textures and texture_loader:
+                    tex_info = texture_loader.load_texture(tex_file)
+                    if tex_info:
+                        gl_texture_id_from_loader = tex_info.get("id")
+                        texture_has_alpha_flag = tex_info.get("has_alpha", False)
+                    
                 origin_angle = scene_to_populate.current_relative_origin_angle_rad; cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = scene_to_populate.current_relative_origin_pos[0] + world_offset_x; world_y = scene_to_populate.current_relative_origin_pos[1] + rel_y; world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z
                 absolute_ry_deg = math.degrees(-origin_angle) + rel_ry_deg - 90
-                obj_data_tuple = ("cylinder", world_x, world_y, world_z, rx_deg, absolute_ry_deg, rz_deg, radius, height, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file)
+                obj_data_tuple = (
+                    "cylinder", world_x, world_y, world_z,
+                    rx_deg, absolute_ry_deg, rz_deg, radius, height,
+#                     tex_id,
+                    u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
+                    tex_file,
+                    gl_texture_id_from_loader, # OpenGL 紋理 ID
+                    texture_has_alpha_flag # 新增的 Alpha 標誌
+                    )
                 scene_to_populate.cylinders.append((line_identifier_for_object, obj_data_tuple))
 
             elif command == "tree":
@@ -603,7 +672,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 except ValueError: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'tree' 基本參數無效。"); continue
                 if height <=0: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'tree' 高度必須為正。"); continue
                 tex_file = parts[5] if len(parts) > 5 else "tree_leaves.png"
-                tex_id = texture_loader.load_texture(tex_file) if load_textures and texture_loader else None
+                tex_id = texture_loader.load_texture(tex_file).get("id") if load_textures and texture_loader else None
                 origin_angle = scene_to_populate.current_relative_origin_angle_rad; cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = scene_to_populate.current_relative_origin_pos[0] + world_offset_x; world_y = scene_to_populate.current_relative_origin_pos[1] + rel_y; world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z
@@ -621,7 +690,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale = 0.0,0.0,0.0,1,1.0,1.0
                 try: u_offset = float(parts[9]) if len(parts) > 9 else 0.0; v_offset = float(parts[10]) if len(parts) > 10 else 0.0; tex_angle_deg = float(parts[11]) if len(parts) > 11 else 0.0; uv_mode = int(parts[12]) if len(parts) > 12 else 1; uscale = float(parts[13]) if len(parts) > 13 and uv_mode == 0 else 1.0; vscale = float(parts[14]) if len(parts) > 14 and uv_mode == 0 else 1.0
                 except ValueError: pass
-                tex_id = texture_loader.load_texture(tex_file) if load_textures and texture_loader else None
+                tex_id = texture_loader.load_texture(tex_file).get("id") if load_textures and texture_loader else None
                 origin_angle = scene_to_populate.current_relative_origin_angle_rad; cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = scene_to_populate.current_relative_origin_pos[0] + world_offset_x; world_y = scene_to_populate.current_relative_origin_pos[1] + rel_y; world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z
@@ -645,8 +714,26 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     uscale = float(parts[tex_param_start_index + 1]) if len(parts) > tex_param_start_index + 1 else 10.0
                     vscale = float(parts[tex_param_start_index + 2]) if len(parts) > tex_param_start_index + 2 else 10.0
                 except ValueError: pass
-                tex_id = texture_loader.load_texture(tex_file) if load_textures and texture_loader else None
-                hill_data_tuple = (center_x, base_y, center_z, base_radius, peak_height_offset, tex_id, uscale, vscale, tex_file)
+#                 tex_id = texture_loader.load_texture(tex_file).get("id") if load_textures and texture_loader else None
+                # 載入紋理並獲取 alpha 信息
+                gl_texture_id = None
+                texture_has_alpha_flag = False
+                if load_textures and texture_loader:
+                    tex_info = texture_loader.load_texture(tex_file)
+                    if tex_info:
+                        gl_texture_id_from_loader = tex_info.get("id")
+                        texture_has_alpha_flag = tex_info.get("has_alpha", False)
+
+                hill_data_tuple = (
+                    center_x, base_y, center_z,
+                    base_radius, peak_height_offset,
+#                     tex_id,
+                    uscale,
+                    vscale,
+                    tex_file,
+                    gl_texture_id_from_loader, # OpenGL 紋理 ID
+                    texture_has_alpha_flag # 新增的 Alpha 標誌
+                    )
                 scene_to_populate.hills.append((line_identifier_for_object, hill_data_tuple))
 
             elif command == "skybox":
@@ -662,7 +749,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 if len(parts) < 2: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'skydome' 需要 texture_file。"); continue
                 texture_file = parts[1]
                 tex_id = None
-                if load_textures and texture_loader: tex_id = texture_loader.load_texture(texture_file)
+                if load_textures and texture_loader: tex_id = texture_loader.load_texture(texture_file).get("id")
                 current_info = {'type': 'skydome', 'file': texture_file, 'id': tex_id}
                 if scene_to_populate.initial_background_info is None: scene_to_populate.initial_background_info = current_info
                 scene_to_populate.last_background_info = current_info

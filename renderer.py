@@ -90,10 +90,10 @@ def init_renderer():
     """Initializes the renderer, loads common textures."""
     global grass_tex, tree_bark_tex, tree_leaves_tex, cab_metal_tex
     # Load common non-map textures
-    grass_tex = texture_loader.load_texture("grass.png")
-    tree_bark_tex = texture_loader.load_texture("tree_bark.png")
-    tree_leaves_tex = texture_loader.load_texture("tree_leaves.png")
-    cab_metal_tex = texture_loader.load_texture("metal.png") # Assuming cab uses metal texture
+    grass_tex = texture_loader.load_texture("grass.png").get("id")
+    tree_bark_tex = texture_loader.load_texture("tree_bark.png").get("id")
+    tree_leaves_tex = texture_loader.load_texture("tree_leaves.png").get("id")
+    cab_metal_tex = texture_loader.load_texture("metal.png").get("id") # Assuming cab uses metal texture
 
     # --- NEW: Preload common skyboxes if needed? ---
     # Example: Load default skybox if specified elsewhere
@@ -269,91 +269,192 @@ def _calculate_uv(u_base, v_base, center_u, center_v, u_offset, v_offset, angle_
 
 
 # --- draw_cube (unchanged) ---
-def draw_cube(width, depth, height, texture_id=None,
+def draw_cube(width, depth, height,
+              texture_id_from_scene=None,
               u_offset=0.0, v_offset=0.0, tex_angle_deg=0.0, uv_mode=1,
-              uscale=1.0, vscale=1.0):
-    # (Logic unchanged)
-    if texture_id is not None and glIsTexture(texture_id):
-        glBindTexture(GL_TEXTURE_2D, texture_id); glEnable(GL_TEXTURE_2D)
-        wrap_mode = GL_REPEAT if uv_mode == 0 else GL_REPEAT # Or GL_CLAMP_TO_EDGE
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_mode)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_mode)
-    else: glDisable(GL_TEXTURE_2D)
-    w, d, h = width / 2.0, depth / 2.0, height
-    angle_rad = math.radians(tex_angle_deg)
+              uscale=1.0, vscale=1.0,
+              texture_has_alpha=False,
+              default_alpha_test_threshold=0.1
+              ):
+#     print(f"DEBUG:  texture_id_from_scene: {texture_id_from_scene} (type: {type(texture_id_from_scene)})")
+    gl_texture_id_to_use = None 
+    if texture_id_from_scene is not None: # 檢查是否為 None
+        try:
+            # (Logic unchanged)
+            if glIsTexture(texture_id_from_scene): # 再檢查是否為有效的 GL 紋理對象
+                gl_texture_id_to_use = texture_id_from_scene
+                glBindTexture(GL_TEXTURE_2D, gl_texture_id_to_use);
+                glEnable(GL_TEXTURE_2D)
+
+                # 根據 uv_mode 設置紋理環繞是一個好主意
+                wrap_s_mode = GL_REPEAT
+                wrap_t_mode = GL_REPEAT
+
+                if uv_mode == 1: # 物件比例貼圖，可能邊緣裁剪更好看，避免接縫問題
+                    pass # GL_REPEAT 也可以，取決於紋理設計
+                    # wrap_s_mode = GL_CLAMP_TO_EDGE
+                    # wrap_t_mode = GL_CLAMP_TO_EDGE
+                    
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_s_mode)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_t_mode)
+            else:
+                glDisable(GL_TEXTURE_2D)
+        except Exception as e_tex_check: # glIsTexture 在某些情況下可能出錯
+            print(f"DEBUG: draw_cube - Error checking texture ID {texture_id_from_scene}: {e_tex_check}")
+            glDisable(GL_TEXTURE_2D)
+    else: # texture_id_from_scene is None
+        glDisable(GL_TEXTURE_2D)
+
+    # 處理alpha
+    alpha_testing_was_actually_enabled_this_call = False
+    if gl_texture_id_to_use and texture_has_alpha: 
+        glEnable(GL_ALPHA_TEST)
+        glAlphaFunc(GL_GREATER, default_alpha_test_threshold)
+        alpha_testing_was_actually_enabled_this_call = True
+        
+        # 確保 Alpha Test 時的狀態是我們期望的
+        glDepthMask(GL_TRUE)   # 允許寫入深度緩衝區，像不透明物體一樣參與深度比較
+        glDisable(GL_BLEND)  # Alpha Test 通常不與 Alpha Blending 同時對同一物件使用
+        # print(f"DEBUG: Alpha Test ENABLED for texture ID {gl_texture_id_to_use}")
+    # else:
+        # print(f"DEBUG: Alpha Test NOT enabled. TexID: {gl_texture_id_to_use}, HasAlpha: {texture_has_alpha}")
+
+    w2, d2_half = width / 2.0, depth / 2.0 # 注意變數名，原版用 d, h
+                                        # 這裡 height 是總高度，所以頂面Y是 height，底面Y是 0
+    
+    original_tex_angle_rad = math.radians(tex_angle_deg) 
+    
     glBegin(GL_QUADS)
-    # Bottom face
-    face_w, face_h = width, depth; cur_usc, cur_vsc = uscale, vscale
-    if uv_mode == 1: bc = [(1, 0), (0, 0), (0, 1), (1, 1)]; cu, cv = 0.5, 0.5
-    else: bc = [(width, 0), (0, 0), (0, depth), (width, depth)]; cu, cv = width / 2.0, depth / 2.0
+    # Bottom face (Y=0)
+    face_w_b, face_h_b = width, depth
+    cu_b, cv_b = (0.5, 0.5) if uv_mode == 1 else (face_w_b / 2.0, face_h_b / 2.0)
+    bc_b = [(1,0), (0,0), (0,1), (1,1)] if uv_mode == 1 else [(face_w_b,0), (0,0), (0,face_h_b), (face_w_b,face_h_b)]
     glNormal3f(0, -1, 0)
-    uv = _calculate_uv(*bc[0], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, 0,  d)
-    uv = _calculate_uv(*bc[1], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, 0,  d)
-    uv = _calculate_uv(*bc[2], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, 0, -d)
-    uv = _calculate_uv(*bc[3], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, 0, -d)
-    # Top face
-    face_w, face_h = width, depth; cur_usc, cur_vsc = uscale, vscale
-    if uv_mode == 1: bc = [(1, 1), (0, 1), (0, 0), (1, 0)]; cu, cv = 0.5, 0.5
-    else: bc = [(width, depth), (0, depth), (0, 0), (width, 0)]; cu, cv = width / 2.0, depth / 2.0
+    uv = _calculate_uv(*bc_b[0], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,d2_half)
+    uv = _calculate_uv(*bc_b[1], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,d2_half)
+    uv = _calculate_uv(*bc_b[2], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,-d2_half)
+    uv = _calculate_uv(*bc_b[3], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,-d2_half)
+    
+    # Top face (Y=height)
+    face_w_t, face_h_t = width, depth
+    cu_t, cv_t = (0.5, 0.5) if uv_mode == 1 else (face_w_t / 2.0, face_h_t / 2.0)
+    bc_t = [(1,1), (0,1), (0,0), (1,0)] if uv_mode == 1 else [(face_w_t,face_h_t), (0,face_h_t), (0,0), (face_w_t,0)]
     glNormal3f(0, 1, 0)
-    uv = _calculate_uv(*bc[0], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, h, -d)
-    uv = _calculate_uv(*bc[1], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, h, -d)
-    uv = _calculate_uv(*bc[2], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, h,  d)
-    uv = _calculate_uv(*bc[3], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, h,  d)
-    # Front face
-    face_w, face_h = width, height; cur_usc, cur_vsc = uscale, vscale
-    if uv_mode == 1: bc = [(1, 0), (0, 0), (0, 1), (1, 1)]; cu, cv = 0.5, 0.5
-    else: bc = [(width, 0), (0, 0), (0, height), (width, height)]; cu, cv = width / 2.0, height / 2.0
-    glNormal3f(0, 0, 1)
-    uv = _calculate_uv(*bc[0], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, 0, d)
-    uv = _calculate_uv(*bc[1], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, 0, d)
-    uv = _calculate_uv(*bc[2], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, h, d)
-    uv = _calculate_uv(*bc[3], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, h, d)
-    # Back face
-    face_w, face_h = width, height; cur_usc, cur_vsc = uscale, vscale
-    if uv_mode == 1: bc = [(0, 1), (1, 1), (1, 0), (0, 0)]; cu, cv = 0.5, 0.5
-    else: bc = [(width, height), (0, height), (0, 0), (width, 0)]; cu, cv = width / 2.0, height / 2.0
-    glNormal3f(0, 0, -1)
-    uv = _calculate_uv(*bc[0], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, h, -d)
-    uv = _calculate_uv(*bc[1], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, h, -d)
-    uv = _calculate_uv(*bc[2], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, 0, -d)
-    uv = _calculate_uv(*bc[3], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, 0, -d)
-    # Left face
-    face_w, face_h = depth, height; cur_usc, cur_vsc = uscale, vscale
-    if uv_mode == 1: bc = [(1, 0), (0, 0), (0, 1), (1, 1)]; cu, cv = 0.5, 0.5
-    else: bc = [(depth, 0), (0, 0), (0, height), (depth, height)]; cu, cv = depth / 2.0, height / 2.0
-    glNormal3f(-1, 0, 0)
-    uv = _calculate_uv(*bc[0], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, 0, -d)
-    uv = _calculate_uv(*bc[1], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, 0,  d)
-    uv = _calculate_uv(*bc[2], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, h,  d)
-    uv = _calculate_uv(*bc[3], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f(-w, h, -d)
-    # Right face
-    face_w, face_h = depth, height; cur_usc, cur_vsc = uscale, vscale
-    if uv_mode == 1: bc = [(0, 0), (1, 0), (1, 1), (0, 1)]; cu, cv = 0.5, 0.5
-    else: bc = [(0, 0), (depth, 0), (depth, height), (0, height)]; cu, cv = depth / 2.0, height / 2.0
-    glNormal3f(1, 0, 0)
-    uv = _calculate_uv(*bc[0], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, 0,  d)
-    uv = _calculate_uv(*bc[1], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, 0, -d)
-    uv = _calculate_uv(*bc[2], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, h, -d)
-    uv = _calculate_uv(*bc[3], cu, cv, u_offset, v_offset, angle_rad, uv_mode, cur_usc, cur_vsc); glTexCoord2f(*uv); glVertex3f( w, h,  d)
+    uv = _calculate_uv(*bc_t[0], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,-d2_half)
+    uv = _calculate_uv(*bc_t[1], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,-d2_half)
+    uv = _calculate_uv(*bc_t[2], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,d2_half)
+    uv = _calculate_uv(*bc_t[3], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,d2_half)
+    
+    # Front face (Z=d2_half)
+    face_w_f, face_h_f = width, height
+    cu_f, cv_f = (0.5,0.5) if uv_mode == 1 else (face_w_f/2.0, face_h_f/2.0)
+    bc_f = [(1,0), (0,0), (0,1), (1,1)] if uv_mode == 1 else [(face_w_f,0), (0,0), (0,face_h_f), (face_w_f,face_h_f)]
+    glNormal3f(0,0,1)
+    uv = _calculate_uv(*bc_f[0], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,d2_half)
+    uv = _calculate_uv(*bc_f[1], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,d2_half)
+    uv = _calculate_uv(*bc_f[2], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,d2_half)
+    uv = _calculate_uv(*bc_f[3], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,d2_half)
+    
+    # Back face (Z=-d2_half)
+    face_w_k, face_h_k = width, height
+    cu_k, cv_k = (0.5,0.5) if uv_mode == 1 else (face_w_k/2.0, face_h_k/2.0)
+    # UV 的 bc_k 順序可能需要調整以匹配紋理方向，原版是 (0,1), (1,1), (1,0), (0,0)
+    # 這對應 (width,height), (0,height), (0,0), (width,0) in world units mode
+    # 這裡保持你的原始版本
+    bc_k = [(0,1), (1,1), (1,0), (0,0)] if uv_mode == 1 else [(face_w_k,face_h_k), (0,face_h_k), (0,0), (face_w_k,0)] 
+    glNormal3f(0,0,-1)
+    uv = _calculate_uv(*bc_k[0], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,-d2_half) # 之前是 (w,h,-d) -> 應該是 (-w2,height,-d2_half) ?
+    uv = _calculate_uv(*bc_k[1], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,-d2_half) # (w2,height,-d2_half) ?
+    uv = _calculate_uv(*bc_k[2], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,-d2_half)
+    uv = _calculate_uv(*bc_k[3], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,-d2_half)
+
+    # Left face (X=-w2)
+    face_w_l, face_h_l = depth, height
+    cu_l, cv_l = (0.5,0.5) if uv_mode == 1 else (face_w_l/2.0, face_h_l/2.0)
+    bc_l = [(1,0), (0,0), (0,1), (1,1)] if uv_mode == 1 else [(face_w_l,0), (0,0), (0,face_h_l), (face_w_l,face_h_l)]
+    glNormal3f(-1,0,0)
+    uv = _calculate_uv(*bc_l[0], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,-d2_half)
+    uv = _calculate_uv(*bc_l[1], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0, d2_half)
+    uv = _calculate_uv(*bc_l[2], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height, d2_half)
+    uv = _calculate_uv(*bc_l[3], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,-d2_half)
+    
+    # Right face (X=w2)
+    face_w_r, face_h_r = depth, height
+    cu_r, cv_r = (0.5,0.5) if uv_mode == 1 else (face_w_r/2.0, face_h_r/2.0)
+    bc_r = [(0,0), (1,0), (1,1), (0,1)] if uv_mode == 1 else [(0,0), (face_w_r,0), (face_w_r,face_h_r), (0,face_h_r)]
+    glNormal3f(1,0,0)
+    uv = _calculate_uv(*bc_r[0], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0, d2_half)
+    uv = _calculate_uv(*bc_r[1], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,-d2_half)
+    uv = _calculate_uv(*bc_r[2], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,-d2_half)
+    uv = _calculate_uv(*bc_r[3], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height, d2_half)
     glEnd()
-    glBindTexture(GL_TEXTURE_2D, 0)
-    glEnable(GL_TEXTURE_2D)
+    # --- END of geometry ---
+
+    if alpha_testing_was_actually_enabled_this_call:
+        glDisable(GL_ALPHA_TEST) # 只恢復由此調用明確啟用的狀態
+    
+    if gl_texture_id_to_use: # 如果之前綁定了紋理
+        glBindTexture(GL_TEXTURE_2D, 0) # 完成後解綁
+    
+    # 不應在這裡盲目地 glEnable(GL_TEXTURE_2D)，除非 draw_cube 的契約要求它這樣做。
+    # 通常，OpenGL 狀態由調用者或更高層的渲染循環管理。
+    # 如果你的其他代碼依賴於 draw_cube 後 GL_TEXTURE_2D 總是啟用的，
+    # 則需要根據情況決定是否在這裡恢復。
+    # 但一個好的原則是，繪製函數應盡可能少地改變全局狀態，或者恢復它修改的狀態。
 
 
 # --- draw_cylinder (unchanged) ---
-def draw_cylinder(radius, height, texture_id=None,
+def draw_cylinder(radius, height, texture_id_from_scene=None,
                   u_offset=0.0, v_offset=0.0, tex_angle_deg=0.0, uv_mode=1,
-                  uscale=1.0, vscale=1.0):
+                  uscale=1.0, vscale=1.0,
+              texture_has_alpha=False,
+              default_alpha_test_threshold=0.1
+                  ):
     # (Logic unchanged)
-    if texture_id is not None and glIsTexture(texture_id):
-        glBindTexture(GL_TEXTURE_2D, texture_id); glEnable(GL_TEXTURE_2D)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
-    else: glDisable(GL_TEXTURE_2D)
+    gl_texture_id_to_use = None 
+    if texture_id_from_scene is not None:
+        try:
+            if glIsTexture(texture_id_from_scene):
+                gl_texture_id_to_use = texture_id_from_scene
+                glBindTexture(GL_TEXTURE_2D, gl_texture_id_to_use);
+                glEnable(GL_TEXTURE_2D)
+#                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+#                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+                # ... (設置 wrap mode, 處理 GLU 的紋理矩陣等，如之前 cylinder 的代碼)
+                # 之前的 cylinder 紋理矩陣操作：
+                glMatrixMode(GL_TEXTURE); glPushMatrix(); glLoadIdentity()
+                glTranslatef(u_offset, v_offset, 0)
+                if uv_mode == 0:
+                    safe_uscale = uscale if abs(uscale) > 1e-6 else 1e-6
+                    safe_vscale = vscale if abs(vscale) > 1e-6 else 1e-6
+                    glScalef(1.0 / safe_uscale, 1.0 / safe_vscale, 1.0)
+                # 注意： cylinder 的紋理旋轉可能不像 cube 那樣直接用 tex_angle_deg，
+                # GLU 的 UV 生成有其固定方式。這裡的 tex_angle_deg 可能需要不同的應用方式，
+                # 或者對於 GLU cylinder，紋理旋轉效果有限。暫時不加入 glRotatef(tex_angle_deg, ...)。
+                glMatrixMode(GL_MODELVIEW) # 切回
+        except Exception as e_tex_check: # glIsTexture 在某些情況下可能出錯
+            print(f"DEBUG: draw_cylinder - Error checking texture ID {texture_id_from_scene}: {e_tex_check}")
+            glDisable(GL_TEXTURE_2D)
+    else:
+        glDisable(GL_TEXTURE_2D)
+
+    # 處理alpha
+    alpha_testing_was_actually_enabled_this_call = False
+    if gl_texture_id_to_use and texture_has_alpha: 
+        glEnable(GL_ALPHA_TEST)
+        glAlphaFunc(GL_GREATER, default_alpha_test_threshold)
+        alpha_testing_was_actually_enabled_this_call = True
+        
+        # 確保 Alpha Test 時的狀態是我們期望的
+        glDepthMask(GL_TRUE)   # 允許寫入深度緩衝區，像不透明物體一樣參與深度比較
+        glDisable(GL_BLEND)  # Alpha Test 通常不與 Alpha Blending 同時對同一物件使用
+        # print(f"DEBUG: Alpha Test ENABLED for texture ID {gl_texture_id_to_use}")
+    # else:
+        # print(f"DEBUG: Alpha Test NOT enabled. TexID: {gl_texture_id_to_use}, HasAlpha: {texture_has_alpha}")
+        
     quadric = gluNewQuadric()
     if quadric:
-        gluQuadricTexture(quadric, GL_TRUE);
+        gluQuadricTexture(quadric, GL_TRUE if gl_texture_id_to_use else GL_FALSE);
         gluQuadricNormals(quadric, GLU_SMOOTH)
         
         # --- 1. 處理圓柱側面 (保持不變) ---
@@ -415,33 +516,33 @@ def draw_cylinder(radius, height, texture_id=None,
         glRotatef(tex_angle_deg, 0, 0, 1) # 繞 Z 軸旋轉（在 2D UV 空間中）
 
         # 步驟 c: 應用縮放
-        if uv_mode == 0: # 世界單位/絕對縮放
-            # gluDisk 的 UV 0-1 對應圓盤直徑 2*radius
-            # 我們希望 uscale/vscale 是紋理在世界單位下的尺寸
-            # 所以 UV 需要乘以 (radius / uscale)
-            # 但 gluDisk 的 UV 映射比較複雜，直接用 radius 可能不准確
-            # 一個近似：假設 gluDisk 的 UV (0,0) 到 (1,1) 覆蓋了圓盤的外接正方形
-            # 如果 uscale 是10個世界單位，半徑是2，那麼紋理應該重複 2*radius / uscale 次
-            # (2*radius) / uscale 是紋理在這個直徑上的重複次數
-            # 所以 UV 需要乘以這個值
-            # 這裡需要實驗，先用一個簡化模型：
-            # 假設我們希望 uscale 是紋理鋪滿 N 個圓盤直徑的 N 值
-            # safe_uscale = uscale if abs(uscale) > 1e-6 else 1e-6
-            # safe_vscale = vscale if abs(vscale) > 1e-6 else 1e-6
-            # glScalef(1.0 / safe_uscale, 1.0 / safe_vscale, 1.0)
-            # 另一種理解 uv_mode=0 的方式是：uscale 是紋理本身在U方向的世界寬度
-            # gluDisk 的 U 方向 0-1 對應了 2*radius 的世界寬度。
-            # 所以，生成的 u_glu 需要轉換成世界單位 (u_glu * 2*radius)，然後再除以 uscale (紋理的世界寬度)
-            # 最終的縮放因子是 (2*radius / uscale)
-            actual_uscale_factor = (2 * radius) / (uscale if abs(uscale) > 1e-6 else 1e-6)
-            actual_vscale_factor = (2 * radius) / (vscale if abs(vscale) > 1e-6 else 1e-6)
-            glScalef(actual_uscale_factor, actual_vscale_factor, 1.0)
-
-        elif uv_mode == 1: # 相對縮放 (紋理重複次數)
-            # uscale, vscale 直接表示紋理在圓盤 UV 0-1 範圍內的重複次數
-            safe_uscale = uscale if abs(uscale) > 1e-6 else 1e-6
-            safe_vscale = vscale if abs(vscale) > 1e-6 else 1e-6
-            glScalef(safe_uscale, safe_vscale, 1.0)
+#         if uv_mode == 0: # 世界單位/絕對縮放
+#             # gluDisk 的 UV 0-1 對應圓盤直徑 2*radius
+#             # 我們希望 uscale/vscale 是紋理在世界單位下的尺寸
+#             # 所以 UV 需要乘以 (radius / uscale)
+#             # 但 gluDisk 的 UV 映射比較複雜，直接用 radius 可能不准確
+#             # 一個近似：假設 gluDisk 的 UV (0,0) 到 (1,1) 覆蓋了圓盤的外接正方形
+#             # 如果 uscale 是10個世界單位，半徑是2，那麼紋理應該重複 2*radius / uscale 次
+#             # (2*radius) / uscale 是紋理在這個直徑上的重複次數
+#             # 所以 UV 需要乘以這個值
+#             # 這裡需要實驗，先用一個簡化模型：
+#             # 假設我們希望 uscale 是紋理鋪滿 N 個圓盤直徑的 N 值
+#             # safe_uscale = uscale if abs(uscale) > 1e-6 else 1e-6
+#             # safe_vscale = vscale if abs(vscale) > 1e-6 else 1e-6
+#             # glScalef(1.0 / safe_uscale, 1.0 / safe_vscale, 1.0)
+#             # 另一種理解 uv_mode=0 的方式是：uscale 是紋理本身在U方向的世界寬度
+#             # gluDisk 的 U 方向 0-1 對應了 2*radius 的世界寬度。
+#             # 所以，生成的 u_glu 需要轉換成世界單位 (u_glu * 2*radius)，然後再除以 uscale (紋理的世界寬度)
+#             # 最終的縮放因子是 (2*radius / uscale)
+#             actual_uscale_factor = (2 * radius) / (uscale if abs(uscale) > 1e-6 else 1e-6)
+#             actual_vscale_factor = (2 * radius) / (vscale if abs(vscale) > 1e-6 else 1e-6)
+#             glScalef(actual_uscale_factor, actual_vscale_factor, 1.0)
+# 
+#         elif uv_mode == 1: # 相對縮放 (紋理重複次數)
+#             # uscale, vscale 直接表示紋理在圓盤 UV 0-1 範圍內的重複次數
+#             safe_uscale = uscale if abs(uscale) > 1e-6 else 1e-6
+#             safe_vscale = vscale if abs(vscale) > 1e-6 else 1e-6
+#             glScalef(safe_uscale, safe_vscale, 1.0)
         
         # 步驟 d: 將 UV 中心平移回 (0.5, 0.5)
         glTranslatef(-0.5, -0.5, 0.0)
@@ -471,9 +572,19 @@ def draw_cylinder(radius, height, texture_id=None,
         gluDeleteQuadric(quadric)
 
         
-    else: print("Error creating GLU quadric object for cylinder.")
-    glBindTexture(GL_TEXTURE_2D, 0)
-    glEnable(GL_TEXTURE_2D)
+    else:
+        print("Error creating GLU quadric object for cylinder.")
+#     glBindTexture(GL_TEXTURE_2D, 0)
+#     glEnable(GL_TEXTURE_2D)
+    if alpha_testing_was_actually_enabled_this_call:
+        glDisable(GL_ALPHA_TEST) # 只恢復由此調用明確啟用的狀態
+    
+    if gl_texture_id_to_use: # 如果之前綁定了紋理
+        # 恢復 GLU 的紋理矩陣 (如果修改了)
+        glMatrixMode(GL_TEXTURE)
+        glPopMatrix() # 彈出為 cylinder 紋理變換所做的 push
+        glMatrixMode(GL_MODELVIEW)
+        glBindTexture(GL_TEXTURE_2D, 0)
 
 def draw_sphere(radius, texture_id=None, slices=16, stacks=16,
                 u_offset=0.0, v_offset=0.0, tex_angle_deg=0.0, uv_mode=1,
@@ -650,7 +761,15 @@ def draw_tree(x, y, z, height, texture_id=None): # 函數簽名保持不變
 #     glPopMatrix(); glPopMatrix()
 #     glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
 
-def draw_hill(center_x, base_y, center_z, base_radius, peak_height_offset, resolution=20, texture_id=None, uscale=10.0, vscale=10.0):
+def draw_hill(center_x, base_y, center_z,
+              base_radius, peak_height_offset,
+              resolution=20,
+#               texture_id=None,
+              texture_id_from_scene=None,
+              uscale=10.0, vscale=10.0,
+              texture_has_alpha=False,
+              default_alpha_test_threshold=0.1
+              ):
     """
     繪製一個基於餘弦插值的山丘。
 
@@ -668,17 +787,38 @@ def draw_hill(center_x, base_y, center_z, base_radius, peak_height_offset, resol
         return
 
     # --- 紋理設定 ---
-    if texture_id is not None and glIsTexture(texture_id):
-        glBindTexture(GL_TEXTURE_2D, texture_id)
-        glEnable(GL_TEXTURE_2D)
-        # 設置紋理環繞方式，REPEAT 比較常用於地形
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
-        glColor4f(1.0, 1.0, 1.0, 1.0) # 確保紋理顏色不受glColor影響
+    gl_texture_id_to_use = None 
+    if texture_id_from_scene is not None:
+        try:
+            if glIsTexture(texture_id_from_scene):
+                gl_texture_id_to_use = texture_id_from_scene
+                glBindTexture(GL_TEXTURE_2D, gl_texture_id_to_use)
+                glEnable(GL_TEXTURE_2D)
+                # 設置紋理環繞方式，REPEAT 比較常用於地形
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+                glColor4f(1.0, 1.0, 1.0, 1.0) # 確保紋理顏色不受glColor影響
+        except Exception as e_tex_check: # glIsTexture 在某些情況下可能出錯
+            print(f"DEBUG: draw_hill - Error checking texture ID {texture_id_from_scene}: {e_tex_check}")
+            glDisable(GL_TEXTURE_2D)
     else:
         glDisable(GL_TEXTURE_2D)
         # 如果沒有紋理，可以設置一個預設顏色，例如棕色或綠色
         glColor3f(0.4, 0.5, 0.3) # 示例：深綠色
+
+    # 處理alpha
+    alpha_testing_was_actually_enabled_this_call = False
+    if gl_texture_id_to_use and texture_has_alpha: 
+        glEnable(GL_ALPHA_TEST)
+        glAlphaFunc(GL_GREATER, default_alpha_test_threshold)
+        alpha_testing_was_actually_enabled_this_call = True
+        
+        # 確保 Alpha Test 時的狀態是我們期望的
+        glDepthMask(GL_TRUE)   # 允許寫入深度緩衝區，像不透明物體一樣參與深度比較
+        glDisable(GL_BLEND)  # Alpha Test 通常不與 Alpha Blending 同時對同一物件使用
+        # print(f"DEBUG: Alpha Test ENABLED for texture ID {gl_texture_id_to_use}")
+    # else:
+        # print(f"DEBUG: Alpha Test NOT enabled. TexID: {gl_texture_id_to_use}, HasAlpha: {texture_has_alpha}")
 
     # --- 網格生成與繪製 ---
     # 我們使用 GL_TRIANGLE_STRIP 來繪製，效率較高
@@ -741,7 +881,11 @@ def draw_hill(center_x, base_y, center_z, base_radius, peak_height_offset, resol
         glEnd() # 結束當前的 TRIANGLE_STRIP
 
     # --- 恢復狀態 ---
-    glBindTexture(GL_TEXTURE_2D, 0) # 解綁紋理
+    if alpha_testing_was_actually_enabled_this_call:
+        glDisable(GL_ALPHA_TEST) # 只恢復由此調用明確啟用的狀態
+    
+    if gl_texture_id_to_use: # 如果之前綁定了紋理
+        glBindTexture(GL_TEXTURE_2D, 0) # 完成後解綁
     # 繪製結束後不需要禁用 GL_TEXTURE_2D，交給調用者管理
     
 # --- draw_scene_objects (unchanged) ---
@@ -752,16 +896,44 @@ def draw_scene_objects(scene):
     # Buildings
     for item in scene.buildings:
         line_num, obj_data = item # 先解包出 行號 和 原始數據元組
+
+        # --- 根據新的元組結構解包 ---
+        # 假設 obj_data 結構為:
+        # (obj_type, x, y, z, rx, abs_ry, rz, w, d, h,  <-- 索引 0-9
+        #  u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, <-- 索引 10-15
+        #  tex_filename,                               <-- 索引 16
+        #  gl_texture_id,                              <-- 索引 17
+        #  texture_has_alpha_flag                      <-- 索引 18
+        # )
         # 再從原始數據元組解包出繪製所需變數
-        (obj_type, x, y, z, rx, abs_ry, rz, w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file) = obj_data
-        glPushMatrix(); glTranslatef(x, y, z); glRotatef(abs_ry, 0, 1, 0); glRotatef(rx, 1, 0, 0); glRotatef(rz, 0, 0, 1)
-        draw_cube(w, d, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)
+        (obj_type, x, y, z, rx, abs_ry, rz, w, d, h,
+#          tex_id,
+         u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file,
+         gl_tex_id_val, tex_has_alpha_val
+         ) = obj_data
+        glPushMatrix();
+        glTranslatef(x, y, z);
+        glRotatef(abs_ry, 0, 1, 0);
+        glRotatef(rx, 1, 0, 0);
+        glRotatef(rz, 0, 0, 1)
+#         print(f'gl_tex_id_val:{gl_tex_id_val}')
+        draw_cube(w, d, h,
+#                   tex_id,
+                  gl_tex_id_val, 
+                  u_offset, v_offset, tex_angle_deg,
+                  uv_mode, uscale, vscale,
+                  tex_has_alpha_val
+                  )
         glPopMatrix()
     # Cylinders
     for item in scene.cylinders:
         line_num, obj_data = item # 先解包出 行號 和 原始數據元組
         # 再從原始數據元組解包出繪製所需變數
-        (obj_type, x, y, z, rx, abs_ry, rz, radius, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file) = obj_data
+        (obj_type, x, y, z, rx, abs_ry, rz, radius, h,
+#          tex_id,
+         u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file,
+         gl_tex_id_val, tex_has_alpha_val
+         ) = obj_data
         glPushMatrix();
         glTranslatef(x, y, z);
         glRotatef(abs_ry, 0, 1, 0);
@@ -769,7 +941,13 @@ def draw_scene_objects(scene):
         glRotatef(rx, 1, 0, 0);
         glPushMatrix();
         glRotatef(-90, 1, 0, 0)
-        draw_cylinder(radius, h, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)
+        draw_cylinder(radius, h,
+#                       tex_id,
+                  gl_tex_id_val, 
+                      u_offset, v_offset, tex_angle_deg,
+                      uv_mode, uscale, vscale,
+                  tex_has_alpha_val
+                      )
         glPopMatrix();
         glPopMatrix()
     # Trees
@@ -821,7 +999,11 @@ def draw_scene_objects(scene):
         line_num, hill_data = item # 解包行號和數據
         try:
             # 解包 hill_data (與 scene_parser 中打包時一致)
-            (cx, base_y, cz, radius, peak_h_offset, tex_id, uscale, vscale, tex_file) = hill_data
+            (cx, base_y, cz, radius, peak_h_offset,
+#              tex_id,
+             uscale, vscale, tex_file,
+             gl_tex_id_val, tex_has_alpha_val
+             ) = hill_data
         except ValueError:
              print(f"警告: 解包 hill 數據時出錯 (來源行: {line_num})")
              continue # 跳過這個物件
@@ -829,9 +1011,12 @@ def draw_scene_objects(scene):
         # 不需要 Push/Pop Matrix，因為 draw_hill 使用絕對座標
         # 可以直接調用繪製函數
         draw_hill(cx, base_y, cz, radius, peak_h_offset,
-                  resolution=10, # 可以將解析度設為可配置或常數
-                  texture_id=tex_id,
-                  uscale=uscale, vscale=vscale)
+                  10, # 可以將解析度設為可配置或常數
+#                   texture_id=tex_id,
+                  gl_tex_id_val, 
+                  uscale, vscale,
+                  tex_has_alpha_val
+                  )
         
 #     glDisable(GL_BLEND)
 # --- draw_tram_cab (unchanged) ---
@@ -1245,7 +1430,7 @@ def draw_background(background_info, camera, tram=None): # <--- tram 設為可�
             else:
                 file_name = background_info.get('file')
                 if file_name and texture_loader:
-                    loaded_id = texture_loader.load_texture(file_name)
+                    loaded_id = texture_loader.load_texture(file_name).get("id")
                     if loaded_id:
                         background_info['id'] = loaded_id
                         draw_skydome(loaded_id, radius=100)

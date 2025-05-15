@@ -314,37 +314,76 @@ def main():
                     if action == "load_scene" and filepath_from_menu:
                         print(f"選單選擇：載入場景檔案 '{filepath_from_menu}'")
                         
-                        if scene_parser.load_scene(filepath=filepath_from_menu, force_reload=True):
-                            scene = scene_parser.get_current_scene()
-                            current_loaded_scene_file = filepath_from_menu 
+                        # 1. 清理舊場景的 OpenGL 資源 (如果需要，並且 current_scene 不是 None)
+                        if scene and hasattr(scene, 'cleanup_resources'):
+                            print(f"清理舊場景 '{current_loaded_scene_file}' 的資源...")
+                            scene.cleanup_resources() 
+                            # 如果 texture_loader 也需要清理特定於場景的紋理（而不是全局快取），也應在這裡處理
+                            # 但通常 texture_loader.clear_texture_cache() 是在 load_scene 內部做的
+
+                        # 2. 使用 scene_parser 載入新場景數據
+                        if scene_parser.load_scene(specific_filepath=filepath_from_menu, force_reload=True):
+                            scene = scene_parser.get_current_scene() # 獲取新載入的 scene
+                            current_loaded_scene_file = filepath_from_menu # 更新當前檔案路徑
                             
                             active_background_info = scene.initial_background_info if scene else None
-                            minimap_renderer.bake_static_map_elements(scene)
                             
+                            # --- 新增：為新載入的場景創建軌道緩衝區 ---
+                            if scene and scene.track:
+                                print(f"場景 '{filepath_from_menu}' 數據已載入，正在創建軌道緩衝區...")
+                                scene.track.create_all_segment_buffers()
+                                # 假設 create_all_segment_buffers 執行後，軌道就緒
+                                # 我們可以簡化 is_render_ready 的判斷，或者依賴 Track 內部的狀態
+#                                 scene.is_render_ready = True # 手動設置為 True，或基於更精確的檢查
+                                print("軌道緩衝區創建完成。")
+                            elif scene: # Scene 存在但沒有軌道
+#                                 scene.is_render_ready = True # 也認為準備好了（沒軌道可渲染）
+                                print(f"場景 '{filepath_from_menu}' 已載入，但沒有軌道數據。")
+                            else: # Scene 為 None (理論上 load_scene 返回 True 時不應發生)
+                                # 這個分支可能不需要，因為 load_scene 返回 True 意味著 scene 不為 None
+                                pass
+                            # -------------------------------------------
+                            
+                            # --- 重新烘焙小地圖 ---
+                            minimap_renderer.bake_static_map_elements(scene)
+                            print("新場景的小地圖已烘焙。")
+                            
+                            # 更新電車實例的軌道引用
                             tram_instance.track = scene.track if scene else None
+                            
+                            # 現在再檢查 is_render_ready (應該為 True 了)
                             if scene and scene.is_render_ready:
                                 tram_instance.position = np.copy(scene.start_position)
                                 start_angle_rad_main = math.radians(scene.start_angle_deg)
                                 tram_instance.forward_vector_xz = (math.cos(start_angle_rad_main), math.sin(start_angle_rad_main))
                                 tram_instance.distance_on_track = 0.0
                                 tram_instance.current_speed = 0.0
+                                pygame.display.set_caption(f"簡易 3D 電車模擬器 - {os.path.basename(filepath_from_menu)}") # 更新視窗標題
                                 print(f"場景 '{filepath_from_menu}' 已成功載入並準備就緒。電車已重置。")
-                            elif scene:
-                                print(f"警告: 場景 '{filepath_from_menu}' 已載入但未完全準備好渲染。")
-                                tram_instance.position = np.array([0.0, 0.0, 0.0])
+                            elif scene: # is_render_ready 仍然是 False (不應該發生了)
+                                print(f"警告(內部邏輯問題): 場景 '{filepath_from_menu}' 已載入但 is_render_ready 仍為 False。")
+                                tram_instance.position = np.array([0.0, 0.0, 0.0]) # Fallback
                                 tram_instance.forward_vector_xz = (1.0, 0.0)
-                            else:
-                                print(f"錯誤: scene_parser.load_scene 返回的 scene 為 None。")
+                                pygame.display.set_caption(f"簡易 3D 電車模擬器 - {os.path.basename(filepath_from_menu)} (渲染可能不完整)")
+                            else: # scene is None after load_scene returned True (異常)
+                                print(f"錯誤: scene_parser.load_scene 聲稱成功，但 scene 為 None。")
                                 tram_instance.position = np.array([0.0, 0.0, 0.0])
                                 tram_instance.forward_vector_xz = (1.0, 0.0)
                                 active_background_info = None
-                                minimap_renderer.bake_static_map_elements(scene_parser.get_current_scene())
+                                minimap_renderer.bake_static_map_elements(scene_parser.get_current_scene()) # 傳遞空場景
+                                pygame.display.set_caption("簡易 3D 電車模擬器 - 載入錯誤")
                         else:
                             print(f"通過選單載入場景 '{filepath_from_menu}' 失敗。模擬器將保留原場景（如果存在）。")
-                            scene = scene_parser.get_current_scene() 
+                            # scene = scene_parser.get_current_scene() # 不需要重新獲取，load_scene 失敗時 current_scene 不變
+                            # 恢復舊的視窗標題
+                            if current_loaded_scene_file and os.path.exists(current_loaded_scene_file):
+                                pygame.display.set_caption(f"簡易 3D 電車模擬器 - {os.path.basename(current_loaded_scene_file)}")
+                            else:
+                                pygame.display.set_caption("簡易 3D 電車模擬器") 
                     elif action == "exit":
                         print("選單選擇：離開")
                         running = False
+                        
             elif event.type == pygame.MOUSEWHEEL: tram_instance.adjust_speed(event.y)
             elif event.type == pygame.MOUSEMOTION:
                 if camera_instance.mouse_locked: dx, dy = event.rel; camera_instance.update_angles(dx, dy)

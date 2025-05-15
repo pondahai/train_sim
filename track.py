@@ -348,6 +348,7 @@ class TrackSegment:
             if not branch_buffers_this_one_ok:
                 all_branch_buffers_ok = False # 如果任何一個分岔的緩衝區不完整
 
+#         print(f"main_buffers_ok:{main_buffers_ok}  all_branch_buffers_ok:{all_branch_buffers_ok}")
         # --- 修改：在所有緩衝區（主軌道和所有分岔）成功創建後，設置 is_buffer_ready ---
         if main_buffers_ok and all_branch_buffers_ok:
             self.is_buffer_ready = True

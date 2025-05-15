@@ -1114,6 +1114,20 @@ class SceneEditorWindow(QMainWindow):
         # Pygame/Loader Init
         pygame.init()
         pygame.font.init()
+        # --- 新增：為編輯器設置一個最小的 Pygame 顯示模式 ---
+        try:
+            # 創建一個1x1像素的不可見窗口，僅用於初始化顯示子系統
+            # 這對於需要 video mode 的 Pygame Surface 操作（如 convert_alpha）是必要的
+            # 在 Qt 環境中，這個 Pygame 窗口實際上不會被看到或使用
+            pygame.display.set_mode((1, 1), pygame.NOFRAME | pygame.HIDDEN) 
+            # 或者，如果上面的組合不起作用，可以嘗試僅用 OPENGL，但QGLWidget應該處理GL上下文
+            # pygame.display.set_mode((1, 1), pygame.OPENGL | pygame.HIDDEN)
+            print("Scene Editor: Pygame display mode set (1x1 hidden) for surface operations.")
+        except pygame.error as e:
+            print(f"Scene Editor Warning: Could not set minimal Pygame display mode: {e}")
+            print("                 Surface operations like convert_alpha() might fail in texture_loader.")
+        # ----------------------------------------------------
+        
         try:
             # print("Pygame font/mixer initialized for editor (no display mode set).") #R
             pass
