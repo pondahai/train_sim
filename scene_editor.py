@@ -648,24 +648,51 @@ class SceneTableWidget(QTableWidget):
         self._data_modified = False
         self._filepath = None 
         self._command_hints = scene_parser.COMMAND_HINTS
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        # --- 修改：啟用擴展選擇模式 ---
-        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        # ---------------------------
+        
+        # --- 選擇模式和行為設置 (修正版) ---
+        # 1. 設置選擇模式 (Selection Mode):
+        #    QAbstractItemView.SingleSelection: 一次只能選一個項目 (單元格或行，取決於Behavior)
+        #    QAbstractItemView.ContiguousSelection: 可以選擇一個連續的塊
+        #    QAbstractItemView.ExtendedSelection: 可以用 Ctrl/Shift 選擇多個不連續或連續的項目
+        #    為了支持 Shift+點擊行號選擇多行，我們需要 ExtendedSelection。
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection) 
+        
+        # 2. 設置選擇行為 (Selection Behavior):
+        #    QAbstractItemView.SelectItems: 點擊一個單元格，選中的是該單元格。
+        #    QAbstractItemView.SelectRows: 點擊一個單元格，選中的是該單元格所在的整行。
+        #    QAbstractItemView.SelectColumns: 點擊一個單元格，選中的是該單元格所在的整列。
+        # 我們的目標是：點擊單元格選中單元格，點擊行號選中行。
+        # 所以，主要的選擇行為應該是 SelectItems。
+        self.setSelectionBehavior(QAbstractItemView.SelectItems)
+        # ------------------------------------
+        
         self.verticalHeader().setVisible(True)
+        # --- 允許點擊行號來選中整行 ---
+        self.verticalHeader().setSectionsClickable(True) 
+        # 當行號被點擊時，我們連接到一個槽函數來處理行選擇
+        self.verticalHeader().sectionClicked.connect(self.select_row_on_header_click)
+        # -----------------------------
+
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        # Connections
+        # self.horizontalHeader().setSectionsClickable(False) # 通常不需要點擊列頭來選中整列
+
         self.currentCellChanged.connect(self._on_current_cell_changed)
         self.itemChanged.connect(self._on_item_changed)
-        self.needUpdate = False
+        self.needUpdate = False  # <--- 添加這一行
         self._last_active_row = -1
-        
-        
+
         self.header_update_timer = QTimer(self)
         self.header_update_timer.setSingleShot(True)
         self.header_update_timer.timeout.connect(self._perform_header_update)
-        self._pending_header_update_row = -1 # 記錄需要更新表頭的行
+        self._pending_header_update_row = -1
 
+    @pyqtSlot(int) # 導入 pyqtSlot
+    def select_row_on_header_click(self, logicalIndex):
+        """當垂直表頭（行號）被點擊時，選中對應的整行。"""
+        # print(f"DEBUG: Vertical header clicked for row {logicalIndex}")
+        self.clearSelection() # 清除之前的選擇（如果有的話）
+        self.selectRow(logicalIndex) # 選中被點擊的整行
+        
     def _resize_columns_to_header_labels(self):
         header = self.horizontalHeader()
         header_font = header.font()
@@ -964,58 +991,118 @@ class SceneTableWidget(QTableWidget):
             if item_to_scroll:
                 self.scrollToItem(item_to_scroll, QAbstractItemView.PositionAtCenter)
     # --------------------------
+    def _is_any_full_row_selected(self):
+        """檢查是否有至少一個完整的行被選中。"""
+        selected_ranges = self.selectedRanges()
+        if not selected_ranges:
+            return False
+        for r_range in selected_ranges:
+            # 如果一個選擇範圍覆蓋了從第一列到最後一列，我們認為它是一個完整的行選擇的一部分
+            if r_range.leftColumn() == 0 and r_range.rightColumn() == self.columnCount() - 1:
+                return True
+        return False
+
+    def _get_selected_full_rows_indices(self):
+        """獲取所有被完整選中的行的索引列表，按升序排列。"""
+        selected_rows = set()
+        selected_ranges = self.selectedRanges()
+        if not selected_ranges:
+            return []
+        for r_range in selected_ranges:
+            if r_range.leftColumn() == 0 and r_range.rightColumn() == self.columnCount() - 1:
+                for i in range(r_range.topRow(), r_range.bottomRow() + 1):
+                    selected_rows.add(i)
+        return sorted(list(selected_rows))
 
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
 
+        is_a_full_row_selected = self._is_any_full_row_selected()
+        current_item = self.currentItem() # 當前有焦點的 item
+        current_row = self.currentRow()   # 當前有焦點的行
+        current_col = self.currentColumn() # 當前有焦點的列
+
         # --- 修改：處理複製、貼上、刪除 ---
         if event.matches(QKeySequence.Copy):
-            self.copy_selected_rows()
+            if is_a_full_row_selected:
+                self.copy_selected_rows() # copy_selected_rows 應該基於 selectedRanges()
+            elif current_item: # 複製單元格內容
+                clipboard = QApplication.clipboard()
+                clipboard.setText(current_item.text())
             event.accept()
             return
         elif event.matches(QKeySequence.Paste):
-            self.paste_rows()
+            if is_a_full_row_selected or current_row >= 0: # 允許在某行下貼上整行數據
+                self.paste_rows() # paste_rows 應該處理插入邏輯
+            elif current_item and current_item.flags() & Qt.ItemIsEditable: # 貼到單元格
+                clipboard = QApplication.clipboard()
+                # 簡單的文本貼上，如果剪貼簿有多行，只取第一行第一個tab前的内容
+                paste_text = clipboard.text()
+                if paste_text:
+                    # 獲取第一行（如果有多行）
+                    first_line = paste_text.splitlines()[0] if '\n' in paste_text else paste_text
+                    # 獲取第一個tab前的內容（如果有多列）
+                    cell_text_to_paste = first_line.split('\t')[0] if '\t' in first_line else first_line
+                    current_item.setText(cell_text_to_paste)
+                    self._on_item_changed(current_item) # 手動觸發更改
             event.accept()
             return
         elif key in (Qt.Key_Return, Qt.Key_Enter) and not modifiers: # Enter/Return without modifiers
-            current_row = self.currentRow()
-            if current_row >= 0:
-                self.insertRow(current_row + 1)
-                self.renumber_vertical_headers() # 更新行號
-                self.setCurrentCell(current_row + 1, 0) # Move cursor to new row
+            if self.state() == QAbstractItemView.EditingState: # 如果正在編輯單元格
+                # 交給基類處理，它會完成編輯並可能移動到下一個單元格
+                super().keyPressEvent(event) 
+                # 通常 Qt 會自動處理好 Enter 鍵在編輯時的行為 (關閉編輯器，提交數據)
+                # 如果需要，可以在這裡手動 closePersistentEditor 並 selectNextInRow
+                # self.closePersistentEditor(current_item)
+                # self.setCurrentCell(current_row, current_col + 1) # 簡單移動到右邊，需處理邊界
+                return
+
+            # 如果不是在編輯狀態，並且有整行被選中
+            elif is_a_full_row_selected and current_row >= 0:
+                # 在選中的最後一行的下方插入新行
+                selected_row_indices = self._get_selected_full_rows_indices()
+                insert_after_row = selected_row_indices[-1] if selected_row_indices else current_row
+
+                self.insertRow(insert_after_row + 1)
+                self.renumber_vertical_headers()
+                self.setCurrentCell(insert_after_row + 1, 0)
                 self._data_modified = True
-                self.sceneDataChanged.emit() # Trigger preview update
+                self.sceneDataChanged.emit()
                 event.accept()
                 return
+            elif current_row >= 0 : # 沒有整行選中，但在某個單元格上按 Enter (非編輯狀態)
+                # 行為可以定義為開始編輯該單元格，或者移動到下一行
+                # 這裡我們讓它開始編輯 (如果可編輯)
+                if current_item and current_item.flags() & Qt.ItemIsEditable:
+                    self.editItem(current_item)
+                    event.accept()
+                    return
+                # 或者移動到下一行的第一個單元格
+                # if current_row + 1 < self.rowCount():
+                #     self.setCurrentCell(current_row + 1, 0)
+                # event.accept()
+                # return
         elif key == Qt.Key_Delete and not modifiers: # Delete without modifiers
-            selected_ranges = self.selectedRanges()
-            rows_to_delete = set()
-            # Check if whole rows are selected
-            for r in selected_ranges:
-                if r.leftColumn() == 0 and r.rightColumn() == self.columnCount() - 1:
-                    for i in range(r.topRow(), r.bottomRow() + 1):
-                        rows_to_delete.add(i)
-
-            if rows_to_delete:
-                # Sort rows in descending order to delete from bottom up
-                sorted_rows = sorted(list(rows_to_delete), reverse=True)
-                self.blockSignals(True)
-                try:
+            if is_a_full_row_selected:
+                selected_row_indices = self._get_selected_full_rows_indices()
+                if selected_row_indices:
+                    # 從後往前刪除，避免索引變化問題
+                    self.blockSignals(True)
                     num_deleted = 0
-                    for row_index in sorted_rows:
-                        # --- MODIFICATION: Allow deleting non-empty rows as well ---
-#                         if self.is_row_empty(row_index): 
-                        self.removeRow(row_index)
-                        num_deleted += 1
-                        # --- END OF MODIFICATION ---
-                        
-                finally: self.blockSignals(False)
-                if num_deleted > 0:
-                    self.renumber_vertical_headers() # Update row numbers
-                    self._data_modified = True
-                    self.sceneDataChanged.emit() # Trigger preview update after delete
-                    # print(f"Deleted {num_deleted} rows.") # Debug
+                    for row_idx in reversed(selected_row_indices):
+                        self.removeRow(row_idx)
+                        num_deleted +=1
+                    self.blockSignals(False)
+                    if num_deleted > 0:
+                        self.renumber_vertical_headers()
+                        self._data_modified = True
+                        self.sceneDataChanged.emit()
+                    event.accept()
+                    return
+            elif current_item and current_item.flags() & Qt.ItemIsEditable: # 清空單元格內容
+                current_item.setText("")
+                self._on_item_changed(current_item) # 手動觸發更改
                 event.accept()
                 return
         # ------------------------------------
