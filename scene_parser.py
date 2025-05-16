@@ -667,12 +667,22 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
 
             elif command == "tree":
                 # ... (tree 解析邏輯) ...
-                if len(parts) < 5: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'tree' 參數不足。"); continue
-                try: rel_x, rel_y, rel_z = map(float, parts[1:4]); height = float(parts[4])
-                except ValueError: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'tree' 基本參數無效。"); continue
-                if height <=0: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'tree' 高度必須為正。"); continue
+                if len(parts) < 5:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'tree' 參數不足。");
+                    continue
+                try:
+                    rel_x, rel_y, rel_z = map(float, parts[1:4]);
+                    height = float(parts[4])
+                except ValueError:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'tree' 基本參數無效。");
+                    continue
+                if height <=0:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'tree' 高度必須為正。");
+                    continue
                 tex_file = parts[5] if len(parts) > 5 else "tree_leaves.png"
+#                 print(f"_parse_scene_content: tree tex_file: {tex_file}")
                 tex_id = texture_loader.load_texture(tex_file).get("id") if load_textures and texture_loader else None
+#                 print(f"_parse_scene_content: tree tex id: {tex_id}")
                 origin_angle = scene_to_populate.current_relative_origin_angle_rad; cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = scene_to_populate.current_relative_origin_pos[0] + world_offset_x; world_y = scene_to_populate.current_relative_origin_pos[1] + rel_y; world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z

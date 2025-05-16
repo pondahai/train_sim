@@ -659,6 +659,12 @@ class SceneTableWidget(QTableWidget):
         self.itemChanged.connect(self._on_item_changed)
         self.needUpdate = False
         self._last_active_row = -1
+        
+        
+        self.header_update_timer = QTimer(self)
+        self.header_update_timer.setSingleShot(True)
+        self.header_update_timer.timeout.connect(self._perform_header_update)
+        self._pending_header_update_row = -1 # 記錄需要更新表頭的行
 
     def _resize_columns_to_header_labels(self):
         header = self.horizontalHeader()
@@ -773,29 +779,53 @@ class SceneTableWidget(QTableWidget):
         
     def get_scene_lines(self):
         lines = []
-        for row in range(self.rowCount()):
+        # 設定一個合理的單行最大參數檢查數量，以防表格列數異常大但實際無數據
+        # 這個值應該大於你所有指令中可能有的最大參數個數
+        MAX_PARAMS_PER_LINE_CHECK = 30 # 例如， building 指令有約17個參數
+
+        for r in range(self.rowCount()):
             row_parts = []
-            # --- MODIFICATION: Iterate only up to the actual number of columns to avoid issues with sparse tables ---
-            # for col in range(self.columnCount()):
-            # Iterate up to the maximum possible columns based on COMMAND_HINTS or a large enough number
-            # to capture all meaningful data, but avoid excessively sparse rows if table column count is huge.
-            # A simpler approach is to stop when an empty cell is encountered after some content.
-            has_content_in_row = False
-            for col in range(self.columnCount()): # Iterate through current table columns
-            # --- END OF MODIFICATION ---
-                item = self.item(row, col)
-                # Append part if item exists and has text
-                if item and item.text():
-                    row_parts.append(item.text())
-                # else:
-                    # Stop appending parts for this row if an empty cell is encountered
-                    # (unless you want to preserve trailing empty strings)
-                    # break
-            # Only add non-empty lines (lines with at least one part)
-            if row_parts:
+            # 從第一列開始，逐列檢查是否有內容
+            # 我們遍歷到 MAX_PARAMS_PER_LINE_CHECK 或者 self.columnCount() 中較小者，
+            # 再額外檢查幾列以捕獲超出 columnCount 但用戶已輸入的內容。
+            # 一個更簡單的方法是，直接迭代到 MAX_PARAMS_PER_LINE_CHECK，然後清理。
+            
+            # 實際有效的列數，我們應該考慮表格本身的 columnCount
+            # 但也允許探測超出 columnCount 的、用戶可能剛輸入的單元格
+            # 我們可以迭代到 max(self.columnCount(), REASONABLE_USER_INPUT_LIMIT)
+            # 或者簡單地迭代到一個較大的固定數，然後清理尾部空值。
+
+            potential_max_cols = max(self.columnCount(), MAX_PARAMS_PER_LINE_CHECK) # 看哪個更大
+            # 但如果 columnCount 本身就很大了，就不需要 MAX_PARAMS_PER_LINE_CHECK
+            # 應該是：檢查到 self.columnCount()，然後再往後探測幾列
+            # 或者，直接用一個足夠大的數，然後清理。
+            # 為了簡單和捕獲用戶輸入，我們用 MAX_PARAMS_PER_LINE_CHECK
+
+            for c in range(MAX_PARAMS_PER_LINE_CHECK):
+                item = self.item(r, c) # self.item(r,c) 在 c >= columnCount() 時會返回 None
+                
+                if item and item.text().strip(): # 有 item 且文本不為空
+                    row_parts.append(item.text().strip())
+                elif c < self.columnCount(): 
+                    # 在 columnCount 範圍內，即使是空 item 或空文本，也先用空字符串佔位
+                    # 以保持參數順序，後續會清理尾部空字符串
+                    row_parts.append("") 
+                else:
+                    # 超出了 columnCount，並且 item 為 None 或文本為空，說明後面沒有數據了
+                    break 
+            
+            # 清理尾部的空字符串 (這些是因為 columnCount 範圍內但單元格為空而添加的)
+            while row_parts and row_parts[-1] == "":
+                row_parts.pop()
+
+            if row_parts: # 只有當行真的有內容（或至少有一個非空字串的參數）時才添加
                 lines.append(" ".join(row_parts))
             else:
-                lines.append("") # Add this line if you want to preserve blank lines from the table
+                # 如果想保留表格中的視覺空行作為場景文件中的空行
+                lines.append("")
+        
+        # 在函數末尾打印，用於調試
+        # print(f"DEBUG: get_scene_lines() returning: {lines}")
         return lines
 
     def is_modified(self):
@@ -1025,82 +1055,99 @@ class SceneTableWidget(QTableWidget):
             super().mouseDoubleClickEvent(event)
             
     def _on_current_cell_changed(self, currentRow, currentColumn, previousRow, previousColumn):
-        # Update last active row when selection changes
         if currentRow >= 0:
             self._last_active_row = currentRow
 
-        # Emit scene changed signal only when the *row* changes,
-        # and if an update is actually needed (item was edited).
+        # ---  ---
         if currentRow != previousRow and self.needUpdate:
-            if currentRow >= 0: # Ensure the new row is valid
+            # 只有當選中的行確實改變了，並且在之前的行上有數據被修改過 (needUpdate is True)
+            # 才觸發場景數據變更的信號，進而更新預覽。
+            if currentRow >= 0: # 確保新行是有效的（雖然 currentRow != previousRow 暗示了這一點）
+                print(f"DEBUG: SceneTableWidget._on_current_cell_changed - Row changed from {previousRow} to {currentRow} AND needUpdate is True. Emitting sceneDataChanged.")
                 self.sceneDataChanged.emit()
-            self.needUpdate = False # Reset update flag
+            
+            self.needUpdate = False # 重置 needUpdate 標誌，因為更新已經被觸發（或即將被觸發）
+        # -------------------------
 
-        # --- MODIFICATION: Ensure self.columnCount() is valid before iterating ---
-        current_table_col_count = self.columnCount()
-        if current_table_col_count == 0 and currentRow >=0 : # If table has rows but no columns yet (e.g. after clear)
-            # This can happen if load_scene_file clears everything and then a cell change is triggered.
-            # Try to set a default of 1 column if none exist.
-            # self.setColumnCount(1) # This might be too aggressive here.
-            # current_table_col_count = self.columnCount()
-            # It's better handled in load_scene_file to ensure columns exist.
-            # For now, if no columns, just use generic headers.
-            if currentRow < 0: # No row selected, use default
-                self.setHorizontalHeaderLabels(["Command"]) # Minimal default
+        # 觸發延遲的表頭更新
+        self._pending_header_update_row = currentRow 
+        self.header_update_timer.start(150) # 150ms 延遲，可以調整
+
+    def _perform_header_update(self):
+        currentRow = self._pending_header_update_row
+        if currentRow < 0 or currentRow >= self.rowCount():
+            # 處理表格清空後或無效行時的表頭 (例如，在 load_scene_file 後)
+            if self.rowCount() == 0: # 如果表格是空的
+                if self.columnCount() < 1: self.setColumnCount(1)
+                self.setHorizontalHeaderLabels(["Command"] + [f"P{i+1}" for i in range(self.columnCount() - 1)])
                 self._resize_columns_to_header_labels()
-            return # Avoid further processing if no columns
-        # --- END OF MODIFICATION ---
+            return
+
+        # --- 正常的行選擇邏輯 ---
+        command_item = self.item(currentRow, 0)
+        command = ""
+        if command_item:
+            command_text = command_item.text()
+            if command_text:
+                command = command_text.lower().strip()
+        
+        hints = self._command_hints.get(command, [])
+        current_col_count = self.columnCount()
+
+        # 決定新表頭的內容和長度
+        # 期望的列數至少是 hints 的長度，或者對於無 command/hints 的情況，至少是1
+        num_cols_for_new_header = len(hints) if command and hints else 1
+        if not (command and hints) and current_col_count > 1 : # 無命令或無提示，但表格本身有多列
+            num_cols_for_new_header = max(num_cols_for_new_header, current_col_count)
 
 
-        if 0 <= currentRow < self.rowCount():
-            command_item = self.item(currentRow, 0)
-            command = command_item.text().lower().strip() if command_item else ""
-            
-            # --- MODIFICATION: Use self._command_hints directly ---
-            hints = self._command_hints.get(command, [])
-            # --- END OF MODIFICATION ---
-            
-            # --- MODIFICATION: Adjust max_cols based on hints or current table columns ---
-            # Determine the number of headers to show: max of hints length or current table columns
-            # This prevents trying to set headers for non-existent columns if hints are fewer than table columns,
-            # and also allows showing generic Px headers if table has more columns than hints.
-            num_headers_to_set = max(len(hints), current_table_col_count)
-            if command and not hints and current_table_col_count > 0: # Command exists but no hints, use Px for all params
-                num_headers_to_set = current_table_col_count
-            elif not command and current_table_col_count > 0: # No command, selected an empty row?
-                 num_headers_to_set = current_table_col_count
+        new_headers = []
+        if not command: # 空指令行
+            new_headers = ["Command"] + [f"P{i}" for i in range(1, num_cols_for_new_header)]
+        elif not hints: # 有指令但無提示
+            new_headers = ["Command"] + [f"P{i}" for i in range(1, num_cols_for_new_header)]
+        else: # 有指令且有提示
+            new_headers = [hints[i] if i < len(hints) else f"P{i}" for i in range(num_cols_for_new_header)]
+        
+        # 確保第一個是 "Command" (如果 new_headers 為空或第一個不對)
+        if not new_headers and num_cols_for_new_header > 0: new_headers.append("Command")
+        elif new_headers and new_headers[0].strip().lower() != "command" and hints and hints[0].strip().lower() != "cmd" :
+            if new_headers[0].strip() == "": new_headers[0] = "Command" # 如果是空則替換
+            # 否則，如果hints[0]不是cmd，則可能 new_headers[0] 已經是參數了，這時應該在前面插入 "Command"
+            # 但COMMAND_HINTS 的設計是第一個總是 " cmd "，所以這種情況理論上不該發生
+        elif new_headers and new_headers[0].strip().lower() != "command" and not (hints and hints[0].strip().lower() == "cmd"):
+             new_headers[0] = "Command" # 強制第一個為 Command
 
-            # Prepare new headers
-            new_headers = []
-            if not command and currentRow >=0 : # Empty row selected, or invalid command
-                new_headers = ["Command"] + [f"P{i}" for i in range(1, num_headers_to_set if num_headers_to_set > 0 else 1 )]
-            elif not hints: 
-                 new_headers = [f"P{i}" for i in range(num_headers_to_set)]
-                 if num_headers_to_set > 0 and new_headers[0] == "P0": new_headers[0] = "Command" # Ensure first is Command
-            else:
-                 new_headers = [hints[i] if i < len(hints) else f"P{i}" for i in range(num_headers_to_set)]
-            # --- END OF MODIFICATION ---
+        # --- 更新列數和表頭 ---
+        # 1. 列數只增不減：新的列數是當前列數和新表頭要求列數中的較大者。
+        final_col_count = max(current_col_count, len(new_headers))
+        
+        if final_col_count > current_col_count:
+            self.setColumnCount(final_col_count)
+            # print(f"DEBUG: Increased column count to {final_col_count}")
 
-            current_actual_headers = [self.horizontalHeaderItem(c).text() if self.horizontalHeaderItem(c) else "" for c in range(min(num_headers_to_set, current_table_col_count))]
-            
-            # Pad new_headers with generic Px if current_table_col_count is larger than new_headers derived from hints
-            if len(new_headers) < current_table_col_count:
-                new_headers.extend([f"P{i}" for i in range(len(new_headers), current_table_col_count)])
-            
-            # Only update if different or column count changed significantly
-            if new_headers[:len(current_actual_headers)] != current_actual_headers or len(new_headers) != len(current_actual_headers):
-                self.setHorizontalHeaderLabels(new_headers)
-                self._resize_columns_to_header_labels() 
-        elif currentRow < 0 : # No row selected (e.g., table cleared)
-             self.setHorizontalHeaderLabels(["Command"] + [f"P{i+1}" for i in range( (current_table_col_count-1) if current_table_col_count > 0 else 0 )])
-             self._resize_columns_to_header_labels()
-
+        # 2. 準備最終的表頭標籤列表，長度必須與 final_col_count 匹配
+        final_header_labels = []
+        for i in range(final_col_count):
+            if i < len(new_headers):
+                final_header_labels.append(new_headers[i])
+            else: # 如果 final_col_count > len(new_headers)，用 Px 填充
+                final_header_labels.append(f"P{i}") 
+        
+        # 3. 比較並設置表頭
+        current_header_texts_for_compare = [self.horizontalHeaderItem(c).text() if self.horizontalHeaderItem(c) else "" for c in range(self.columnCount())]
+        if final_header_labels != current_header_texts_for_compare:
+            self.setHorizontalHeaderLabels(final_header_labels)
+            self._resize_columns_to_header_labels()
+            # print(f"DEBUG: Headers updated. Count: {self.columnCount()}, Labels: {final_header_labels}")
 
     def _on_item_changed(self, item):
         # Mark data as modified and flag that an update is needed
         # The actual sceneDataChanged signal is emitted when the row changes (_on_current_cell_changed)
         self._data_modified = True
         self.needUpdate = True # Mark that an update *should* happen when row changes
+#         print(f"DEBUG: Table item changed at row {item.row()}, col {item.column()}, text: '{item.text()}'")
+#         self.sceneDataChanged.emit() # <--- 確保這裡發射信號
 
 # --- Main Editor Window ---
 class SceneEditorWindow(QMainWindow):
@@ -1521,14 +1568,38 @@ class SceneEditorWindow(QMainWindow):
                 QMessageBox.critical(self, "Open Error", f"Could not load file '{filePath}'.")
                 # Keep current state or clear? For now, keep.
                 self._update_window_title() # Reflect that the file didn't change
-                
-    def update_previews(self):
+
+    def update_previews(self): # 這是新的 update_previews，作為槽函數
+        """
+        Schedules the actual preview update logic to run in the next event loop iteration.
+        This helps ensure that any pending Qt item model updates are completed before
+        reading data from the table.
+        """
+#         print("DEBUG: SceneEditorWindow.update_previews() CALLED, scheduling _perform_preview_update_logic.")
+        QTimer.singleShot(0, self._perform_preview_update_logic) # 延遲 0ms 執行
+        
+    def _perform_preview_update_logic(self):
+        self.preview_widget.makeCurrent()
         """解析表格數據，更新小地圖和 3D 預覽 (包含背景)"""
-        # print("Updating editor previews...") # 可選的調試信息
+        print("Updating editor previews...") # 可選的調試信息
 
         # 1. 從表格獲取當前所有行的文本內容 (這個函數本身是沒問題的)
         # lines = self.table_widget.get_scene_lines() # 我們可以直接讀取表格內容
         current_table_lines = self.table_widget.get_scene_lines()
+#         print(f"DEBUG: update_previews - current_table_lines (around suspected tree): {current_table_lines[28]}") # 需要知道行號
+
+#         if self.table_widget.is_modified(): # 只要表格被修改過
+#             texture_loader.clear_texture_cache()
+#             time.sleep(1)
+
+        # --- 在這裡添加你之前的調試打印 ---
+        # 假設你知道被修改的行是第28行 (0-based index for list)
+#         MODIFIED_ROW_INDEX_FOR_DEBUG = 28 
+#         if MODIFIED_ROW_INDEX_FOR_DEBUG < len(current_table_lines):
+#             print(f"DEBUG: _perform_preview_update_logic - Line {MODIFIED_ROW_INDEX_FOR_DEBUG + 1} from table: '{current_table_lines[MODIFIED_ROW_INDEX_FOR_DEBUG]}'")
+#         else:
+#             print(f"DEBUG: _perform_preview_update_logic - Row index {MODIFIED_ROW_INDEX_FOR_DEBUG} is out of bounds for current_table_lines (len: {len(current_table_lines)}).")
+        # ---------------------------------
 
         # 2. 獲取當前表格中選中的行號
         base_directory_for_imports = os.getcwd() # 預設為當前工作目錄
