@@ -59,6 +59,51 @@ EDITOR_LABEL_OFFSET_X = 5 # Keep
 EDITOR_LABEL_OFFSET_Y = 3 # Keep
 
 # --- REMOVED: zoom_minimap function ---
+# cube
+#       V=1.0 +-------------------------------------+
+#             |         | BOTTOM  |                 |  <-- 假設 Bottom 在頂部 V=0.66 - 0.99
+#             |         | (Y-)    |                 |
+#       V=0.66+---------+---------+-----------------+
+#             |  LEFT   |  FRONT  |  RIGHT  | BACK  |  <-- 中間行 V=0.33 - 0.66
+#             |  (X-)   |  (Z+)   |  (X+)   | (Z-)  |
+#       V=0.33+---------+---------+---------+-------+
+#             |         |  TOP    |                 |  <-- 假設 Top 在底部 V=0.0 - 0.33
+#             |         |  (Y+)   |                 |
+#       V=0.0 +---------+---------+-----------------+
+#             U=0.0    U=0.25    U=0.5     U=0.75  U=1.0
+# gableroof
+#       V=1.0 +-------------------------------------+
+#             |         |         |         |       |  
+#             |         |         |         |       |  <-- 山牆
+#       V=0.5 +         +         +         +-------+
+#             |         |         |         |       |  <-- 山牆
+#             |         |         |         |       |
+#       V=0.0 +---------+---------+-----------------+
+#             U=-1.0    U=-0.75    U=-0.5     U=-0.25  U=0.0 為了紋理水平鏡像因此width是負值也因此倒過來
+DEFAULT_UV_LAYOUTS = {
+    # ... (cube, cylinder 的佈局，如果將來也用圖集的話) ...
+    "cube": { 
+        # 假設一個簡單的十字形或L形展開的部分，你需要定義6個面
+        # (u_start, v_start, width, height)
+        "front":  (0.25, 0.33, 0.25, 0.33), # Z+
+        "back":   (0.75, 0.33, 0.25, 0.33), # Z-
+        "left":   (0.0,  0.33, 0.25, 0.33), # X-
+        "right":  (0.5,  0.33, 0.25, 0.33), # X+
+        "top":    (0.25, 0.0,  0.25, 0.33), # Y+
+        "bottom": (0.25, 0.66,  0.25, 0.33)  # Y-
+        # 這個佈局只用了一部分圖集，你需要設計一個填滿或高效利用的佈局
+    },    "gableroof": { # 人字形屋頂的預設UV佈局
+        "left_slope":   (-0.25,  0.0,        -0.375, 1.0 ), # 兩個斜面
+        "right_slope":  (-(0.5+0.125),  0.0, -0.375, 1.0 ), 
+        "front_gable":  (0.0,  0.0,         -0.25, 0.5  ),# 兩個山牆
+        "back_gable":   (0.0,  0.5,       -0.25, 0.5  ) # 
+        # 你需要根據你的圖集設計調整這些UV子矩形
+    }
+}
+
+def map_local_uv_to_atlas_subrect(local_u, local_v, atlas_sub_rect_uvwh):
+    rect_u, rect_v, rect_w, rect_h = atlas_sub_rect_uvwh
+    return rect_u + local_u * rect_w, rect_v + local_v * rect_h
 
 # --- Keep set_hud_font ---
 # (保持不變)
@@ -274,7 +319,8 @@ def draw_cube(width, depth, height,
               u_offset=0.0, v_offset=0.0, tex_angle_deg=0.0, uv_mode=1,
               uscale=1.0, vscale=1.0,
               texture_has_alpha=False,
-              default_alpha_test_threshold=0.1
+              default_alpha_test_threshold=0.1,
+              object_uv_layout_key="cube"
               ):
 #     print(f"DEBUG:  texture_id_from_scene: {texture_id_from_scene} (type: {type(texture_id_from_scene)})")
     gl_texture_id_to_use = None 
@@ -319,74 +365,140 @@ def draw_cube(width, depth, height,
     # else:
         # print(f"DEBUG: Alpha Test NOT enabled. TexID: {gl_texture_id_to_use}, HasAlpha: {texture_has_alpha}")
 
-    w2, d2_half = width / 2.0, depth / 2.0 # 注意變數名，原版用 d, h
+    w2, d2_half, h_val = width / 2.0, depth / 2.0, height # 注意變數名，原版用 d, h
                                         # 這裡 height 是總高度，所以頂面Y是 height，底面Y是 0
     
     original_tex_angle_rad = math.radians(tex_angle_deg) 
     
     glBegin(GL_QUADS)
-    # Bottom face (Y=0)
-    face_w_b, face_h_b = width, depth
-    cu_b, cv_b = (0.5, 0.5) if uv_mode == 1 else (face_w_b / 2.0, face_h_b / 2.0)
-    bc_b = [(1,0), (0,0), (0,1), (1,1)] if uv_mode == 1 else [(face_w_b,0), (0,0), (0,face_h_b), (face_w_b,face_h_b)]
-    glNormal3f(0, -1, 0)
-    uv = _calculate_uv(*bc_b[0], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,d2_half)
-    uv = _calculate_uv(*bc_b[1], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,d2_half)
-    uv = _calculate_uv(*bc_b[2], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,-d2_half)
-    uv = _calculate_uv(*bc_b[3], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,-d2_half)
-    
-    # Top face (Y=height)
-    face_w_t, face_h_t = width, depth
-    cu_t, cv_t = (0.5, 0.5) if uv_mode == 1 else (face_w_t / 2.0, face_h_t / 2.0)
-    bc_t = [(1,1), (0,1), (0,0), (1,0)] if uv_mode == 1 else [(face_w_t,face_h_t), (0,face_h_t), (0,0), (face_w_t,0)]
-    glNormal3f(0, 1, 0)
-    uv = _calculate_uv(*bc_t[0], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,-d2_half)
-    uv = _calculate_uv(*bc_t[1], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,-d2_half)
-    uv = _calculate_uv(*bc_t[2], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,d2_half)
-    uv = _calculate_uv(*bc_t[3], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,d2_half)
-    
-    # Front face (Z=d2_half)
-    face_w_f, face_h_f = width, height
-    cu_f, cv_f = (0.5,0.5) if uv_mode == 1 else (face_w_f/2.0, face_h_f/2.0)
-    bc_f = [(1,0), (0,0), (0,1), (1,1)] if uv_mode == 1 else [(face_w_f,0), (0,0), (0,face_h_f), (face_w_f,face_h_f)]
-    glNormal3f(0,0,1)
-    uv = _calculate_uv(*bc_f[0], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,d2_half)
-    uv = _calculate_uv(*bc_f[1], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,d2_half)
-    uv = _calculate_uv(*bc_f[2], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,d2_half)
-    uv = _calculate_uv(*bc_f[3], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,d2_half)
-    
-    # Back face (Z=-d2_half)
-    face_w_k, face_h_k = width, height
-    cu_k, cv_k = (0.5,0.5) if uv_mode == 1 else (face_w_k/2.0, face_h_k/2.0)
-    # UV 的 bc_k 順序可能需要調整以匹配紋理方向，原版是 (0,1), (1,1), (1,0), (0,0)
-    # 這對應 (width,height), (0,height), (0,0), (width,0) in world units mode
-    # 這裡保持你的原始版本
-    bc_k = [(0,1), (1,1), (1,0), (0,0)] if uv_mode == 1 else [(face_w_k,face_h_k), (0,face_h_k), (0,0), (face_w_k,0)] 
-    glNormal3f(0,0,-1)
-    uv = _calculate_uv(*bc_k[0], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,-d2_half) # 之前是 (w,h,-d) -> 應該是 (-w2,height,-d2_half) ?
-    uv = _calculate_uv(*bc_k[1], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,-d2_half) # (w2,height,-d2_half) ?
-    uv = _calculate_uv(*bc_k[2], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,-d2_half)
-    uv = _calculate_uv(*bc_k[3], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,-d2_half)
+    if uv_mode == 2: # --- 新的佈局式紋理方案 ---
+        uv_layout = DEFAULT_UV_LAYOUTS.get(object_uv_layout_key)
+        if not uv_layout:
+            print(f"警告: uv_mode=2 但未找到物件 '{object_uv_layout_key}' 的UV佈局。紋理可能不正確。")
+            # 在這種情況下，可以選擇不繪製紋理，或者使用(0,0)作為所有UV
+            # 為了避免崩潰，我們先讓它繼續，但紋理會是錯的
+        
+        # 繪製6個面，每個面使用 uv_layout 中定義的子矩形
+        # 頂點順序：左下、右下、右上、左上 (當你面向該面時)
+        # 局部UV也按此順序：(0,0), (1,0), (1,1), (0,1)
 
-    # Left face (X=-w2)
-    face_w_l, face_h_l = depth, height
-    cu_l, cv_l = (0.5,0.5) if uv_mode == 1 else (face_w_l/2.0, face_h_l/2.0)
-    bc_l = [(1,0), (0,0), (0,1), (1,1)] if uv_mode == 1 else [(face_w_l,0), (0,0), (0,face_h_l), (face_w_l,face_h_l)]
-    glNormal3f(-1,0,0)
-    uv = _calculate_uv(*bc_l[0], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,-d2_half)
-    uv = _calculate_uv(*bc_l[1], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0, d2_half)
-    uv = _calculate_uv(*bc_l[2], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height, d2_half)
-    uv = _calculate_uv(*bc_l[3], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,-d2_half)
-    
-    # Right face (X=w2)
-    face_w_r, face_h_r = depth, height
-    cu_r, cv_r = (0.5,0.5) if uv_mode == 1 else (face_w_r/2.0, face_h_r/2.0)
-    bc_r = [(0,0), (1,0), (1,1), (0,1)] if uv_mode == 1 else [(0,0), (face_w_r,0), (face_w_r,face_h_r), (0,face_h_r)]
-    glNormal3f(1,0,0)
-    uv = _calculate_uv(*bc_r[0], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0, d2_half)
-    uv = _calculate_uv(*bc_r[1], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,-d2_half)
-    uv = _calculate_uv(*bc_r[2], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,-d2_half)
-    uv = _calculate_uv(*bc_r[3], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height, d2_half)
+        # 前面 (Front Face, Z = +d2_half)
+        if uv_layout and "front" in uv_layout:
+            uv_r = uv_layout["front"]
+            glNormal3f(0,0,1)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r)); glVertex3f(-w2, 0,     d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r)); glVertex3f( w2, 0,     d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r)); glVertex3f( w2, h_val, d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r)); glVertex3f(-w2, h_val, d2_half)
+
+        # 後面 (Back Face, Z = -d2_half)
+        if uv_layout and "back" in uv_layout:
+            uv_r = uv_layout["back"]
+            glNormal3f(0,0,-1)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r)); glVertex3f( w2, 0,     -d2_half) # 注意頂點順序以保持法線向外
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r)); glVertex3f(-w2, 0,     -d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r)); glVertex3f(-w2, h_val, -d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r)); glVertex3f( w2, h_val, -d2_half)
+
+        # 左面 (Left Face, X = -w2)
+        if uv_layout and "left" in uv_layout:
+            uv_r = uv_layout["left"]
+            glNormal3f(-1,0,0)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r)); glVertex3f(-w2, 0,     -d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r)); glVertex3f(-w2, 0,      d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r)); glVertex3f(-w2, h_val,  d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r)); glVertex3f(-w2, h_val, -d2_half)
+
+        # 右面 (Right Face, X = +w2)
+        if uv_layout and "right" in uv_layout:
+            uv_r = uv_layout["right"]
+            glNormal3f(1,0,0)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r)); glVertex3f( w2, 0,      d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r)); glVertex3f( w2, 0,     -d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r)); glVertex3f( w2, h_val, -d2_half)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r)); glVertex3f( w2, h_val,  d2_half)
+
+        # 頂面 (Top Face, Y = +h_val)
+        if uv_layout and "top" in uv_layout:
+            uv_r = uv_layout["top"]
+            glNormal3f(0,1,0)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r)); glVertex3f(-w2, h_val,  d2_half) # 左後 (從上往下看)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r)); glVertex3f( w2, h_val,  d2_half) # 右後
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r)); glVertex3f( w2, h_val, -d2_half) # 右前
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r)); glVertex3f(-w2, h_val, -d2_half) # 左前
+            
+        # 底面 (Bottom Face, Y = 0)
+        if uv_layout and "bottom" in uv_layout:
+            uv_r = uv_layout["bottom"]
+            glNormal3f(0,-1,0)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r)); glVertex3f(-w2, 0,     -d2_half) # 左前
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r)); glVertex3f( w2, 0,     -d2_half) # 右前
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r)); glVertex3f( w2, 0,      d2_half) # 右後
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r)); glVertex3f(-w2, 0,      d2_half) # 左後
+
+    else: # --- uv_mode == 0 or uv_mode == 1 (舊的紋理邏輯) ---        
+        # Bottom face (Y=0)
+        face_w_b, face_h_b = width, depth
+        cu_b, cv_b = (0.5, 0.5) if uv_mode == 1 else (face_w_b / 2.0, face_h_b / 2.0)
+        bc_b = [(1,0), (0,0), (0,1), (1,1)] if uv_mode == 1 else [(face_w_b,0), (0,0), (0,face_h_b), (face_w_b,face_h_b)]
+        glNormal3f(0, -1, 0)
+        uv = _calculate_uv(*bc_b[0], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,d2_half)
+        uv = _calculate_uv(*bc_b[1], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,d2_half)
+        uv = _calculate_uv(*bc_b[2], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,-d2_half)
+        uv = _calculate_uv(*bc_b[3], cu_b,cv_b, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,-d2_half)
+        
+        # Top face (Y=height)
+        face_w_t, face_h_t = width, depth
+        cu_t, cv_t = (0.5, 0.5) if uv_mode == 1 else (face_w_t / 2.0, face_h_t / 2.0)
+        bc_t = [(1,1), (0,1), (0,0), (1,0)] if uv_mode == 1 else [(face_w_t,face_h_t), (0,face_h_t), (0,0), (face_w_t,0)]
+        glNormal3f(0, 1, 0)
+        uv = _calculate_uv(*bc_t[0], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,-d2_half)
+        uv = _calculate_uv(*bc_t[1], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,-d2_half)
+        uv = _calculate_uv(*bc_t[2], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,d2_half)
+        uv = _calculate_uv(*bc_t[3], cu_t,cv_t, u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,d2_half)
+        
+        # Front face (Z=d2_half)
+        face_w_f, face_h_f = width, height
+        cu_f, cv_f = (0.5,0.5) if uv_mode == 1 else (face_w_f/2.0, face_h_f/2.0)
+        bc_f = [(1,0), (0,0), (0,1), (1,1)] if uv_mode == 1 else [(face_w_f,0), (0,0), (0,face_h_f), (face_w_f,face_h_f)]
+        glNormal3f(0,0,1)
+        uv = _calculate_uv(*bc_f[0], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,d2_half)
+        uv = _calculate_uv(*bc_f[1], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,d2_half)
+        uv = _calculate_uv(*bc_f[2], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,d2_half)
+        uv = _calculate_uv(*bc_f[3], cu_f,cv_f,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,d2_half)
+        
+        # Back face (Z=-d2_half)
+        face_w_k, face_h_k = width, height
+        cu_k, cv_k = (0.5,0.5) if uv_mode == 1 else (face_w_k/2.0, face_h_k/2.0)
+        # UV 的 bc_k 順序可能需要調整以匹配紋理方向，原版是 (0,1), (1,1), (1,0), (0,0)
+        # 這對應 (width,height), (0,height), (0,0), (width,0) in world units mode
+        # 這裡保持你的原始版本
+        bc_k = [(0,1), (1,1), (1,0), (0,0)] if uv_mode == 1 else [(face_w_k,face_h_k), (0,face_h_k), (0,0), (face_w_k,0)] 
+        glNormal3f(0,0,-1)
+        uv = _calculate_uv(*bc_k[0], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,-d2_half) # 之前是 (w,h,-d) -> 應該是 (-w2,height,-d2_half) ?
+        uv = _calculate_uv(*bc_k[1], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,-d2_half) # (w2,height,-d2_half) ?
+        uv = _calculate_uv(*bc_k[2], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,-d2_half)
+        uv = _calculate_uv(*bc_k[3], cu_k,cv_k,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,-d2_half)
+
+        # Left face (X=-w2)
+        face_w_l, face_h_l = depth, height
+        cu_l, cv_l = (0.5,0.5) if uv_mode == 1 else (face_w_l/2.0, face_h_l/2.0)
+        bc_l = [(1,0), (0,0), (0,1), (1,1)] if uv_mode == 1 else [(face_w_l,0), (0,0), (0,face_h_l), (face_w_l,face_h_l)]
+        glNormal3f(-1,0,0)
+        uv = _calculate_uv(*bc_l[0], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0,-d2_half)
+        uv = _calculate_uv(*bc_l[1], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,0, d2_half)
+        uv = _calculate_uv(*bc_l[2], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height, d2_half)
+        uv = _calculate_uv(*bc_l[3], cu_l,cv_l,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f(-w2,height,-d2_half)
+        
+        # Right face (X=w2)
+        face_w_r, face_h_r = depth, height
+        cu_r, cv_r = (0.5,0.5) if uv_mode == 1 else (face_w_r/2.0, face_h_r/2.0)
+        bc_r = [(0,0), (1,0), (1,1), (0,1)] if uv_mode == 1 else [(0,0), (face_w_r,0), (face_w_r,face_h_r), (0,face_h_r)]
+        glNormal3f(1,0,0)
+        uv = _calculate_uv(*bc_r[0], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0, d2_half)
+        uv = _calculate_uv(*bc_r[1], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,0,-d2_half)
+        uv = _calculate_uv(*bc_r[2], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height,-d2_half)
+        uv = _calculate_uv(*bc_r[3], cu_r,cv_r,u_offset,v_offset,original_tex_angle_rad,uv_mode,uscale,vscale);glTexCoord2f(*uv);glVertex3f( w2,height, d2_half)
     glEnd()
     # --- END of geometry ---
 
@@ -652,7 +764,230 @@ def draw_sphere(radius, texture_id=None, slices=16, stacks=16,
     # 確保 TEXTURE_2D 在函數結束時是啟用的 (如果之前是)
     # 或者由調用者負責管理總體狀態
     # glEnable(GL_TEXTURE_2D) # 如果希望保持啟用
+
+
+def draw_gableroof(
+    # 核心幾何參數
+    base_width,          # 屋頂基底寬度 (山牆方向)
+    base_length,         # 屋頂基底長度 (屋脊方向)
+    ridge_height_offset, # 屋脊頂點相對於屋簷的Y偏移
+    # eave_y_local,      # 屋簷在局部Y軸的座標 (通常為0，因為父級 transform 已定位)
+                         # 如果 rel_y 本身就是屋簷的世界Y，那麼繪製時的局部Y就是0
+    # 形狀調整參數
+    ridge_x_pos_offset,  # 屋脊線相對於 base_width 中心的X偏移 (0為對稱)
+    eave_overhang_x,     # X方向 (寬度方向) 的屋簷懸挑
+    eave_overhang_z,     # Z方向 (長度方向) 的屋簷懸挑
     
+    # 紋理相關
+    texture_id,
+    texture_has_alpha,
+    original_tex_file, # 可選，用於調試
+    alpha_test_threshold=0.1 
+):
+    # 0. Alpha Testing 設置
+    alpha_testing_was_enabled_this_call = False
+    if texture_id is not None and glIsTexture(texture_id):
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        glEnable(GL_TEXTURE_2D)
+        if texture_has_alpha:
+            glEnable(GL_ALPHA_TEST)
+            glAlphaFunc(GL_GREATER, alpha_test_threshold)
+            alpha_testing_was_enabled_this_call = True
+            glDepthMask(GL_TRUE)
+            glDisable(GL_BLEND)
+    else:
+        glDisable(GL_TEXTURE_2D)
+        glColor3f(0.6, 0.2, 0.2) # 無紋理時的屋頂顏色 (例如棕紅色)
+
+    # 1. 獲取此屋頂的UV佈局
+    uv_layout = DEFAULT_UV_LAYOUTS.get("gableroof")
+    if not uv_layout:
+        print("警告: 未找到 gableroof 的UV佈局！紋理可能無法正確顯示。")
+        # 可以設計一個回退的UV方案，或者直接返回
+
+    # 2. 計算頂點 (在屋頂的局部座標系中)
+    # 局部座標系原點 (0,0,0) 可以視為屋頂基底矩形的中心，Y=0 在屋簷高度。
+    
+    # 屋簷Y座標在局部系統中為0
+    e_y = 0.0 
+    # 屋脊Y座標
+    r_y = ridge_height_offset 
+    # 屋脊X座標（考慮了非對稱偏移）
+    r_x = ridge_x_pos_offset 
+
+    # 基底半寬和半長
+    hw = base_width / 2.0
+    hl = base_length / 2.0
+
+    # 計算帶有懸挑的屋簷邊界
+    e_lx = -hw - eave_overhang_x  # 左懸挑邊緣X
+    e_rx =  hw + eave_overhang_x  # 右懸挑邊緣X
+    e_fz = -hl - eave_overhang_z  # 前懸挑邊緣Z (屋脊開始處)
+    e_bz =  hl + eave_overhang_z  # 後懸挑邊緣Z (屋脊結束處)
+
+    # 屋脊的Z座標範圍也受懸挑影響
+    r_fz_actual = e_fz
+    r_bz_actual = e_bz
+
+
+    # 計算懸挑後屋簷點的Y座標
+    e_y_base = 0.0 
+    e_y_overhang_left = e_y_base # 預設與基底屋簷同高
+    e_y_overhang_right = e_y_base # 預設與基底屋簷同高
+
+    # 計算左斜面的X方向坡度 (dy/dx)
+    dx_slope_left = r_x - (-hw) # 從牆體左邊緣到屋脊的X距離
+    if not math.isclose(dx_slope_left, 0):
+        slope_y_per_x_left = (r_y - e_y_base) / dx_slope_left
+        e_y_overhang_left = e_y_base - (eave_overhang_x * slope_y_per_x_left)
+    # else: 如果 dx_slope_left 為0 (屋脊在牆體左邊緣)，則左斜面是垂直的或不存在，
+    #       eave_overhang_x 對其Y座標無影響，或者說這個懸挑沒有幾何意義。
+    #       這種情況下，e_y_overhang_left 保持 e_y_base。
+
+    # 計算右斜面的X方向坡度 (dy/dx)
+    dx_slope_right = hw - r_x # 從屋脊到牆體右邊緣的X距離
+    if not math.isclose(dx_slope_right, 0):
+        slope_y_per_x_right = (r_y - e_y_base) / dx_slope_right
+        e_y_overhang_right = e_y_base - (eave_overhang_x * slope_y_per_x_right)
+    # else: 屋脊在牆體右邊緣，右斜面垂直或不存在。
+    
+    # 定義8個主要的屋頂角點
+    # 屋簷角點 (Eave Corners) - 4個
+    ec_fl = [e_lx, e_y_overhang_left, e_fz] # 前左
+    ec_fr = [e_rx, e_y_overhang_right, e_fz] # 前右
+    ec_bl = [e_lx, e_y_overhang_left, e_bz] # 後左
+    ec_br = [e_rx, e_y_overhang_right, e_bz] # 後右
+    
+    # 屋脊角點 (Ridge Corners) - 2個 (如果屋脊X偏移為0，則X為0)
+    rc_f = [r_x, r_y, r_fz_actual] # 前
+    rc_b = [r_x, r_y, r_bz_actual] # 後
+
+    # --- 開始繪製各個面 ---
+    
+    # 左斜屋頂面 (Left Slope)
+    # 頂點順序 (例如，從前下角開始，逆時針，確保法線朝外上)
+    # LS1: ec_fl (前左屋簷)
+    # LS2: ec_bl (後左屋簷)
+    # LS3: rc_b  (後屋脊)
+    # LS4: rc_f  (前屋脊)
+    if not math.isclose(r_x, e_lx): # 只有當屋脊不與左屋簷重合時才繪製
+        glBegin(GL_QUADS)
+        norm_ls = np.cross(np.subtract(ec_bl,ec_fl), np.subtract(rc_f,ec_fl))
+        norm_ls_mag = np.linalg.norm(norm_ls)
+        if norm_ls_mag > 1e-6: glNormal3fv(norm_ls / norm_ls_mag)
+        else: glNormal3f(0,1,0) # Fallback
+
+        uv_r_ls = uv_layout.get("left_slope", (0,0,1,1)) # 獲取UV子矩形，帶預設
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r_ls)); glVertex3fv(ec_fl) # 局部UV (0,0)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r_ls)); glVertex3fv(ec_bl) # 局部UV (0,1)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r_ls)); glVertex3fv(rc_b)  # 局部UV (1,1)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r_ls)); glVertex3fv(rc_f)  # 局部UV (1,0)
+        glEnd()
+
+    # 右斜屋頂面 (Right Slope)
+    # 頂點順序 (例如，從前屋脊開始，逆時針)
+    # RS1: rc_f  (前屋脊)
+    # RS2: rc_b  (後屋脊)
+    # RS3: ec_br (後右屋簷)
+    # RS4: ec_fr (前右屋簷)
+    if not math.isclose(r_x, e_rx): # 只有當屋脊不與右屋簷重合時才繪製
+        glBegin(GL_QUADS)
+        norm_rs = np.cross(np.subtract(rc_b,rc_f), np.subtract(ec_fr,rc_f))
+        norm_rs_mag = np.linalg.norm(norm_rs)
+        if norm_rs_mag > 1e-6: glNormal3fv(norm_rs / norm_rs_mag)
+        else: glNormal3f(0,1,0)
+
+        uv_r_rs = uv_layout.get("right_slope", (0,0,1,1))
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r_rs)); glVertex3fv(rc_f)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r_rs)); glVertex3fv(rc_b)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r_rs)); glVertex3fv(ec_br)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r_rs)); glVertex3fv(ec_fr)
+        glEnd()
+
+    # 山牆的繪製 (三角形)
+    # 山牆的基底是 base_width，而不是懸挑後的寬度
+    # 局部座標系中，山牆在 Z = -hl 和 Z = +hl 的平面上
+    
+    # 前山牆 (Front Gable, Z = -hl)
+    # 頂點 (逆時針，法線朝 -Z)
+    fg_v1 = [-hw, e_y, -hl]  # 左下
+    fg_v2 = [ hw, e_y, -hl]  # 右下
+    fg_v3 = [r_x, r_y, -hl]  # 頂點 (屋脊在前山牆平面上的投影)
+    if base_width > 1e-6: # 確保山牆有寬度
+        glBegin(GL_TRIANGLES)
+        norm_fg = np.array([0,0,-1.0]) # 簡化法線，實際應計算
+        # 如果要精確法線：np.cross(np.subtract(fg_v2,fg_v1), np.subtract(fg_v3,fg_v1))
+        glNormal3fv(norm_fg)
+        uv_r_fg = uv_layout.get("front_gable", (0,0,1,1))
+        # 三角形的UV映射到方形區域，這裡用簡單的映射
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r_fg)); glVertex3fv(fg_v1) # 方形左下
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r_fg)); glVertex3fv(fg_v2) # 方形右下
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_r_fg)); glVertex3fv(fg_v3)# 方形頂中
+        glEnd()
+
+    # 後山牆 (Back Gable, Z = +hl)
+    # 頂點 (逆時針，法線朝 +Z)
+    bg_v1 = [ hw, e_y,  hl]  # 右下 (從+Z方向看是左下)
+    bg_v2 = [-hw, e_y,  hl]  # 左下 (從+Z方向看是右下)
+    bg_v3 = [r_x, r_y,  hl]  # 頂點
+    if base_width > 1e-6:
+        glBegin(GL_TRIANGLES)
+        norm_bg = np.array([0,0,1.0]) # 簡化法線
+        glNormal3fv(norm_bg)
+        uv_r_bg = uv_layout.get("back_gable", (0,0,1,1))
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r_bg)); glVertex3fv(bg_v1)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r_bg)); glVertex3fv(bg_v2)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_r_bg)); glVertex3fv(bg_v3)
+        glEnd()
+
+#     # --- 重新計算山牆的頂點，使其與懸挑對齊 ---
+#     # 前山牆 (Front Gable, Z = -hl, 使用懸挑後的X邊界 e_lx, e_rx)
+#     fg_v1 = [e_lx, e_y, -hl]  # 左下 (懸挑後的X)
+#     fg_v2 = [e_rx, e_y, -hl]  # 右下 (懸挑後的X)
+#     fg_v3 = [r_x,  r_y, -hl]  # 屋脊點 (X是屋脊偏移，Z是基底邊界)
+# 
+#     # 後山牆 (Back Gable, Z = +hl, 使用懸挑後的X邊緣 e_lx, e_rx)
+#     bg_v1 = [e_rx, e_y,  hl]  # 右下 (懸挑後的X)
+#     bg_v2 = [e_lx, e_y,  hl]  # 左下 (懸挑後的X)
+#     bg_v3 = [r_x,  r_y,  hl]  # 屋脊點
+# 
+#     # --- 繪製山牆 (使用新的 fg_v1,2,3 和 bg_v1,2,3) ---
+#     glBegin(GL_TRIANGLES)
+#     # 前山牆
+#     if not math.isclose(e_lx, e_rx): # 確保山牆有寬度 (即 eave_overhang_x 不是負到讓 e_lx > e_rx)
+#         uv_rect_fg = uv_layout.get("front_gable", (0,0,1,1))
+#         norm_fg = np.array([0,0,-1.0]) # 簡化法線 (朝向 -Z)
+#         # 如果要精確法線: norm_fg = np.cross(np.subtract(fg_v2,fg_v1), np.subtract(fg_v3,fg_v1)); ...normalize...
+#         glNormal3fv(norm_fg)
+#         glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_rect_fg)); glVertex3fv(fg_v1)
+#         glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_rect_fg)); glVertex3fv(fg_v2)
+#         glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_rect_fg)); glVertex3fv(fg_v3)
+# 
+#     # 後山牆
+#     if not math.isclose(e_lx, e_rx):
+#         uv_rect_bg = uv_layout.get("back_gable", (0,0,1,1))
+#         norm_bg = np.array([0,0,1.0]) # 簡化法線 (朝向 +Z)
+#         # 如果要精確法線: norm_bg = np.cross(np.subtract(bg_v2,bg_v1), np.subtract(bg_v3,bg_v1)); ...normalize...
+#         glNormal3fv(norm_bg)
+#         glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_rect_bg)); glVertex3fv(bg_v1) # 注意頂點順序以匹配UV
+#         glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_rect_bg)); glVertex3fv(bg_v2)
+#         glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_rect_bg)); glVertex3fv(bg_v3) # bg_v3 的UV應與fg_v3類似
+#                                                                                       # 修正：應為 uv_rect_bg
+#         # 修正上一行的UV映射，應該使用 uv_rect_bg
+#         # 實際應為：
+#         # glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_rect_bg)); glVertex3fv(bg_v3)
+#     glEnd()
+
+    # 3. 恢復OpenGL狀態
+    if alpha_testing_was_enabled_this_call:
+        glDisable(GL_ALPHA_TEST)
+    if texture_id is not None and glIsTexture(texture_id):
+        glBindTexture(GL_TEXTURE_2D, 0)
+        # glDisable(GL_TEXTURE_2D) # 通常不由繪製函數禁用，除非它明確只為自己啟用
+    else: # 如果之前是glColor3f
+        glColor3f(1,1,1) # 恢復預設顏色
+        
+        
 # --- draw_tree (unchanged) ---
 def draw_tree(x, y, z, height, texture_id=None): # 函數簽名保持不變
     """
@@ -1017,7 +1352,66 @@ def draw_scene_objects(scene):
                   uscale, vscale,
                   tex_has_alpha_val
                   )
-        
+
+    # --- Draw Gableroofs ---
+    if hasattr(scene, 'gableroofs'):
+        for item in scene.gableroofs:
+            line_identifier, roof_data_tuple = item
+            try:
+                # 根據 scene_parser 中 gableroof_data_tuple 的結構解包
+                # (world_x, world_y, world_z, abs_rx, abs_ry, abs_rz,  <-- 0-5
+                #  base_w, base_l, ridge_h_off,                       <-- 6-8
+                #  ridge_x_pos, eave_over_x, eave_over_z,             <-- 9-11
+                #  gl_tex_id, tex_has_alpha, tex_f_orig                 <-- 12-14
+                # )
+                world_x, world_y, world_z, abs_rx, abs_ry, abs_rz = roof_data_tuple[0:6]
+                base_w, base_l, ridge_h_off = roof_data_tuple[6:9]
+                # eave_h_from_parser = roof_data_tuple[8] # 如果你之前有 eave_h
+                
+                ridge_x_pos_offset_val = roof_data_tuple[9]
+                eave_overhang_x_val = roof_data_tuple[10]
+                eave_overhang_z_val = roof_data_tuple[11]
+                
+                gl_texture_id_val = roof_data_tuple[12]
+                texture_has_alpha_val = roof_data_tuple[13]
+                texture_atlas_file_original = roof_data_tuple[14]
+
+            except (IndexError, ValueError) as e:
+                print(f"警告: 解包 gableroof 數據時出錯 (行標識: {line_identifier})。錯誤: {e}")
+                print(f"DEBUG: Gableroof data tuple was: {roof_data_tuple}")
+                continue
+
+            glPushMatrix()
+            glTranslatef(world_x, world_y, world_z) # 平移到屋頂的基準點 (例如牆頂中心)
+            
+            # 應用旋轉 (順序很重要，例如 Y-X-Z)
+            glRotatef(abs_ry, 0, 1, 0)  # Yaw
+            glRotatef(abs_rx, 1, 0, 0)  # Pitch
+            glRotatef(abs_rz, 0, 0, 1)  # Roll
+            
+            # draw_gableroof 的 eave_y_coord 參數：
+            # 由於我們已經通過 translatef 將原點移動到了 world_y (屋頂的基準Y)，
+            # 所以在 draw_gableroof 的局部座標系中，屋簷的高度通常是 0。
+            # ridge_height_offset 則是相對於這個局部 Y=0 的高度。
+            # 因此，傳給 draw_gableroof 的 eave_y_coord 應該是 0。
+            # 這假設 scene_parser 中的 rel_y 參數已經代表了屋簷的絕對Y座標
+            # 或者說，world_y 就是屋簷的Y座標。
+            
+            draw_gableroof(
+                base_width=base_w, 
+                base_length=base_l, 
+                ridge_height_offset=ridge_h_off, 
+#                 eave_y_coord=0.0, # <--- 在局部座標系中，屋簷在Y=0
+                ridge_x_pos_offset=ridge_x_pos_offset_val,
+                eave_overhang_x=eave_overhang_x_val, 
+                eave_overhang_z=eave_overhang_z_val,
+                texture_id=gl_texture_id_val, 
+                texture_has_alpha=texture_has_alpha_val,
+                original_tex_file=texture_atlas_file_original 
+                # alpha_test_threshold 可以使用 draw_gableroof 中的預設值
+            )
+            glPopMatrix()
+
 #     glDisable(GL_BLEND)
 # --- draw_tram_cab (unchanged) ---
 def draw_tram_cab(tram, camera):

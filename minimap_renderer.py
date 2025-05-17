@@ -551,6 +551,108 @@ def _render_static_elements_to_fbo(scene: Scene):
             glEnd() # 結束所有山丘輪廓的繪製
     glLineWidth(1.0) # 恢復默認線寬
 
+    # --- Bake Gableroofs (as simple rectangles) ---
+    glColor4fv(MINIMAP_BAKE_BUILDING_COLOR) # 假設與建築物類似
+
+    for item in scene.gableroofs:
+        line_identifier, roof_data = item
+        try:
+            # 解包獲取世界位置、Y旋轉、基底寬度和長度
+            # (world_x, world_y, world_z, abs_rx, abs_ry, abs_rz,
+            #  base_w, base_l, ... )
+            wx, wy, wz = roof_data[0:3]
+            world_ry = roof_data[4] # 我們主要關心Y軸旋轉對2D投影的影響
+            base_w = roof_data[6]
+            base_l = roof_data[7]
+            ridge_x_pos_offset = roof_data[9] # 屋脊X偏移
+            # 其他如 ridge_h_off, eave_overhangs 等對2D投影影響不大，除非你希望投影懸挑部分
+        except (IndexError, ValueError):
+            # print(f"警告: 解包 gableroof 數據 (FBO烘焙) 時出錯 (行: {line_identifier})")
+            continue
+
+        # 計算屋頂基底的四個角點的世界XZ座標 (忽略懸挑，只考慮base_w, base_l)
+        half_w_roof = base_w / 2.0
+        half_l_roof = base_l / 2.0
+        
+        # 屋頂局部座標系下的角點 (Y設為0，因為我們只關心XZ投影)
+        # 假設局部+Z是長度方向，局部+X是寬度方向
+        corners_local_roof = [
+            np.array([-half_w_roof, 0, -half_l_roof]), # 前左
+            np.array([ half_w_roof, 0, -half_l_roof]), # 前右
+            np.array([ half_w_roof, 0,  half_l_roof]), # 後右
+            np.array([-half_w_roof, 0,  half_l_roof])  # 後左
+        ]
+        
+        angle_y_rad_roof = math.radians(-world_ry) # 注意旋轉方向，與 building 一致
+        cos_y_roof = math.cos(angle_y_rad_roof)
+        sin_y_roof = math.sin(angle_y_rad_roof)
+        
+        fbo_coords_roof = []
+        for corner_local in corners_local_roof:
+            # 旋轉局部角點 (只考慮Y軸旋轉對XZ平面的影響)
+            rotated_x_local = corner_local[0] * cos_y_roof - corner_local[2] * sin_y_roof
+            rotated_z_local = corner_local[0] * sin_y_roof + corner_local[2] * cos_y_roof
+            
+            # 加上世界中心點偏移
+            world_corner_x = wx + rotated_x_local
+            world_corner_z = wz + rotated_z_local
+            
+            map_x, map_y = _world_to_fbo_coords(
+                world_corner_x, world_corner_z, 
+                world_cx, world_cz, world_w, world_h, fbo_w, fbo_h
+            )
+            fbo_coords_roof.append((map_x, map_y))
+        
+        if len(fbo_coords_roof) == 4:
+            glBegin(GL_QUADS) # 繪製填充四邊形
+            for mx, my in fbo_coords_roof:
+                glVertex2f(mx, my)
+            glEnd()
+            
+        # --- 計算並繪製屋脊中線 (虛線) ---
+        # 屋脊線的局部X座標是 ridge_x_pos_offset
+        # 屋脊線的局部Z座標範圍是 -half_l_roof 到 +half_l_roof
+        ridge_start_local = np.array([ridge_x_pos_offset, 0, -half_l_roof])
+        ridge_end_local   = np.array([ridge_x_pos_offset, 0,  half_l_roof])
+
+        # 應用Y軸旋轉
+        rs_rotated_x = ridge_start_local[0] * cos_y_roof - ridge_start_local[2] * sin_y_roof
+        rs_rotated_z = ridge_start_local[0] * sin_y_roof + ridge_start_local[2] * cos_y_roof
+        world_rs_x, world_rs_z = wx + rs_rotated_x, wz + rs_rotated_z
+        map_rs_x, map_rs_y = _world_to_fbo_coords(world_rs_x, world_rs_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+
+        re_rotated_x = ridge_end_local[0] * cos_y_roof - ridge_end_local[2] * sin_y_roof
+        re_rotated_z = ridge_end_local[0] * sin_y_roof + ridge_end_local[2] * cos_y_roof
+        world_re_x, world_re_z = wx + re_rotated_x, wz + re_rotated_z
+        map_re_x, map_re_y = _world_to_fbo_coords(world_re_x, world_re_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+
+        # 設置虛線模式 (可以定義一個虛線顏色)
+        # MINIMAP_BAKE_RIDGE_COLOR = (1.0, 1.0, 0.0, 0.7) # 例如黃色半透明
+        # glColor4fv(MINIMAP_BAKE_RIDGE_COLOR)
+        # 為了簡單，我們先用一個比基底稍亮的顏色或對比色
+        # 假設 MINIMAP_BAKE_GRID_COLOR 是 (r,g,b,a)
+        ridge_color_bake = (MINIMAP_BAKE_GRID_COLOR[0]*0.8, MINIMAP_BAKE_GRID_COLOR[1]*0.8, MINIMAP_BAKE_GRID_COLOR[2]*0.8, 0.9)
+        glColor4fv(ridge_color_bake)
+        
+        glPushAttrib(GL_LINE_BIT) # 保存線條狀態
+        glEnable(GL_LINE_STIPPLE)
+        # glLineStipple(factor, pattern):
+        # factor 是一個整數乘數，用於每個模式位。
+        # pattern 是一個16位的位元模式 (例如 0xAAAA 是點線, 0xF0F0 是長劃線-短劃線)
+        glLineStipple(2, 0xAAAA) # 2倍長度的點線，可以調整 factor 和 pattern
+        glLineWidth(1.0) # 虛線可以細一點
+
+        glBegin(GL_LINES)
+        glVertex2f(map_rs_x, map_rs_y)
+        glVertex2f(map_re_x, map_re_y)
+        glEnd()
+        
+        glDisable(GL_LINE_STIPPLE)
+        glPopAttrib() # 恢復線條狀態
+        # --- 結束繪製屋脊中線 ---
+            
+    # --- 結束烘焙 Gableroofs ---
+
     print("靜態元素 FBO 繪製完成。")
 
 
@@ -1228,13 +1330,149 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                         pass # 忽略繪製標籤錯誤
                 finally:
                     glPopAttrib() # 恢復繪製狀態
+                    
+        # --- Draw gableroofs
+        # MINIMAP_DYNAMIC_ROOF_COLOR = (0.8, 0.3, 0.3) # 可以定義一個特定的屋頂顏色
+        # MINIMAP_DYNAMIC_ROOF_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_ROOF_COLOR) + (180,)
+        # 為了簡單，我們先用 building 的顏色
+        # glColor3fv(MINIMAP_DYNAMIC_ROOF_COLOR)
+        # glLineWidth(2.0)
+
+        for item in scene.gableroofs:
+            line_identifier, roof_data = item
+            try:
+                wx, wy, wz = roof_data[0:3]
+                world_ry = roof_data[4] # Y軸旋轉
+                base_w = roof_data[6]
+                base_l = roof_data[7]
+                ridge_x_pos_offset = roof_data[9]
+                # ridge_h_off = roof_data[8] # 用於標籤
+            except (IndexError, ValueError):
+                # print(f"警告: 解包 gableroof 數據 (編輯器預覽) 時出錯 (行: {line_identifier})")
+                continue
+
+            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT)
+            try:
+                is_highlighted = line_identifier in highlight_line_nums
+                if is_highlighted:
+                    glColor3f(1.0, 1.0, 0.0) # 高亮黃
+                    glLineWidth(3.0)
+                    if line_identifier == line_to_focus_on:
+                        focused_element_world_x = wx
+                        focused_element_world_z = wz  
+                else:
+                    glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR) # 借用 building 的顏色
+                    glLineWidth(2.0)
+
+                # 與 FBO 烘焙類似的角點計算邏輯
+                half_w_roof = base_w / 2.0
+                half_l_roof = base_l / 2.0
+                corners_local_roof = [
+                    np.array([-half_w_roof, 0, -half_l_roof]), np.array([half_w_roof, 0, -half_l_roof]),
+                    np.array([half_w_roof, 0, half_l_roof]), np.array([-half_w_roof, 0, half_l_roof])
+                ]
+                angle_y_rad_roof = math.radians(-world_ry) # 與 building 的旋轉方向保持一致
+                cos_y_roof, sin_y_roof = math.cos(angle_y_rad_roof), math.sin(angle_y_rad_roof)
+                
+                map_coords_roof = []
+                for corner_local in corners_local_roof:
+                    rotated_x_local = corner_local[0] * cos_y_roof - corner_local[2] * sin_y_roof
+                    rotated_z_local = corner_local[0] * sin_y_roof + corner_local[2] * cos_y_roof
+                    world_corner_x = wx + rotated_x_local
+                    world_corner_z = wz + rotated_z_local
+                    map_x, map_y = _world_to_map_coords_adapted(
+                        world_corner_x, world_corner_z, 
+                        view_center_x, view_center_z, 
+                        widget_center_x_screen, widget_center_y_screen, scale
+                    )
+                    map_coords_roof.append((map_x, map_y))
+                
+                if len(map_coords_roof) == 4:
+                    glBegin(GL_LINE_LOOP) # 繪製線框
+                    for mx, my in map_coords_roof:
+                        glVertex2f(mx, my)
+                    glEnd()
+
+                # --- 計算並繪製屋脊中線 (虛線) ---
+                ridge_start_local = np.array([ridge_x_pos_offset, 0, -half_l_roof])
+                ridge_end_local   = np.array([ridge_x_pos_offset, 0,  half_l_roof])
+
+                rs_rotated_x = ridge_start_local[0] * cos_y_roof - ridge_start_local[2] * sin_y_roof
+                rs_rotated_z = ridge_start_local[0] * sin_y_roof + ridge_start_local[2] * cos_y_roof
+                world_rs_x, world_rs_z = wx + rs_rotated_x, wz + rs_rotated_z
+                map_rs_x, map_rs_y = _world_to_map_coords_adapted(world_rs_x, world_rs_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+
+                re_rotated_x = ridge_end_local[0] * cos_y_roof - ridge_end_local[2] * sin_y_roof
+                re_rotated_z = ridge_end_local[0] * sin_y_roof + ridge_end_local[2] * cos_y_roof
+                world_re_x, world_re_z = wx + re_rotated_x, wz + re_rotated_z
+                map_re_x, map_re_y = _world_to_map_coords_adapted(world_re_x, world_re_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+
+                # 設置虛線顏色和模式
+                # 可以為屋脊線定義一個特定的動態顏色
+                # MINIMAP_DYNAMIC_RIDGE_COLOR = (0.9, 0.9, 0.2) # 例如亮黃色
+                # if is_highlighted:
+                #     glColor3f(1.0, 0.8, 0.0) # 高亮時的屋脊線顏色 (例如橙色)
+                # else:
+                #     glColor3fv(MINIMAP_DYNAMIC_RIDGE_COLOR)
+                # 為了簡單，我們先用一個與基底不同的固定顏色，或者只是改變 alpha
+                
+                # 如果高亮，屋脊線也用高亮顏色，但可以更細或不同線型
+                if is_highlighted:
+                    glColor3f(1.0, 1.0, 0.0) # 與基底高亮同色
+                else:
+                    # 使用一個比基底線條稍暗或不同色調的顏色
+                    ridge_line_color = [c * 0.7 for c in MINIMAP_DYNAMIC_BUILDING_COLOR]
+                    glColor3fv(ridge_line_color)
+                
+                glEnable(GL_LINE_STIPPLE)
+                glLineStipple(1, 0x00FF) # 點劃線 (....----....----) pattern
+                # 或者 glLineStipple(2, 0xAAAA) # 點線，間隔大一點
+                glLineWidth(1.0) # 虛線通常比實線輪廓細
+
+                glBegin(GL_LINES)
+                glVertex2f(map_rs_x, map_rs_y)
+                glVertex2f(map_re_x, map_re_y)
+                glEnd()
+                
+                glDisable(GL_LINE_STIPPLE)
+                # --- 結束繪製屋脊中線 ---
 
 
+                # 計算標籤位置 (例如，矩形中心)
+                if map_coords_roof:
+                    center_x_label = sum(p[0] for p in map_coords_roof) / len(map_coords_roof)
+                    center_y_label = sum(p[1] for p in map_coords_roof) / len(map_coords_roof)
+
+                    # 繪製標籤 (行號: Y座標)
+                    label_prefix_text = ""
+                    if isinstance(line_identifier, str) and ":" in line_identifier:
+                        label_prefix_text = line_identifier
+                    elif isinstance(line_identifier, int):
+                        label_prefix_text = str(line_identifier)
+                    else: label_prefix_text = "N/A"
+                    
+                    # 標籤可以顯示屋簷Y或屋脊Y
+                    # ridge_actual_y = wy + roof_data[8] # roof_data[8] 是 ridge_h_off
+                    label_text_content = f"{label_prefix_text}:Y{wy:.1f}" # wy 是屋簷Y
+                    
+                    label_color_actual = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR # 借用
+                    if show_object_and_grid_labels and coord_label_font and not is_dragging: # 使用之前討論的共用標籤顯示開關
+                        try:
+                            text_surface = coord_label_font.render(label_text_content, True, label_color_actual)
+                            dx = center_x_label + 2
+                            dy = center_y_label - text_surface.get_height() / 2
+                            renderer._draw_text_texture(text_surface, dx, dy)
+                        except Exception as e_label:
+                            pass # 忽略標籤繪製錯誤
+            finally:
+                glPopAttrib()
+    # --- 結束繪製 Gableroofs ---
+    
         # 恢復默認點大小
         glPointSize(1.0)
 
     # --- START OF MODIFICATION: Draw Track Lines Dynamically (including vbranches) ---
-    if scene and scene.track and not is_dragging: # Keep not is_dragging to reduce visual noise during drag
+    if scene and scene.track: # Keep not is_dragging to reduce visual noise during drag
         default_track_line_width = 1.0  # --- MODIFICATION: Thinner default track lines ---
         highlight_track_line_width = 2.0 # --- MODIFICATION: Thicker highlight ---
         default_point_size = 4.0 # --- MODIFICATION: Smaller points ---
@@ -1281,22 +1519,23 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 finally:
                     glPopAttrib()
 
-                # Display info for main segment (reuse map_x_main_start, map_y_main_start)
-                is_curve = True if hasattr(segment, 'angle_deg') and abs(segment.angle_deg) > 0.1 else False # Check if it's a curve
-                if is_curve:
-                    track_info = f"C {segment.angle_deg:.1f}°"
-                else: # Assuming straight
-                    track_info = f"S {segment.horizontal_length:.1f}" # Use horizontal_length
-                
-                label_text_main=f"{track_info} y: {segment.points[0][1]:.1f} ({line_num_main})"; # Added line_num
-                label_color_main = (255, 255, 0, 255) if is_highlighted_main else MINIMAP_GRID_LABEL_COLOR
-                try:
-                    if show_object_and_grid_labels and coord_label_font: # Check if font exists
-                        text_surface_main=coord_label_font.render(label_text_main,True,label_color_main);
-                        dx_main=map_x_main_start + 5;
-                        dy_main=map_y_main_start;
-                        renderer._draw_text_texture(text_surface_main,dx_main,dy_main);
-                except Exception as e: pass
+                if not is_dragging:
+                    # Display info for main segment (reuse map_x_main_start, map_y_main_start)
+                    is_curve = True if hasattr(segment, 'angle_deg') and abs(segment.angle_deg) > 0.1 else False # Check if it's a curve
+                    if is_curve:
+                        track_info = f"C {segment.angle_deg:.1f}°"
+                    else: # Assuming straight
+                        track_info = f"S {segment.horizontal_length:.1f}" # Use horizontal_length
+                    
+                    label_text_main=f"{track_info} y: {segment.points[0][1]:.1f} ({line_num_main})"; # Added line_num
+                    label_color_main = (255, 255, 0, 255) if is_highlighted_main else MINIMAP_GRID_LABEL_COLOR
+                    try:
+                        if show_object_and_grid_labels and coord_label_font: # Check if font exists
+                            text_surface_main=coord_label_font.render(label_text_main,True,label_color_main);
+                            dx_main=map_x_main_start + 5;
+                            dy_main=map_y_main_start;
+                            renderer._draw_text_texture(text_surface_main,dx_main,dy_main);
+                    except Exception as e: pass
             
             # --- Draw Visual Branches ---
             if hasattr(segment, 'visual_branches') and segment.visual_branches:

@@ -35,6 +35,24 @@ COMMAND_HINTS = {
     "hill": ["    cmd    ", "cx", "base_y", "cz", "radius", "peak_h_off", "tex?", "uSc?", "vSc?"], # <--- 新增這一行
     "import": ["    cmd    ", "filepath"], # <--- 新增 IMPORT 指令提示
     # Add other commands if they exist
+    "gableroof": [
+    "    cmd    ",        # 0
+    "rel_x",              # 1: 相對於軌道原點的X偏移
+    "rel_y",              # 2: 屋簷底部/牆體頂部的Y座標 (相對於軌道原點Y)
+    "rel_z",              # 3: 相對於軌道原點的Z偏移
+    "abs_rx?",            # 4: 繞X軸的絕對旋轉 (俯仰，可選，預設0)
+    "abs_ry",             # 5: 繞Y軸的絕對旋轉 (朝向，必需)
+    "abs_rz?",            # 6: 繞Z軸的絕對旋轉 (側滾，可選，預設0)
+    "base_width",         # 7: 屋頂基底寬度 (沿屋頂局部X軸)
+    "base_length",        # 8: 屋頂基底長度 (沿屋頂局部Z軸，即屋脊方向)
+    "ridge_height_offset",# 9: 屋脊相對於屋簷(rel_y)的高度差
+    # --- 可選參數從索引 10 開始 ---
+    "ridge_x_pos_offset?",# 10: 非對稱屋脊的X偏移 (相對於基底寬度中心，預設0)
+    "eave_overhang_x?",   # 11: X方向的屋簷懸挑 (預設0)
+    "eave_overhang_z?",   # 12: Z方向的屋簷懸挑 (預設0)
+    "texture_atlas?",     # 13: 使用的紋理圖集檔名 (預設 "default_roof_atlas.png")
+    # "alpha_threshold?" # 14: 可選的Alpha測試閾值 (如果想讓用戶指定)
+    ],
 }
 
 class Scene:
@@ -82,6 +100,8 @@ class Scene:
         self.current_relative_origin_angle_rad = self.current_parse_angle_rad # 保持與 parse_pos 一致
         self.last_background_info = None # 初始化為 None
         # ----------------------------------
+        self.gableroofs = []
+        
         
     def clear(self):
         self.track.clear()
@@ -108,6 +128,7 @@ class Scene:
         self.current_relative_origin_angle_rad = self.current_parse_angle_rad
         self.last_background_info = None
         # ---------------------
+        self.gableroofs = []
         
     def clear_content(self): # 用於清空場景內容，但不一定釋放 OpenGL 資源
         self.track = Track() # 創建一個新的空軌道
@@ -595,7 +616,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     u_offset = float(parts[11]) if len(parts) > 11 else 0.0;
                     v_offset = float(parts[12]) if len(parts) > 12 else 0.0;
                     tex_angle_deg = float(parts[13]) if len(parts) > 13 else 0.0;
-                    uv_mode = int(parts[14]) if len(parts) > 14 else 1;
+                    uv_mode = int(parts[14]) if len(parts) > 14 else 2; # uvmode
                     uscale = float(parts[15]) if len(parts) > 15 and uv_mode == 0 else 1.0;
                     vscale = float(parts[16]) if len(parts) > 16 and uv_mode == 0 else 1.0
                 except ValueError: pass
@@ -775,6 +796,119 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 scene_to_populate.map_world_center_z = center_z
                 scene_to_populate.map_world_scale = scale_val
 
+            elif command == "gableroof":
+                # 預期參數個數：cmd(1) + rel_xyz(3) + abs_ry(1) + base_wl(2) + ridge_h(1) = 8 個是基本必需的
+                # 加上可選的 abs_rx, abs_rz，則為 10 個
+                # 我們將 abs_ry 設為必需，rx, rz 可選
+                num_required_parts_in_cmd = 8 # cmd, rel_xyz, abs_ry, base_w, base_l, ridge_h_off
+                
+                if len(parts) < num_required_parts_in_cmd:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) '{command}' 指令必需參數不足。需要至少 {num_required_parts_in_cmd-1} 個參數，得到 {len(parts)-1} 個。")
+                    continue
+                try:
+                    p_idx = 1
+                    rel_x = float(parts[p_idx]); p_idx += 1
+                    rel_y = float(parts[p_idx]); p_idx += 1
+                    rel_z = float(parts[p_idx]); p_idx += 1
+                    
+                    # 旋轉參數 abs_rx?, abs_ry, abs_rz?
+                    # 為了簡化，我們先假設 abs_ry 是必需的，在 abs_rx 和 abs_rz 之間
+                    # 或者我們按順序解析，如果不存在則用預設值
+                    abs_rx_val = float(parts[p_idx]) if len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0
+                    if abs_rx_val != 0.0 or (len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit()): # 如果提供了rx或看起來像數字
+                        p_idx +=1
+                    
+                    abs_ry_val = float(parts[p_idx]) if len(parts) > p_idx else 0.0 # abs_ry 應該是必需的
+                    p_idx +=1
+                    
+                    abs_rz_val = float(parts[p_idx]) if len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0
+                    if abs_rz_val != 0.0 or (len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit()):
+                        p_idx +=1
+
+                    base_w = float(parts[p_idx]); p_idx += 1
+                    base_l = float(parts[p_idx]); p_idx += 1
+                    ridge_h_off = float(parts[p_idx]); p_idx += 1
+
+                    if base_w <= 0 or base_l <= 0 or ridge_h_off < 0: # ridge_h_off 可以為0（平頂）或正
+                        print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) '{command}' 尺寸參數 (base_w, base_l) 必須為正，ridge_h_off 必須非負。")
+                        continue
+
+                    # 可選參數
+                    ridge_x_pos_offset = float(parts[p_idx]) if len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0
+                    if ridge_x_pos_offset != 0.0 or (len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit()):
+                        p_idx += 1
+                        
+                    eave_overhang_x = float(parts[p_idx]) if len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0
+                    if eave_overhang_x != 0.0 or (len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit()):
+                         p_idx += 1
+
+                    eave_overhang_z = float(parts[p_idx]) if len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0
+                    if eave_overhang_z != 0.0 or (len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit()):
+                         p_idx += 1
+                         
+                    texture_atlas_file = parts[p_idx] if len(parts) > p_idx else "default_roof_atlas.png"
+                    # p_idx += 1 # 如果後面還有參數
+
+
+                except (ValueError, IndexError) as e_parse:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) '{command}' 參數解析錯誤: {e_parse}")
+                    continue
+
+                # 紋理加載 (與 building 類似)
+                gl_texture_id = None
+                texture_has_alpha_flag = False
+                if load_textures and texture_loader:
+                    tex_info = texture_loader.load_texture(texture_atlas_file)
+                    if tex_info:
+                        gl_texture_id = tex_info.get("id")
+                        texture_has_alpha_flag = tex_info.get("has_alpha", False)
+                
+                # 轉換到世界座標 (基準點轉換)
+                origin_pos = scene_to_populate.current_relative_origin_pos
+                origin_angle_rad = scene_to_populate.current_relative_origin_angle_rad
+                
+                cos_oa = math.cos(origin_angle_rad)
+                sin_oa = math.sin(origin_angle_rad)
+                
+                # 假設 rel_x, rel_z 是在父級 XZ 平面內的偏移
+                # Z 軸是父級向前，X 軸是父級向右
+                # 為了與 building 的 rel_z * cos_a + rel_x * sin_a (x) 和 rel_z * sin_a - rel_x * cos_a (z) 保持一致
+                # 這假設 rel_x 是側向偏移，rel_z 是向前偏移
+                world_offset_x = rel_z * cos_oa + rel_x * sin_oa # 如果 rel_x 是側向 (局部X), rel_z 是向前 (局部Z)
+                world_offset_z = rel_z * sin_oa - rel_x * cos_oa 
+                # 或者，如果希望 rel_x, rel_z 的行為與 building 完全一樣：
+                # world_offset_x = rel_z * cos_oa + rel_x * sin_oa 
+                # world_offset_z = rel_z * sin_oa - rel_x * cos_oa
+                # 這取決於你定義 rel_x, rel_z 相對於父朝向的局部座標系。
+                # 我們暫時用與 building 相同的：
+                world_offset_x_std = rel_z * cos_oa + rel_x * sin_oa 
+                world_offset_z_std = rel_z * sin_oa - rel_x * cos_oa
+
+                world_x = origin_pos[0] + world_offset_x_std
+                world_y = origin_pos[1] + rel_y # rel_y 是絕對的Y偏移，疊加到父原點的Y上
+                world_z = origin_pos[2] + world_offset_z_std
+                
+                # 旋轉值直接使用解析出來的 abs_rx_val, abs_ry_val, abs_rz_val
+
+                final_world_ry_deg = math.degrees(origin_angle_rad) + abs_ry_val
+                final_world_ry_from_abs_ry = math.degrees(origin_angle_rad) + abs_ry_val
+
+                world_rx_to_render = abs_rx_val
+                world_ry_to_render = final_world_ry_from_abs_ry # 結合了父軌道和自身的Y旋轉
+                world_rz_to_render = abs_rz_val
+                absolute_ry_deg = math.degrees(-origin_angle_rad) + abs_ry_val - 90
+                gableroof_data_tuple = (
+                    # 定位與世界旋轉 (6)
+                    world_x, world_y, world_z, 
+                    abs_rx_val, absolute_ry_deg, abs_rz_val,
+                    # 核心幾何參數 (4)
+                    base_w, base_l, ridge_h_off, # eave_h 暫時不用，讓 rel_y 直接定義屋簷Y
+                    # 形狀調整參數 (3)
+                    ridge_x_pos_offset, eave_overhang_x, eave_overhang_z,
+                    # 紋理信息 (3)
+                    gl_texture_id, texture_has_alpha_flag, texture_atlas_file
+                )
+                scene_to_populate.gableroofs.append((line_identifier_for_object, gableroof_data_tuple))
             else:
                 print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 未知指令 '{command}'")
 
