@@ -707,7 +707,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 origin_angle = scene_to_populate.current_relative_origin_angle_rad; cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = scene_to_populate.current_relative_origin_pos[0] + world_offset_x; world_y = scene_to_populate.current_relative_origin_pos[1] + rel_y; world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z
-                obj_data_tuple = (world_x, world_y, world_z, height, tex_id, tex_file) # 保持樹的元組結構
+                obj_data_tuple = ("tree", world_x, world_y, world_z, height, tex_id, tex_file) # 保持樹的元組結構
                 scene_to_populate.trees.append((line_identifier_for_object, obj_data_tuple))
                 
             elif command == "sphere":
@@ -756,6 +756,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                         texture_has_alpha_flag = tex_info.get("has_alpha", False)
 
                 hill_data_tuple = (
+                    "hill",
                     center_x, base_y, center_z,
                     base_radius, peak_height_offset,
 #                     tex_id,
@@ -765,6 +766,9 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     gl_texture_id_from_loader, # OpenGL 紋理 ID
                     texture_has_alpha_flag # 新增的 Alpha 標誌
                     )
+#                 print(f"DEBUG PARSER: Packing hill_data_tuple for line '{line_identifier_for_object}':")
+#                 for i, val in enumerate(hill_data_tuple):
+#                     print(f"  Index {i}: Value = {val}, Type = {type(val)}")
                 scene_to_populate.hills.append((line_identifier_for_object, hill_data_tuple))
 
             elif command == "skybox":
@@ -898,6 +902,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 world_rz_to_render = abs_rz_val
                 absolute_ry_deg = math.degrees(-origin_angle_rad) + abs_ry_val - 90
                 gableroof_data_tuple = (
+                    "gableroof",
                     # 定位與世界旋轉 (6)
                     world_x, world_y, world_z, 
                     abs_rx_val, absolute_ry_deg, abs_rz_val,

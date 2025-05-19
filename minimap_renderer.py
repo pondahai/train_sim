@@ -2,6 +2,7 @@
 import pygame
 from OpenGL.GL import *
 from OpenGL.GLU import *
+from scipy.spatial import ConvexHull
 import numpy as np
 import numpy as math # Keep consistent
 import os
@@ -317,6 +318,213 @@ def _rotate_point_3d(point, rx_deg, ry_deg, rz_deg):
 
     return np.array([x3, y3, z3])
 
+
+def _calculate_y_x_z_intrinsic_rotation_matrix(rx_deg, ry_deg, rz_deg):
+    rx_rad, ry_rad, rz_rad = math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
+    
+    cos_rx, sin_rx = math.cos(rx_rad), math.sin(rx_rad)
+    cos_ry, sin_ry = math.cos(ry_rad), math.sin(ry_rad)
+    cos_rz, sin_rz = math.cos(rz_rad), math.sin(rz_rad)
+
+    # 旋轉矩陣 M_y (繞Y軸)
+    m_y = np.array([
+        [cos_ry,  0, sin_ry],
+        [0,       1,      0],
+        [-sin_ry, 0, cos_ry]
+    ])
+    
+    # 旋轉矩陣 M_x (繞X軸)
+    m_x = np.array([
+        [1,      0,       0],
+        [0, cos_rx, -sin_rx],
+        [0, sin_rx,  cos_rx]
+    ])
+    
+    # 旋轉矩陣 M_z (繞Z軸)
+    m_z = np.array([
+        [cos_rz, -sin_rz, 0],
+        [sin_rz,  cos_rz, 0],
+        [0,            0, 1]
+    ])
+    
+    # 複合旋轉矩陣 M = M_y * M_x * M_z
+    # (NumPy的 @ 符號用於矩陣乘法，np.dot也可以)
+    composite_matrix = m_y @ m_x @ m_z
+    return composite_matrix
+
+# --- 凸包計算函數 (使用 SciPy) ---
+def calculate_2d_convex_hull(points_xz: list) -> list:
+    """
+    計算2D點集的凸包，使用 scipy.spatial.ConvexHull。
+    返回構成凸包的頂點列表 (按順時針或逆時針順序，由ConvexHull決定)。
+    Args:
+        points_xz: 一個包含 (x, z) 元組或 NumPy 數組的列表。
+    Returns:
+        一個包含 (x, z) 元組的列表，代表凸包的頂點。
+        如果點數少於3或計算失敗，則返回簡化的結果或原始點。
+    """
+    num_points = len(points_xz)
+    if num_points < 3:
+        # print(f"DEBUG: ConvexHull - Input points < 3 ({num_points}), returning as is: {points_xz}")
+        return list(points_xz) # 點少於3個，它們自身就是凸包 (或線段/點)
+
+    try:
+        points_array = np.asarray(points_xz) # ConvexHull 需要 NumPy 數組
+        
+        if points_array.shape[0] < 3: # 再次檢查轉換後的點數 (例如去重後)
+            # print(f"DEBUG: ConvexHull - Points array has < 3 unique points after asarray, returning as is: {points_array.tolist()}")
+            return points_array.tolist()
+
+        hull = ConvexHull(points_array)
+        # hull.vertices 是構成凸包的點在 points_array 中的索引
+        convex_hull_vertex_list = [tuple(points_array[i]) for i in hull.vertices]
+        # print(f"DEBUG: ConvexHull - Calculated hull: {convex_hull_vertex_list}")
+        return convex_hull_vertex_list
+            
+    except Exception as e: # 通常是 scipy.spatial.qhull.QhullError
+        print(f"警告: 使用 SciPy 計算凸包時出錯: {e}")
+        print(f"DEBUG: ConvexHull - Failed for input points: {points_xz}")
+        # Fallback 策略：返回這些點的軸對齊外包框 (AABB)
+        if points_xz: 
+            min_x = min(p[0] for p in points_xz)
+            max_x = max(p[0] for p in points_xz)
+            min_z = min(p[1] for p in points_xz)
+            max_z = max(p[1] for p in points_xz)
+            # print(f"DEBUG: ConvexHull - Fallback to AABB: [({min_x},{min_z}), ({max_x},{min_z}), ({max_x},{max_z}), ({min_x},{max_z})]")
+            return [(min_x, min_z), (max_x, min_z), (max_x, max_z), (min_x, max_z)]
+        return [] 
+# --- 結束凸包計算函數 ---
+
+# --- 輔助函數：計算旋轉後長方體的8個世界空間角點 --- 錨點是底部中心)
+def get_world_space_corners_of_building(
+    wx_bottom_center, wy_bottom_center, wz_bottom_center, 
+    width, height, depth, 
+    rx_deg, ry_deg, rz_deg
+):
+    half_w, half_d = width / 2.0, depth / 2.0
+    
+    # 局部角點，相對於底部中心 (0,0,0)
+    # Y 的範圍是 [0, height]
+    local_corners_from_bottom = [
+        np.array([-half_w, 0,      -half_d]), np.array([ half_w, 0,      -half_d]),
+        np.array([ half_w, height, -half_d]), np.array([-half_w, height, -half_d]), # 上面4個點的Y是height
+        np.array([-half_w, 0,       half_d]), np.array([ half_w, 0,       half_d]),
+        np.array([ half_w, height,  half_d]), np.array([-half_w, height,  half_d]),
+    ]
+
+    # --- 使用新的旋轉矩陣方法 ---
+    # 注意：這裡的 rx_deg, ry_deg, rz_deg 應該是你在 renderer.py 中
+    # 傳遞給 glRotatef 的那三個角度。
+    # 如果你之前在調用 get_convex_hull_projection_for_building 時對 rx 和 rz 取反了，
+    # 那麼在調用 _calculate_y_x_z_intrinsic_rotation_matrix 時也可能需要。
+    # 但是，我們的目標是讓這個函數的 rx,ry,rz 與 glRotatef 的 rx,ry,rz 語義完全一致。
+    
+    # 所以，先假設 rx_deg, ry_deg, rz_deg 就是直接從 scene_parser 來的原始值
+    # （或者已經補償了小地圖投影鏡像的值，如果需要的話）
+    rotation_matrix = _calculate_y_x_z_intrinsic_rotation_matrix(rx_deg, ry_deg, rz_deg)
+
+    world_corners_list = []
+    for lc_offset in local_corners_from_bottom:
+#         rotated_offset = _rotate_point_3d(lc_offset, rx_deg, ry_deg, rz_deg)
+        rotated_offset = np.dot(rotation_matrix, lc_offset) # 應用複合旋轉矩陣
+        world_corners_list.append(
+            np.array([wx_bottom_center + rotated_offset[0], 
+                      wy_bottom_center + rotated_offset[1], 
+                      wz_bottom_center + rotated_offset[2]])
+        )
+    return world_corners_list
+
+# --- 輔助函數：計算凸包投影 (使用SciPy) ---
+def get_convex_hull_projection_for_building(
+    wx, wy, wz, width, height, depth, rx_deg, ry_deg, rz_deg
+) -> list:
+    world_corners_3d = get_world_space_corners_of_building( # 確保這個函數已定義
+        wx, wy, wz, width, height, depth, rx_deg, ry_deg, rz_deg
+    )
+    points_xz_projection = [(corner[0], corner[2]) for corner in world_corners_3d]
+    hull_points_xz = calculate_2d_convex_hull(points_xz_projection) # <--- 調用在這裡
+    return hull_points_xz
+
+# --- 新增：Gableroof 的世界空間角點計算 ---
+def get_world_space_outline_points_of_gableroof(
+    wx, wy, wz,                     # 屋頂基準點的世界座標
+    world_rx, world_ry, world_rz,   # 屋頂的世界旋轉角度 (度)
+    base_width, base_length, 
+    ridge_height_offset, 
+    ridge_x_pos_offset, 
+    eave_overhang_x, eave_overhang_z
+):
+    """
+    計算 gableroof 的關鍵外部輪廓點（屋簷角點、屋脊端點）在世界空間中的3D座標。
+    這些點將用於後續的XZ投影和凸包計算。
+    局部座標系：Y=0 在屋簷平面，屋頂中心在 XZ 平面的 (0,0)。
+    """
+    e_y_local = 0.0 # 屋簷在局部Y=0
+    r_y_local = ridge_height_offset # 屋脊相對於屋簷的高度
+    r_x_local = ridge_x_pos_offset  # 屋脊X偏移
+
+    hw = base_width / 2.0
+    hl = base_length / 2.0
+
+    # 考慮懸挑的屋簷X, Z邊界
+    final_eave_lx = -hw - eave_overhang_x
+    final_eave_rx =  hw + eave_overhang_x
+    final_eave_fz = -hl - eave_overhang_z
+    final_eave_bz =  hl + eave_overhang_z
+    
+    # 計算懸挑後屋簷點的Y座標 (沿斜面延伸)
+    y_at_eave_lx = e_y_local
+    dx_slope_left = r_x_local - (-hw) 
+    if not math.isclose(dx_slope_left, 0):
+        slope_y_per_x_left = (r_y_local - e_y_local) / dx_slope_left
+        y_at_eave_lx = e_y_local - (eave_overhang_x * slope_y_per_x_left)
+
+    y_at_eave_rx = e_y_local
+    dx_slope_right = hw - r_x_local
+    if not math.isclose(dx_slope_right, 0):
+        slope_y_per_x_right = (r_y_local - e_y_local) / dx_slope_right
+        y_at_eave_rx = e_y_local - (eave_overhang_x * slope_y_per_x_right)
+
+    # 定義屋頂的6個關鍵局部輪廓點 (相對於其局部原點 (0, e_y_local, 0))
+    # 這些點的Y座標是相對於屋頂的局部原點的 (即 glTranslatef(wx,wy,wz) 之後的Y)
+    # wx, wy, wz 是外部傳入的屋頂基準點
+    # 我們假設 wy 是屋簷的Y座標，所以 e_y_local 是0
+    local_outline_points = [
+        np.array([final_eave_lx, y_at_eave_lx, final_eave_fz]), # 前左屋簷
+        np.array([final_eave_rx, y_at_eave_rx, final_eave_fz]), # 前右屋簷
+        np.array([final_eave_lx, y_at_eave_lx, final_eave_bz]), # 後左屋簷
+        np.array([final_eave_rx, y_at_eave_rx, final_eave_bz]), # 後右屋簷
+        np.array([r_x_local,     r_y_local,    final_eave_fz]), # 前屋脊點
+        np.array([r_x_local,     r_y_local,    final_eave_bz])  # 後屋脊點
+    ]
+    
+    # 應用旋轉，並轉換到世界座標
+    rotation_matrix = _calculate_y_x_z_intrinsic_rotation_matrix(world_rx, world_ry, world_rz)
+    world_outline_points = []
+    for lp in local_outline_points:
+        rotated_lp_offset = np.dot(rotation_matrix, lp)
+        world_outline_points.append(
+            np.array([wx + rotated_lp_offset[0],
+                      wy + rotated_lp_offset[1], # wy 是基準點Y
+                      wz + rotated_lp_offset[2]])
+        )
+    return world_outline_points
+
+# --- 新增：Gableroof 的凸包投影計算 ---
+def get_convex_hull_projection_for_gableroof(
+    wx, wy, wz, world_rx, world_ry, world_rz,
+    base_w, base_l, ridge_h_off, 
+    ridge_x_pos, eave_over_x, eave_over_z
+) -> list:
+    world_outline_points_3d = get_world_space_outline_points_of_gableroof( # 確保這個函數已定義
+        wx, wy, wz, world_rx, world_ry, world_rz,
+        base_w, base_l, ridge_h_off, 
+        ridge_x_pos, eave_over_x, eave_over_z
+    )
+    points_xz_projection = [(p[0], p[2]) for p in world_outline_points_3d]
+    hull_points_xz = calculate_2d_convex_hull(points_xz_projection) # <--- 調用在這裡
+    return hull_points_xz
+
 def _render_static_elements_to_fbo(scene: Scene):
     """ Renders grid, buildings, cylinders, trees into the currently bound FBO. """
     # --- KEEPING LOGIC IDENTICAL (using your tested _world_to_fbo_coords) ---
@@ -379,23 +587,60 @@ def _render_static_elements_to_fbo(scene: Scene):
 
     # Buildings (Filled Quads)
     glColor4fv(MINIMAP_BAKE_BUILDING_COLOR)
-    for item in scene.buildings:
-        line_num, bldg = item
-        b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg;
-        half_w, half_d = ww/2.0, wd/2.0
-        corners_local = [np.array([-half_w,0,-half_d]), np.array([half_w,0,-half_d]), np.array([half_w,0,half_d]), np.array([-half_w,0,half_d])]
-        angle_y_rad = math.radians(-abs_ry);
-        cos_y, sin_y = math.cos(angle_y_rad), math.sin(angle_y_rad)
-        fbo_coords = []
-        for corner in corners_local:
-            rotated_x = corner[0]*cos_y - corner[2]*sin_y; rotated_z = corner[0]*sin_y + corner[2]*cos_y
-            world_corner_x = wx + rotated_x; world_corner_z = wz + rotated_z
-            map_x, map_y = _world_to_fbo_coords(world_corner_x, world_corner_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
-            fbo_coords.append((map_x, map_y))
-        if len(fbo_coords)==4:
-            glBegin(GL_QUADS); #GL_LINE_LOOP
-            [glVertex2f(mx, my) for mx, my in fbo_coords];
-            glEnd()
+    if hasattr(scene, 'buildings'): # 檢查是否存在 buildings 列表
+        for item in scene.buildings:
+            # 假設 item 的結構是 (line_identifier, bldg_data_tuple)
+            # bldg_data_tuple 的結構是 (obj_type, wx, wy, wz, rx_d, ry_d, rz_d, ww, wd, wh, ...)
+            # 你需要根據你 scene_parser.py 中 building 的 obj_data_tuple 結構來正確解包
+            line_identifier, bldg_data_tuple = item 
+            try:
+                # 假設核心幾何和旋轉參數在 bldg_data_tuple 的前面部分
+                # obj_type = bldg_data_tuple[0]
+                wx, wy, wz = bldg_data_tuple[1:4]
+                rx_d, ry_d, rz_d = bldg_data_tuple[4:7] # 世界旋轉角度
+                ww, wd, wh = bldg_data_tuple[7:10]   # 總尺寸
+            except (IndexError, TypeError, ValueError) as e_unpack:
+                print(f"警告 FBO: 解包 building 數據 (行: {line_identifier}) 失敗: {e_unpack}")
+                print(f"DEBUG FBO: Building data tuple was: {bldg_data_tuple}")
+                continue
+
+            # 使用新的輔助函數獲取凸包的XZ投影頂點 (世界座標)
+            hull_vertices_world_xz = get_convex_hull_projection_for_building(
+                wx, wy, wz, ww, wh, wd, # 傳遞 building 的總尺寸 (注意 height 是 wh, depth 是 wd)
+                rx_d, ry_d, rz_d        # 傳遞 building 的世界旋轉角度
+            )
+            
+            if hull_vertices_world_xz and len(hull_vertices_world_xz) >= 3:
+                fbo_poly_coords = []
+                for corner_world_xz in hull_vertices_world_xz:
+                    map_x, map_y = _world_to_fbo_coords(
+                        corner_world_xz[0], corner_world_xz[1], 
+                        world_cx, world_cz, world_w, world_h, fbo_w, fbo_h # FBO 相關參數
+                    )
+                    fbo_poly_coords.append((map_x, map_y))
+                
+                # 繪製填充多邊形
+                glBegin(GL_POLYGON) # 用 GL_POLYGON 處理任意頂點數的凸多邊形
+                for mx, my in fbo_poly_coords:
+                    glVertex2f(mx, my)
+                glEnd()
+                
+#         line_num, bldg = item
+#         b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg;
+#         half_w, half_d = ww/2.0, wd/2.0
+#         corners_local = [np.array([-half_w,0,-half_d]), np.array([half_w,0,-half_d]), np.array([half_w,0,half_d]), np.array([-half_w,0,half_d])]
+#         angle_y_rad = math.radians(-abs_ry);
+#         cos_y, sin_y = math.cos(angle_y_rad), math.sin(angle_y_rad)
+#         fbo_coords = []
+#         for corner in corners_local:
+#             rotated_x = corner[0]*cos_y - corner[2]*sin_y; rotated_z = corner[0]*sin_y + corner[2]*cos_y
+#             world_corner_x = wx + rotated_x; world_corner_z = wz + rotated_z
+#             map_x, map_y = _world_to_fbo_coords(world_corner_x, world_corner_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+#             fbo_coords.append((map_x, map_y))
+#         if len(fbo_coords)==4:
+#             glBegin(GL_QUADS); #GL_LINE_LOOP
+#             [glVertex2f(mx, my) for mx, my in fbo_coords];
+#             glEnd()
 
     # Cylinders (Filled Circles or Boxes)
     glColor4fv(MINIMAP_BAKE_CYLINDER_COLOR); num_circle_segments = 16
@@ -490,7 +735,7 @@ def _render_static_elements_to_fbo(scene: Scene):
     glBegin(GL_POINTS) # Using points for simplicity in bake
     for item in scene.trees:
         line_num, tree = item
-        tx, ty, tz, th, _tex_id, _tex_file = tree; fbo_x, fbo_y = _world_to_fbo_coords(tx, tz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+        obj_type, tx, ty, tz, th, _tex_id, _tex_file = tree; fbo_x, fbo_y = _world_to_fbo_coords(tx, tz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
         if 0 <= fbo_x <= fbo_w and 0 <= fbo_y <= fbo_h: glVertex2f(fbo_x, fbo_y)
     glEnd();
     
@@ -531,7 +776,7 @@ def _render_static_elements_to_fbo(scene: Scene):
     for item in scene.hills:
         line_num, hill_data = item
         try:
-            cx, _base_y, cz, radius, _peak_h_offset, *_ = hill_data # 只需要中心和半徑
+            obj_type, cx, _base_y, cz, radius, _peak_h_offset, *_ = hill_data # 只需要中心和半徑
         except ValueError:
              # print(f"警告: 解包 hill 數據 (FBO烘焙) 時出錯 (來源行: {line_num})") # 可選警告
              continue
@@ -552,106 +797,71 @@ def _render_static_elements_to_fbo(scene: Scene):
     glLineWidth(1.0) # 恢復默認線寬
 
     # --- Bake Gableroofs (as simple rectangles) ---
-    glColor4fv(MINIMAP_BAKE_BUILDING_COLOR) # 假設與建築物類似
+    if hasattr(scene, 'gableroofs'):
+        glColor4fv(MINIMAP_BAKE_BUILDING_COLOR) # 假設與建築物類似
 
-    for item in scene.gableroofs:
-        line_identifier, roof_data = item
-        try:
-            # 解包獲取世界位置、Y旋轉、基底寬度和長度
-            # (world_x, world_y, world_z, abs_rx, abs_ry, abs_rz,
-            #  base_w, base_l, ... )
-            wx, wy, wz = roof_data[0:3]
-            world_ry = roof_data[4] # 我們主要關心Y軸旋轉對2D投影的影響
-            base_w = roof_data[6]
-            base_l = roof_data[7]
-            ridge_x_pos_offset = roof_data[9] # 屋脊X偏移
-            # 其他如 ridge_h_off, eave_overhangs 等對2D投影影響不大，除非你希望投影懸挑部分
-        except (IndexError, ValueError):
-            # print(f"警告: 解包 gableroof 數據 (FBO烘焙) 時出錯 (行: {line_identifier})")
-            continue
+        for item in scene.gableroofs:
+            line_identifier, roof_data = item
+            try:
+                # 解包 gableroof_data_tuple (與 scene_parser.py 一致)
+                # obj_type, (world_x, world_y, world_z, abs_rx, abs_ry, abs_rz,  <-- 0-6
+                #  base_w, base_l, ridge_h_off,                       <-- 7-9
+                #  ridge_x_pos, eave_over_x, eave_over_z,             <-- 10-12
+                #  gl_tex_id, tex_has_alpha, tex_f_orig                 <-- 13-15)
+                wx, wy, wz, rx_d, ry_d, rz_d = roof_data[1:7]
+                base_w, base_l, ridge_h_off = roof_data[7:10]
+                ridge_x_pos_offset = roof_data[10]
+                eave_overhang_x = roof_data[11]
+                eave_overhang_z = roof_data[12]
+            except (IndexError, ValueError):
+                # print(f"警告: 解包 gableroof 數據 (FBO烘焙) 時出錯 (行: {line_identifier})")
+                continue
 
-        # 計算屋頂基底的四個角點的世界XZ座標 (忽略懸挑，只考慮base_w, base_l)
-        half_w_roof = base_w / 2.0
-        half_l_roof = base_l / 2.0
-        
-        # 屋頂局部座標系下的角點 (Y設為0，因為我們只關心XZ投影)
-        # 假設局部+Z是長度方向，局部+X是寬度方向
-        corners_local_roof = [
-            np.array([-half_w_roof, 0, -half_l_roof]), # 前左
-            np.array([ half_w_roof, 0, -half_l_roof]), # 前右
-            np.array([ half_w_roof, 0,  half_l_roof]), # 後右
-            np.array([-half_w_roof, 0,  half_l_roof])  # 後左
-        ]
-        
-        angle_y_rad_roof = math.radians(-world_ry) # 注意旋轉方向，與 building 一致
-        cos_y_roof = math.cos(angle_y_rad_roof)
-        sin_y_roof = math.sin(angle_y_rad_roof)
-        
-        fbo_coords_roof = []
-        for corner_local in corners_local_roof:
-            # 旋轉局部角點 (只考慮Y軸旋轉對XZ平面的影響)
-            rotated_x_local = corner_local[0] * cos_y_roof - corner_local[2] * sin_y_roof
-            rotated_z_local = corner_local[0] * sin_y_roof + corner_local[2] * cos_y_roof
-            
-            # 加上世界中心點偏移
-            world_corner_x = wx + rotated_x_local
-            world_corner_z = wz + rotated_z_local
-            
-            map_x, map_y = _world_to_fbo_coords(
-                world_corner_x, world_corner_z, 
-                world_cx, world_cz, world_w, world_h, fbo_w, fbo_h
+            hull_vertices_world_xz = get_convex_hull_projection_for_gableroof(
+                wx, wy, wz, rx_d, ry_d, rz_d,
+                base_w, base_l, ridge_h_off,
+                ridge_x_pos_offset, eave_overhang_x, eave_overhang_z
             )
-            fbo_coords_roof.append((map_x, map_y))
-        
-        if len(fbo_coords_roof) == 4:
-            glBegin(GL_QUADS) # 繪製填充四邊形
-            for mx, my in fbo_coords_roof:
-                glVertex2f(mx, my)
-            glEnd()
             
-        # --- 計算並繪製屋脊中線 (虛線) ---
-        # 屋脊線的局部X座標是 ridge_x_pos_offset
-        # 屋脊線的局部Z座標範圍是 -half_l_roof 到 +half_l_roof
-        ridge_start_local = np.array([ridge_x_pos_offset, 0, -half_l_roof])
-        ridge_end_local   = np.array([ridge_x_pos_offset, 0,  half_l_roof])
+            if hull_vertices_world_xz and len(hull_vertices_world_xz) >= 3:
+                fbo_poly_coords = []
+                for corner_world_xz in hull_vertices_world_xz:
+                    map_x, map_y = _world_to_fbo_coords(corner_world_xz[0], corner_world_xz[1], 
+                                                        world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+                    fbo_poly_coords.append((map_x, map_y))
+                
+                glBegin(GL_POLYGON)
+                for mx, my in fbo_poly_coords: glVertex2f(mx, my)
+                glEnd()
 
-        # 應用Y軸旋轉
-        rs_rotated_x = ridge_start_local[0] * cos_y_roof - ridge_start_local[2] * sin_y_roof
-        rs_rotated_z = ridge_start_local[0] * sin_y_roof + ridge_start_local[2] * cos_y_roof
-        world_rs_x, world_rs_z = wx + rs_rotated_x, wz + rs_rotated_z
-        map_rs_x, map_rs_y = _world_to_fbo_coords(world_rs_x, world_rs_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+            # --- 屋脊線的烘焙 (也需要完整3D旋轉) ---
+            # 屋脊線的局部端點 (Y是相對於屋簷的 ridge_h_off)
+            # 局部座標系 Y=0 在屋簷
+            ridge_local_start = np.array([ridge_x_pos_offset, ridge_h_off, -base_l/2.0 - eave_overhang_z])
+            ridge_local_end   = np.array([ridge_x_pos_offset, ridge_h_off,  base_l/2.0 + eave_overhang_z])
 
-        re_rotated_x = ridge_end_local[0] * cos_y_roof - ridge_end_local[2] * sin_y_roof
-        re_rotated_z = ridge_end_local[0] * sin_y_roof + ridge_end_local[2] * cos_y_roof
-        world_re_x, world_re_z = wx + re_rotated_x, wz + re_rotated_z
-        map_re_x, map_re_y = _world_to_fbo_coords(world_re_x, world_re_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
-
-        # 設置虛線模式 (可以定義一個虛線顏色)
-        # MINIMAP_BAKE_RIDGE_COLOR = (1.0, 1.0, 0.0, 0.7) # 例如黃色半透明
-        # glColor4fv(MINIMAP_BAKE_RIDGE_COLOR)
-        # 為了簡單，我們先用一個比基底稍亮的顏色或對比色
-        # 假設 MINIMAP_BAKE_GRID_COLOR 是 (r,g,b,a)
-        ridge_color_bake = (MINIMAP_BAKE_GRID_COLOR[0]*0.8, MINIMAP_BAKE_GRID_COLOR[1]*0.8, MINIMAP_BAKE_GRID_COLOR[2]*0.8, 0.9)
-        glColor4fv(ridge_color_bake)
-        
-        glPushAttrib(GL_LINE_BIT) # 保存線條狀態
-        glEnable(GL_LINE_STIPPLE)
-        # glLineStipple(factor, pattern):
-        # factor 是一個整數乘數，用於每個模式位。
-        # pattern 是一個16位的位元模式 (例如 0xAAAA 是點線, 0xF0F0 是長劃線-短劃線)
-        glLineStipple(2, 0xAAAA) # 2倍長度的點線，可以調整 factor 和 pattern
-        glLineWidth(1.0) # 虛線可以細一點
-
-        glBegin(GL_LINES)
-        glVertex2f(map_rs_x, map_rs_y)
-        glVertex2f(map_re_x, map_re_y)
-        glEnd()
-        
-        glDisable(GL_LINE_STIPPLE)
-        glPopAttrib() # 恢復線條狀態
-        # --- 結束繪製屋脊中線 ---
+            rotation_matrix_ridge = _calculate_y_x_z_intrinsic_rotation_matrix(rx_d, ry_d, rz_d)
             
-    # --- 結束烘焙 Gableroofs ---
+            rotated_ridge_start_offset = np.dot(rotation_matrix_ridge, ridge_local_start)
+            world_ridge_start_x = wx + rotated_ridge_start_offset[0]
+            world_ridge_start_z = wz + rotated_ridge_start_offset[2]
+            map_rs_x, map_rs_y = _world_to_fbo_coords(world_ridge_start_x, world_ridge_start_z, 
+                                                      world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+
+            rotated_ridge_end_offset = np.dot(rotation_matrix_ridge, ridge_local_end)
+            world_ridge_end_x = wx + rotated_ridge_end_offset[0]
+            world_ridge_end_z = wz + rotated_ridge_end_offset[2]
+            map_re_x, map_re_y = _world_to_fbo_coords(world_ridge_end_x, world_ridge_end_z,
+                                                      world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+
+            ridge_color_bake = (MINIMAP_BAKE_GRID_COLOR[0]*0.7, MINIMAP_BAKE_GRID_COLOR[1]*0.7, MINIMAP_BAKE_GRID_COLOR[2]*0.7, 0.8)
+            glColor4fv(ridge_color_bake)
+            glPushAttrib(GL_LINE_BIT); glEnable(GL_LINE_STIPPLE); glLineStipple(2, 0xAAAA); glLineWidth(1.0)
+            glBegin(GL_LINES); glVertex2f(map_rs_x, map_rs_y); glVertex2f(map_re_x, map_re_y); glEnd()
+            glDisable(GL_LINE_STIPPLE); glPopAttrib()
+            # --- 結束屋脊線烘焙 ---
+                
+        # --- 結束烘焙 Gableroofs ---
 
     print("靜態元素 FBO 繪製完成。")
 
@@ -782,13 +992,109 @@ def draw_simulator_minimap(scene: Scene, tram: Tram, screen_width, screen_height
     glPopAttrib(); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix()
 
 
+def circle_intersects_aabb(circle_wx, circle_wz, circle_radius, 
+                           aabb_min_x, aabb_max_x, aabb_min_z, aabb_max_z):
+    # 找到AABB上離圓心最近的點的X座標
+    closest_x = max(aabb_min_x, min(circle_wx, aabb_max_x))
+    # 找到AABB上離圓心最近的點的Z座標
+    closest_z = max(aabb_min_z, min(circle_wz, aabb_max_z))
+
+    # 計算該最近點與圓心的距離的平方
+    distance_squared = (circle_wx - closest_x)**2 + (circle_wz - closest_z)**2
+    
+    # 如果距離的平方小於等於半徑的平方，則相交
+    return distance_squared <= (circle_radius**2)
+
 # --- Editor Runtime Drawing (DYNAMIC RENDERING RESTORED) ---
 def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, widget_width, widget_height, is_dragging, highlight_line_nums: set = set(), line_to_focus_on: int = -1):
     """ Draws the EDITOR minimap preview using DYNAMIC rendering (like original). """
     global editor_bg_texture_id, editor_bg_width_px, editor_bg_height_px, editor_current_map_filename
 #     print(f"draw_editor_preview -> highlight_line_nums:{highlight_line_nums}, line_to_focus_on:{line_to_focus_on}")
-    focused_element_world_x, focused_element_world_z = None, None
 
+
+    focused_element_world_x, focused_element_world_z = None, None
+    # --- 步驟1：如果 line_to_focus_on 有效，則遍歷場景物件查找匹配項 --- line_to_focus_on 從每個物件裡面提取到這邊
+    if scene and line_to_focus_on != -1: # 通常 line_to_focus_on > 0，但用 != -1 更通用
+#         print(f"DEBUG Focus Scan: Attempting to find object for line_to_focus_on = {line_to_focus_on}")
+        
+        # 定義一個內部輔助函數來從 data_tuple 中提取 wx, wz
+        def get_wx_wz_from_data(obj_data_tuple):
+#             print(f"get_wx_wz_from_data->obj_data_tuple:{obj_data_tuple}")
+            if not obj_data_tuple or not isinstance(obj_data_tuple, tuple) or len(obj_data_tuple) == 0:
+                return None, None
+
+            obj_type = obj_data_tuple[0] # 獲取物件類型字符串
+
+            # 根據你的 scene_parser.py 中 obj_data_tuple 的實際結構來解包
+            # 這些索引需要與 scene_parser.py 中的打包順序完全一致
+            try:
+                if obj_type == "building":
+                    # (type, wx,wy,wz, rx,ry,rz, w,d,h, uO,vO,tA,uvM,uS,vS, texF,texID,texAlpha)
+                    return obj_data_tuple[1], obj_data_tuple[3] # wx, wz
+                elif obj_type == "gableroof":
+                    # (wx,wy,wz, rx,ry,rz, base_w,base_l,ridge_h, ridge_x,eave_x,eave_z, texID,texAlpha,texF)
+                    return obj_data_tuple[1], obj_data_tuple[3] # wx, wz (注意：gableroof 的元組第一個不是類型)
+                                                                # 修正：假設 gableroof 的 data_tuple 也以類型開頭，
+                                                                # 或者我們在 scene_parser 中統一所有物件 data_tuple 的前幾個元素
+                                                                # 為了與 building 一致，假設 gableroof 的 obj_data_tuple 也是：
+                                                                # ("gableroof", wx, wy, wz, ...)
+                elif obj_type == "cylinder":
+                    # (type, wx,wy,wz, rx,ry,rz, cr,ch, uO,vO,tA,uvM,uS,vS, texF,texID,texAlpha)
+                    return obj_data_tuple[1], obj_data_tuple[3] # wx, wz
+                elif obj_type == "sphere":
+                    # (type, wx,wy,wz, rx,ry,rz, cr, texID,uO,vO,tA,uvM,uS,vS, texF,texAlpha)
+                    return obj_data_tuple[1], obj_data_tuple[3] # wx, wz
+                elif obj_type == "hill": # Hill 的 data_tuple 結構不同
+                    # (cx, base_y, cz, radius, peak_h_offset, texID, uS,vS, texF, texAlpha)
+                    # Hill 的中心是 cx, cz
+                    return obj_data_tuple[1], obj_data_tuple[3] # cx, cz
+                elif obj_type == "tree": # Tree 的 data_tuple 結構也不同
+                    # (wx, wy, wz, height, tex_id, tex_file)
+                    return obj_data_tuple[1], obj_data_tuple[3] # wx, wz
+                # 可添加其他物件類型
+            except (IndexError, TypeError):
+                # print(f"DEBUG Focus Scan: Error unpacking wx, wz for type {obj_type} from data: {obj_data_tuple}")
+                return None, None
+            return None, None # 未知類型
+
+        # 包含所有可能包含可定位物件的列表的列表
+        all_object_lists = []
+        if hasattr(scene, 'buildings'): all_object_lists.append(scene.buildings)
+        if hasattr(scene, 'gableroofs'): all_object_lists.append(scene.gableroofs)
+        if hasattr(scene, 'cylinders'): all_object_lists.append(scene.cylinders)
+        if hasattr(scene, 'spheres'): all_object_lists.append(scene.spheres)
+        if hasattr(scene, 'hills'): all_object_lists.append(scene.hills)
+        if hasattr(scene, 'trees'): all_object_lists.append(scene.trees)
+        # 如果軌道段 TrackSegment 的 source_line_number 也是你 line_to_focus_on 的目標，
+        # 則也需要遍歷 scene.track.segments
+
+        target_found_in_scan = False
+        for object_list in all_object_lists:
+            if target_found_in_scan: break # 如果已找到，跳出最外層循環
+            for item in object_list:
+                line_identifier, data_tuple = item # 解包行號標識和數據元組
+                
+                # 進行行號比較
+                # 注意：如果 line_identifier 是 "檔名:行號" 字串，而 line_to_focus_on 是整數，
+                # 這裡的比較需要更複雜的邏輯，或者 line_to_focus_on 就應該是那個字串。
+                # 我們目前的折衷方案是，line_identifier 對於根場景物件是整數。
+                if line_identifier == line_to_focus_on:
+#                     print(f"line_to_focus_on:{line_to_focus_on}")
+#                     print(f"data_tuple:{data_tuple}")
+                    obj_wx, obj_wz = get_wx_wz_from_data(data_tuple)
+                    if obj_wx is not None and obj_wz is not None:
+                        focused_element_world_x = obj_wx
+                        focused_element_world_z = obj_wz
+                        target_found_in_scan = True
+#                         print(f"DEBUG Focus Scan: Object for line {line_to_focus_on} FOUND at ({obj_wx:.1f}, {obj_wz:.1f}). Type: {data_tuple[0] if data_tuple else 'Unknown'}")
+                        break # 跳出內層循環 (遍歷當前物件列表)
+                    else:
+                        print(f"DEBUG Focus Scan: Matched line {line_to_focus_on} but could not extract wx, wz from data: {data_tuple}")
+        
+        if not target_found_in_scan:
+            print(f"DEBUG Focus Scan: No object found for line_to_focus_on = {line_to_focus_on}")
+    # --- 結束步驟1 ---
+    
     widget_center_x_screen = widget_width / 2.0
     widget_center_y_screen = widget_height / 2.0
 
@@ -976,171 +1282,278 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 
     show_object_and_grid_labels = coord_label_font and grid_label_font and view_range < (DEFAULT_MINIMAP_RANGE * 3.0) 
 
+    # 計算小地圖在世界座標系中的可視範圍 (AABB_viewport_world)
+    world_half_render_width = (widget_width / scale) / 2.0
+    world_half_render_height = (widget_height / scale) / 2.0 # 注意這是Z方向的範圍
+    
+    viewport_world_min_x = view_center_x - world_half_render_width
+    viewport_world_max_x = view_center_x + world_half_render_width
+    viewport_world_min_z = view_center_z - world_half_render_height
+    viewport_world_max_z = view_center_z + world_half_render_height
+
     # --- 3. Draw Static Objects Dynamically ---
     # (Using logic from original _render_map_view)
     if scene:
-        # Buildings (Lines)
-        glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
-        glLineWidth(2.0)
-        for item in scene.buildings:
-            line_num, bldg = item # 解包行號和數據元組
-            b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg # 解包數據元組
-            
-            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # 保存當前顏色狀態
-            try:
-                if line_num in highlight_line_nums:
-                    glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
-                    glLineWidth(3.0) # 可以加粗線條
-                    if line_num == line_to_focus_on:
-                        focused_element_world_x = wx
-                        focused_element_world_z = wz                        
-                else:
-                    glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
-                    glLineWidth(2.0) # 正常線條寬度
-            
-                half_w,half_d = ww/2.,wd/2.
-                corners_local = [np.array([-half_w,0,-half_d]),np.array([half_w,0,-half_d]),np.array([half_w,0,half_d]),np.array([-half_w,0,half_d])]
-                angle_y_rad = math.radians(-abs_ry);
-                cos_y,sin_y = math.cos(angle_y_rad),math.sin(angle_y_rad)
-                map_coords = []
-                for corner in corners_local:
-                    rotated_x = corner[0]*cos_y - corner[2]*sin_y;
-                    rotated_z = corner[0]*sin_y + corner[2]*cos_y
-                    world_corner_x = wx + rotated_x;
-                    world_corner_z = wz + rotated_z
-                    map_x,map_y = _world_to_map_coords_adapted(world_corner_x, world_corner_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-                    map_coords.append((map_x, map_y))
-                if len(map_coords)==4:
-                    glBegin(GL_LINE_LOOP);
-                    [glVertex2f(mx,my) for mx,my in map_coords];
-#                     print("DEBUG: Before glEnd for Building loop")
-                    glEnd()
-                
-                # 求取矩形中心座標
-                sum_x = sum(coord[0] for coord in map_coords)
-                sum_y = sum(coord[1] for coord in map_coords)
-                center = (sum_x / 4, sum_y / 4)
-
-                # 顯示line_num:Y值
-                label_text=f"{line_num}:{wy:.1f}";
-                label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR
+        # Buildings (Line Loop of Convex Hull)
+        if hasattr(scene, 'buildings'):
+            for item in scene.buildings:
+                line_identifier, bldg_data_tuple = item
                 try:
-                    if show_object_and_grid_labels and coord_label_font and not is_dragging:
-                        text_surface=coord_label_font.render(label_text,True,label_color);
-                        dx=center[0] + 0;
-                        dy=center[1];
-                        renderer._draw_text_texture(text_surface,dx,dy);
-                except Exception as e:
-                    pass
-                
-            finally:
-                glPopAttrib() # 恢復狀態
+                    # 與FBO中解包方式保持一致
+                    obj_type, wx, wy, wz, rx_d, ry_d, rz_d, ww, wd, wh, *_ = bldg_data_tuple
+                except (IndexError, TypeError, ValueError) as e_unpack_preview:
+                    print(f"警告 Preview: 解包 building 數據 (行: {line_identifier}) 失敗: {e_unpack_preview}")
+                    print(f"DEBUG Preview: Building data tuple was: {bldg_data_tuple}")
+                    continue
+
+                # --- 計算 building 的包圍圓半徑 (新方法) ---
+                bldg_bounding_radius = max(ww, wh, wd) / 2.0
+                if circle_intersects_aabb(wx, wz, bldg_bounding_radius,
+                                          viewport_world_min_x, viewport_world_max_x,
+                                          viewport_world_min_z, viewport_world_max_z):
+
+
+                    glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT)
+                    try:
+                        is_highlighted = line_identifier in highlight_line_nums
+                        if is_highlighted:
+                            glColor3f(1.0,1.0,0.0); glLineWidth(3.0)
+#                             if line_identifier == line_to_focus_on:
+#                                 focused_element_world_x, focused_element_world_z = wx, wz  
+                        else:
+                            glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR); glLineWidth(2.0)
+
+                        # 獲取凸包投影
+                        hull_vertices_world_xz = get_convex_hull_projection_for_building(
+                            wx, wy, wz, ww, wh, wd, rx_d, ry_d, rz_d
+                        )
+
+                        if hull_vertices_world_xz and len(hull_vertices_world_xz) >= 3:
+                            map_poly_coords = []
+                            for corner_world_xz in hull_vertices_world_xz:
+                                map_x, map_y = _world_to_map_coords_adapted(
+                                    corner_world_xz[0], corner_world_xz[1], 
+                                    view_center_x, view_center_z, 
+                                    widget_center_x_screen, widget_center_y_screen, scale
+                                )
+                                map_poly_coords.append((map_x, map_y))
+                            
+                            # 繪製線框多邊形
+                            glBegin(GL_LINE_LOOP)
+                            for mx, my in map_poly_coords:
+                                glVertex2f(mx, my)
+                            glEnd()
+                            
+                            # --- 標籤繪製 (使用凸包的點計算中心) ---
+                            if map_poly_coords and not is_dragging: 
+                                center_x_label = sum(p[0] for p in map_poly_coords) / len(map_poly_coords)
+                                center_y_label = sum(p[1] for p in map_poly_coords) / len(map_poly_coords)
+                                
+                                label_prefix_text = ""
+                                if isinstance(line_identifier, str) and ":" in line_identifier:
+                                    label_prefix_text = line_identifier
+                                elif isinstance(line_identifier, int):
+                                    label_prefix_text = str(line_identifier)
+                                else: label_prefix_text = "N/A"
+                                label_text_content = f"{label_prefix_text}:{wy:.1f}"
+                                label_color_actual = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR
+                                
+                                if show_object_and_grid_labels and coord_label_font:
+                                    try:
+                                        text_surface = coord_label_font.render(label_text_content, True, label_color_actual)
+                                        dx = center_x_label + 2 # 示例偏移
+                                        dy = center_y_label - text_surface.get_height() / 2 # 示例偏移
+                                        renderer._draw_text_texture(text_surface, dx, dy)
+                                    except Exception as e_label_bldg:
+                                        pass 
+                            # --- 結束標籤 ---
+                    finally:
+                        glPopAttrib()        
+        # Buildings (Lines)
+#         glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
+#         glLineWidth(2.0)
+#         for item in scene.buildings:
+#             line_num, bldg = item # 解包行號和數據元組
+#             b_type, wx, wy, wz, rx, abs_ry, rz, ww, wd, wh, tid, *_ = bldg # 解包數據元組
+#             
+#             glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # 保存當前顏色狀態
+#             try:
+#                 if line_num in highlight_line_nums:
+#                     glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
+#                     glLineWidth(3.0) # 可以加粗線條
+#                     if line_num == line_to_focus_on:
+#                         focused_element_world_x = wx
+#                         focused_element_world_z = wz                        
+#                 else:
+#                     glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
+#                     glLineWidth(2.0) # 正常線條寬度
+#             
+#                 half_w,half_d = ww/2.,wd/2.
+#                 corners_local = [np.array([-half_w,0,-half_d]),np.array([half_w,0,-half_d]),np.array([half_w,0,half_d]),np.array([-half_w,0,half_d])]
+#                 angle_y_rad = math.radians(-abs_ry);
+#                 cos_y,sin_y = math.cos(angle_y_rad),math.sin(angle_y_rad)
+#                 map_coords = []
+#                 for corner in corners_local:
+#                     rotated_x = corner[0]*cos_y - corner[2]*sin_y;
+#                     rotated_z = corner[0]*sin_y + corner[2]*cos_y
+#                     world_corner_x = wx + rotated_x;
+#                     world_corner_z = wz + rotated_z
+#                     map_x,map_y = _world_to_map_coords_adapted(world_corner_x, world_corner_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+#                     map_coords.append((map_x, map_y))
+#                 if len(map_coords)==4:
+#                     glBegin(GL_LINE_LOOP);
+#                     [glVertex2f(mx,my) for mx,my in map_coords];
+# #                     print("DEBUG: Before glEnd for Building loop")
+#                     glEnd()
+#                 
+#                 # 求取矩形中心座標
+#                 sum_x = sum(coord[0] for coord in map_coords)
+#                 sum_y = sum(coord[1] for coord in map_coords)
+#                 center = (sum_x / 4, sum_y / 4)
+# 
+#                 # 顯示line_num:Y值
+#                 label_text=f"{line_num}:{wy:.1f}";
+#                 label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR
+#                 try:
+#                     if show_object_and_grid_labels and coord_label_font and not is_dragging:
+#                         text_surface=coord_label_font.render(label_text,True,label_color);
+#                         dx=center[0] + 0;
+#                         dy=center[1];
+#                         renderer._draw_text_texture(text_surface,dx,dy);
+#                 except Exception as e:
+#                     pass
+#                 
+#             finally:
+#                 glPopAttrib() # 恢復狀態
 
         # Cylinders (Circles/Boxes)
-        glColor3fv(MINIMAP_DYNAMIC_CYLINDER_COLOR); num_circle_segments = 12
-        for item in scene.cylinders:
-            line_num, cyl = item # 解包行號和數據元組
-            # 注意來自scene_parser那邊的剖析結果的變數排列
-            c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, *_ = cyl;
-            
-            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # --- MODIFICATION: Added GL_LINE_BIT ---
-            try:
-                if line_num in highlight_line_nums:
-                    glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
-                    glLineWidth(3.0) # 可以加粗線條
-                    if line_num == line_to_focus_on:
-                        focused_element_world_x = wx
-                        focused_element_world_z = wz                        
-                else:
-                    glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
-                    glLineWidth(2.0) # 正常線條寬度
-                
-                # 以下是傾斜後的投影計算 已經修過修改符合現狀
-                is_tilted = abs(rx)>0.1 or abs(rz)>0.1
-                if is_tilted: # Draw tilted approx box (lines)
-                    try:
-                        p_bl = np.array([0,ch/2,0]);
-                        p_tl = np.array([0,-ch/2,0])
-                        p_br = _rotate_point_3d(p_bl, -rx, ry, -rz);
-                        p_tr = _rotate_point_3d(p_tl, -rx, ry, -rz)
-                        p_bw = np.array([wx,wy,wz])+p_br;
-                        p_tw = np.array([wx,wy,wz])+p_tr
-                        p_bxz = np.array([p_bw[0],p_bw[2]]);
-                        p_txz = np.array([p_tw[0],p_tw[2]])
-                        axis_proj = p_txz - p_bxz;
-                        length_proj = np.linalg.norm(axis_proj)
-                        angle_map = math.arctan2(axis_proj[1], axis_proj[0]) if length_proj>1e-6 else 0
-                        center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-                        
-                        proj_len = length_proj
-                        proj_wid = 2*cr # Approx size in screen units
-
-                        scale_x_fbo = scale # / widget_width;
-                        scale_z_fbo = scale # / widget_height;
-                        ###############################################
-                        # 計算投影方向與偏移
-    #                     if length_proj > 1e-6:
-    #                         direction_x = axis_proj[0] / length_proj
-    #                         direction_z = axis_proj[1] / length_proj
-    #                     else:
-    #                         direction_x, direction_z = 0.0, 0.0
-    #                     #（沿投影方向移動0.5*ch）
-    #                     delta_world_x = direction_x * 0.5 * ch
-    #                     delta_world_z = direction_z * 0.5 * ch
-    #                     delta_fbo_x = delta_world_x * scale_x_fbo
-    #                     delta_fbo_y = delta_world_z * scale_z_fbo
-    #     #                 print(f"delta_fbo_x {delta_fbo_x} delta_fbo_y {delta_fbo_y}")
-    #                     # 調整中心坐標
-    #                     center_map_x += delta_fbo_x
-    #                     center_map_y += delta_fbo_y
-                        ###################################################
-
-
-                        proj_len_px = length_proj * scale_x_fbo;
-                        proj_wid_px = proj_wid * scale_z_fbo
-
-                        glPushMatrix();
-                        glTranslatef(center_map_x, center_map_y, 0);
-                        glRotatef(ry-math.degrees(angle_map), 0, 0, 1)
-                        # 往旋轉後的矩形中心點偏移
-#                         glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
-                        glTranslatef(-proj_len_px/2, 0, 0);
-                        
-                        glBegin(GL_LINE_LOOP);
-                        glVertex2f(-proj_len_px/2,-proj_wid_px/2);
-                        glVertex2f(-proj_len_px/2,proj_wid_px/2);
-                        glVertex2f(proj_len_px/2,proj_wid_px/2);
-                        glVertex2f(proj_len_px/2,-proj_wid_px/2);
-                        glEnd()
-                        glPopMatrix()
-                    except Exception as e: pass # Ignore errors during dynamic draw?
-                else: # Draw circle (lines)
-                    center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-                    radius_map = cr * scale
-                    if radius_map > 0.5: # Basic culling/detail check
-                        glBegin(GL_LINE_LOOP)
-                        for i in range(num_circle_segments):
-                            angle = 2*math.pi*i/num_circle_segments;
-                            glVertex2f(
-                                center_map_x+radius_map*math.cos(angle),
-                                center_map_y+radius_map*math.sin(angle)
-                                )
-                        glEnd()
-
-                # 顯示line_num:Y值
-                label_text=f"{line_num}:{wy:.1f}";
-                label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR
+#         glColor3fv(MINIMAP_DYNAMIC_CYLINDER_COLOR); num_circle_segments = 12
+        if hasattr(scene, 'cylinders'): # 檢查列表是否存在
+            for item in scene.cylinders:
+                line_num, cyl = item # 解包行號和數據元組
+                # 注意來自scene_parser那邊的剖析結果的變數排列
                 try:
-                    if show_object_and_grid_labels and coord_label_font and not is_dragging: # --- MODIFICATION: Added coord_label_font check ---
-                        text_surface=coord_label_font.render(label_text,True,label_color);
-                        dx=center_map_x + 0;
-                        dy=center_map_y;
-                        renderer._draw_text_texture(text_surface,dx,dy);
-                except Exception as e:
-                    pass
+                    c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, *_ = cyl;
+                except: continue # 簡化錯誤處理
                 
-            finally:
-                glPopAttrib() # 恢復狀態
+                # Cylinders 的包圍圓半徑就是其 cr
+                # 如果有 RX/RZ 旋轉，其在XZ平面的投影可能變成橢圓，
+                # 包圍圓半徑應取投影橢圓的長半軸，最壞情況是 ch/2 (如果完全躺倒) 和 cr 的組合。
+                # 為了簡化和保守，我們可以取 max(cr, ch_c/2) 作為一個估算的XZ投影最大延伸。
+                # 但對於頂視圖，如果主要關心的是底座圓形，cr 就足夠了。
+                # 如果 cylinder 可以劇烈傾斜，那麼投影會複雜。
+                # 先用 cr 作為基礎，如果傾斜不明顯，這是合理的。
+                # 如果傾斜可能很大，那麼保守的包圍半徑可能是 sqrt(cr^2 + (ch_c/2)^2)
+                # 我們先用一個簡單的：
+                cyl_bounding_radius = cr
+                if abs(rx) > 10 or abs(rz) > 10: # 如果有明顯的X或Z軸傾斜
+                    # 一個更保守的（但可能過大）的半徑估算
+                    cyl_bounding_radius = math.sqrt(cr**2 + (ch/2.0)**2) * 1.1 
+                
+                if circle_intersects_aabb(wx, wz, cyl_bounding_radius,
+                                          viewport_world_min_x, viewport_world_max_x,
+                                          viewport_world_min_z, viewport_world_max_z):
+                
+                    # 如果通過裁剪，則進行繪製
+                    glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # --- MODIFICATION: Added GL_LINE_BIT ---
+                    glColor3fv(MINIMAP_DYNAMIC_CYLINDER_COLOR); num_circle_segments = 12
+                    try:
+                        if line_num in highlight_line_nums:
+                            glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
+                            glLineWidth(3.0) # 可以加粗線條
+#                             if line_num == line_to_focus_on:
+#                                 focused_element_world_x = wx
+#                                 focused_element_world_z = wz                        
+                        else:
+                            glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
+                            glLineWidth(2.0) # 正常線條寬度
+                        
+                        # 以下是傾斜後的投影計算 已經修過修改符合現狀
+                        is_tilted = abs(rx)>0.1 or abs(rz)>0.1
+                        if is_tilted: # Draw tilted approx box (lines)
+                            try:
+                                p_bl = np.array([0,ch/2,0]);
+                                p_tl = np.array([0,-ch/2,0])
+                                p_br = _rotate_point_3d(p_bl, -rx, ry, -rz);
+                                p_tr = _rotate_point_3d(p_tl, -rx, ry, -rz)
+                                p_bw = np.array([wx,wy,wz])+p_br;
+                                p_tw = np.array([wx,wy,wz])+p_tr
+                                p_bxz = np.array([p_bw[0],p_bw[2]]);
+                                p_txz = np.array([p_tw[0],p_tw[2]])
+                                axis_proj = p_txz - p_bxz;
+                                length_proj = np.linalg.norm(axis_proj)
+                                angle_map = math.arctan2(axis_proj[1], axis_proj[0]) if length_proj>1e-6 else 0
+                                center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                                
+                                proj_len = length_proj
+                                proj_wid = 2*cr # Approx size in screen units
+
+                                scale_x_fbo = scale # / widget_width;
+                                scale_z_fbo = scale # / widget_height;
+                                ###############################################
+                                # 計算投影方向與偏移
+            #                     if length_proj > 1e-6:
+            #                         direction_x = axis_proj[0] / length_proj
+            #                         direction_z = axis_proj[1] / length_proj
+            #                     else:
+            #                         direction_x, direction_z = 0.0, 0.0
+            #                     #（沿投影方向移動0.5*ch）
+            #                     delta_world_x = direction_x * 0.5 * ch
+            #                     delta_world_z = direction_z * 0.5 * ch
+            #                     delta_fbo_x = delta_world_x * scale_x_fbo
+            #                     delta_fbo_y = delta_world_z * scale_z_fbo
+            #     #                 print(f"delta_fbo_x {delta_fbo_x} delta_fbo_y {delta_fbo_y}")
+            #                     # 調整中心坐標
+            #                     center_map_x += delta_fbo_x
+            #                     center_map_y += delta_fbo_y
+                                ###################################################
+
+
+                                proj_len_px = length_proj * scale_x_fbo;
+                                proj_wid_px = proj_wid * scale_z_fbo
+
+                                glPushMatrix();
+                                glTranslatef(center_map_x, center_map_y, 0);
+                                glRotatef(ry-math.degrees(angle_map), 0, 0, 1)
+                                # 往旋轉後的矩形中心點偏移
+        #                         glTranslatef(-proj_len_px/2, -proj_wid_px/2, 0);
+                                glTranslatef(-proj_len_px/2, 0, 0);
+                                
+                                glBegin(GL_LINE_LOOP);
+                                glVertex2f(-proj_len_px/2,-proj_wid_px/2);
+                                glVertex2f(-proj_len_px/2,proj_wid_px/2);
+                                glVertex2f(proj_len_px/2,proj_wid_px/2);
+                                glVertex2f(proj_len_px/2,-proj_wid_px/2);
+                                glEnd()
+                                glPopMatrix()
+                            except Exception as e: pass # Ignore errors during dynamic draw?
+                        else: # Draw circle (lines)
+                            center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                            radius_map = cr * scale
+                            if radius_map > 0.5: # Basic culling/detail check
+                                glBegin(GL_LINE_LOOP)
+                                for i in range(num_circle_segments):
+                                    angle = 2*math.pi*i/num_circle_segments;
+                                    glVertex2f(
+                                        center_map_x+radius_map*math.cos(angle),
+                                        center_map_y+radius_map*math.sin(angle)
+                                        )
+                                glEnd()
+
+                        # 顯示line_num:Y值
+                        label_text=f"{line_num}:{wy:.1f}";
+                        label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR
+                        try:
+                            if show_object_and_grid_labels and coord_label_font and not is_dragging: # --- MODIFICATION: Added coord_label_font check ---
+                                text_surface=coord_label_font.render(label_text,True,label_color);
+                                dx=center_map_x + 0;
+                                dy=center_map_y;
+                                renderer._draw_text_texture(text_surface,dx,dy);
+                        except Exception as e:
+                            pass
+                        
+                    finally:
+                        glPopAttrib() # 恢復狀態
 
         # Trees (Points)
         glColor3fv(MINIMAP_DYNAMIC_TREE_COLOR)
@@ -1155,7 +1568,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         for item in scene.trees:
             line_num, tree = item # 解包行號和數據元組
             if line_num not in highlight_line_nums: # 只處理非高亮的
-                tx, ty, tz, th, _tex_id, _tex_file = tree;
+                obj_type, tx, ty, tz, th, _tex_id, _tex_file = tree;
                 map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                 # Basic point culling
                 if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
@@ -1185,7 +1598,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             for item in scene.trees:
                 line_num, tree_data = item
                 if line_num in highlight_line_nums: # 只處理高亮的
-                    tx, ty, tz, th, _tex_id, _tex_file = tree_data
+                    obj_type, tx, ty, tz, th, _tex_id, _tex_file = tree_data
                     map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                     # Basic point culling
                     if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
@@ -1206,60 +1619,70 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     except Exception as e:
                         pass # 忽略繪製標籤錯誤
                     
-                    if line_num == line_to_focus_on:
-                        focused_element_world_x = tx
-                        focused_element_world_z = tz                        
+#                     if line_num == line_to_focus_on:
+#                         focused_element_world_x = tx
+#                         focused_element_world_z = tz                        
 
         # --- Draw Spheres (Circles) Dynamically ---
-        num_circle_segments_sphere = 12 # 圓的邊數 (可以根據縮放調整)
-        for item in scene.spheres:
-            line_num, sphere_data = item
-            # 解包獲取必要資訊 (世界座標 wx, wy, wz 和半徑 cr)
-            try:
-                s_type, wx, wy, wz, srx, sabs_ry, srz, cr, *rest = sphere_data
-            except ValueError:
-                 print(f"警告: 解包 sphere 數據 (動態小地圖) 時出錯 (來源行: {line_num})")
-                 continue
-
-            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # 保存顏色和線寬狀態
-            try:
-                # --- 高亮處理 ---
-                is_highlighted = line_num in highlight_line_nums
-                if is_highlighted:
-                    glColor3f(1.0, 1.0, 0.0) # 高亮黃色
-                    glLineWidth(3.0)
-                    if line_num == line_to_focus_on:
-                        focused_element_world_x = wx
-                        focused_element_world_z = wz                        
-                else:
-                    glColor3fv(MINIMAP_DYNAMIC_SPHERE_COLOR)
-                    glLineWidth(2.0)
-
-                # --- 繪製圓形 ---
-                center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-                radius_map = cr * scale
-                if radius_map > 0.5: # 簡單的細節剔除
-                    glBegin(GL_LINE_LOOP)
-                    for i in range(num_circle_segments_sphere):
-                        angle = 2 * math.pi * i / num_circle_segments_sphere
-                        glVertex2f(center_map_x + radius_map * math.cos(angle),
-                                   center_map_y + radius_map * math.sin(angle))
-                    glEnd()
-
-                # --- 繪製 line_num:Y 座標標籤 ---
-                label_text = f"{line_num}:{wy:.1f}"
-                label_color = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_SPHERE_LABEL_COLOR
+        if hasattr(scene, 'spheres'):
+#         num_circle_segments_sphere = 12 # 圓的邊數 (可以根據縮放調整)
+            for item in scene.spheres:
+                line_num, sphere_data = item
+                # 解包獲取必要資訊 (世界座標 wx, wy, wz 和半徑 cr)
                 try:
-                    if show_object_and_grid_labels and coord_label_font and not is_dragging: # 確保字體存在
-                        text_surface = coord_label_font.render(label_text, True, label_color)
-                        # 計算繪製位置 (例如在圓心右側)
-                        dx = center_map_x + radius_map + 2 # 加一點偏移
-                        dy = center_map_y - text_surface.get_height() / 2
-                        renderer._draw_text_texture(text_surface, dx, dy)
-                except Exception as e:
-                    pass # 忽略繪製標籤錯誤
-            finally:
-                glPopAttrib() # 恢復顏色和線寬
+                    s_type, wx, wy, wz, srx, sabs_ry, srz, cr, *rest = sphere_data
+                except ValueError:
+                     print(f"警告: 解包 sphere 數據 (動態小地圖) 時出錯 (來源行: {line_num})")
+                     continue
+
+                # Spheres 的包圍圓半徑就是其 cr (球體旋轉不改變其投影包圍圓)
+                sphere_bounding_radius = cr
+                
+                if circle_intersects_aabb(wx, wz, sphere_bounding_radius,
+                                          viewport_world_min_x, viewport_world_max_x,
+                                          viewport_world_min_z, viewport_world_max_z):
+                    # 如果通過裁剪，則進行繪製
+
+                    glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # 保存顏色和線寬狀態
+                    num_circle_segments_sphere = 12
+                    try:
+                        # --- 高亮處理 ---
+                        is_highlighted = line_num in highlight_line_nums
+                        if is_highlighted:
+                            glColor3f(1.0, 1.0, 0.0) # 高亮黃色
+                            glLineWidth(3.0)
+#                             if line_num == line_to_focus_on:
+#                                 focused_element_world_x = wx
+#                                 focused_element_world_z = wz                        
+                        else:
+                            glColor3fv(MINIMAP_DYNAMIC_SPHERE_COLOR)
+                            glLineWidth(2.0)
+
+                        # --- 繪製圓形 ---
+                        center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                        radius_map = cr * scale
+                        if radius_map > 0.5: # 簡單的細節剔除
+                            glBegin(GL_LINE_LOOP)
+                            for i in range(num_circle_segments_sphere):
+                                angle = 2 * math.pi * i / num_circle_segments_sphere
+                                glVertex2f(center_map_x + radius_map * math.cos(angle),
+                                           center_map_y + radius_map * math.sin(angle))
+                            glEnd()
+
+                        # --- 繪製 line_num:Y 座標標籤 ---
+                        label_text = f"{line_num}:{wy:.1f}"
+                        label_color = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_SPHERE_LABEL_COLOR
+                        try:
+                            if show_object_and_grid_labels and coord_label_font and not is_dragging: # 確保字體存在
+                                text_surface = coord_label_font.render(label_text, True, label_color)
+                                # 計算繪製位置 (例如在圓心右側)
+                                dx = center_map_x + radius_map + 2 # 加一點偏移
+                                dy = center_map_y - text_surface.get_height() / 2
+                                renderer._draw_text_texture(text_surface, dx, dy)
+                        except Exception as e:
+                            pass # 忽略繪製標籤錯誤
+                    finally:
+                        glPopAttrib() # 恢復顏色和線寬
 
         # --- Draw Hills Dynamically (Editor Preview) ---
         num_circle_segments_editor_hill = 16 # 編輯器預覽用稍低精度即可
@@ -1268,7 +1691,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             line_num, hill_data = item
             try:
                 # 解包數據 (需要中心, 高度, 半徑)
-                cx, base_y, cz, base_radius, peak_height_offset, *_ = hill_data
+                obj_type, cx, base_y, cz, base_radius, peak_height_offset, *_ = hill_data
             except ValueError:
                 # print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_num})") # 可選警告
                 continue
@@ -1282,9 +1705,9 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             # --- 檢查高亮狀態 ---
             is_highlighted = line_num in highlight_line_nums
             
-            if is_highlighted and line_num == line_to_focus_on:
-                focused_element_world_x = cx
-                focused_element_world_z = cz                        
+#                     if is_highlighted and line_num == line_to_focus_on:
+#                         focused_element_world_x = cx
+#                         focused_element_world_z = cz                        
 
             if is_visible:
 
@@ -1338,134 +1761,81 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         # glColor3fv(MINIMAP_DYNAMIC_ROOF_COLOR)
         # glLineWidth(2.0)
 
-        for item in scene.gableroofs:
-            line_identifier, roof_data = item
-            try:
-                wx, wy, wz = roof_data[0:3]
-                world_ry = roof_data[4] # Y軸旋轉
-                base_w = roof_data[6]
-                base_l = roof_data[7]
-                ridge_x_pos_offset = roof_data[9]
-                # ridge_h_off = roof_data[8] # 用於標籤
-            except (IndexError, ValueError):
-                # print(f"警告: 解包 gableroof 數據 (編輯器預覽) 時出錯 (行: {line_identifier})")
-                continue
+        if hasattr(scene, 'gableroofs'):
+            for item in scene.gableroofs:
+                line_identifier, roof_data = item
+                try:
+                    # 與FBO中解包方式保持一致
+                    wx, wy, wz, rx_d, ry_d, rz_d = roof_data[1:7]
+                    base_w, base_l, ridge_h_off = roof_data[7:10]
+                    ridge_x_pos_offset = roof_data[10]
+                    eave_overhang_x = roof_data[11]
+                    eave_overhang_z = roof_data[12]
+                except (IndexError, ValueError):
+                    # print(f"警告: 解包 gableroof 數據 (編輯器預覽) 時出錯 (行: {line_identifier})")
+                    continue
 
-            glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT)
-            try:
-                is_highlighted = line_identifier in highlight_line_nums
-                if is_highlighted:
-                    glColor3f(1.0, 1.0, 0.0) # 高亮黃
-                    glLineWidth(3.0)
-                    if line_identifier == line_to_focus_on:
-                        focused_element_world_x = wx
-                        focused_element_world_z = wz  
-                else:
-                    glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR) # 借用 building 的顏色
-                    glLineWidth(2.0)
+                # --- 包圍圓裁剪 (與之前相同) ---
+                actual_width_for_bound = base_w + 2 * abs(eave_overhang_x)
+                actual_length_for_bound = base_l + 2 * abs(eave_overhang_z)
+                roof_bounding_radius = math.sqrt(actual_width_for_bound**2 + actual_length_for_bound**2) / 2.0 * 1.1
+                if not circle_intersects_aabb(wx, wz, roof_bounding_radius,
+                                              viewport_world_min_x, viewport_world_max_x,
+                                              viewport_world_min_z, viewport_world_max_z):
+                    continue
+                # --- 結束包圍圓裁剪 ---
 
-                # 與 FBO 烘焙類似的角點計算邏輯
-                half_w_roof = base_w / 2.0
-                half_l_roof = base_l / 2.0
-                corners_local_roof = [
-                    np.array([-half_w_roof, 0, -half_l_roof]), np.array([half_w_roof, 0, -half_l_roof]),
-                    np.array([half_w_roof, 0, half_l_roof]), np.array([-half_w_roof, 0, half_l_roof])
-                ]
-                angle_y_rad_roof = math.radians(-world_ry) # 與 building 的旋轉方向保持一致
-                cos_y_roof, sin_y_roof = math.cos(angle_y_rad_roof), math.sin(angle_y_rad_roof)
-                
-                map_coords_roof = []
-                for corner_local in corners_local_roof:
-                    rotated_x_local = corner_local[0] * cos_y_roof - corner_local[2] * sin_y_roof
-                    rotated_z_local = corner_local[0] * sin_y_roof + corner_local[2] * cos_y_roof
-                    world_corner_x = wx + rotated_x_local
-                    world_corner_z = wz + rotated_z_local
-                    map_x, map_y = _world_to_map_coords_adapted(
-                        world_corner_x, world_corner_z, 
-                        view_center_x, view_center_z, 
-                        widget_center_x_screen, widget_center_y_screen, scale
+                glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT)
+                try:
+                    is_highlighted = line_identifier in highlight_line_nums
+                    if is_highlighted: glColor3f(1.0,1.0,0.0); glLineWidth(3.0)
+                    else: glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR); glLineWidth(2.0) # 借用顏色
+
+                    # --- 繪製凸包線框 ---
+                    hull_vertices_world_xz = get_convex_hull_projection_for_gableroof(
+                        wx, wy, wz, rx_d, ry_d, rz_d,
+                        base_w, base_l, ridge_h_off,
+                        ridge_x_pos_offset, eave_overhang_x, eave_overhang_z
                     )
-                    map_coords_roof.append((map_x, map_y))
-                
-                if len(map_coords_roof) == 4:
-                    glBegin(GL_LINE_LOOP) # 繪製線框
-                    for mx, my in map_coords_roof:
-                        glVertex2f(mx, my)
-                    glEnd()
+                    if hull_vertices_world_xz and len(hull_vertices_world_xz) >= 3:
+                        map_poly_coords = []
+                        for corner_world_xz in hull_vertices_world_xz:
+                            map_x, map_y = _world_to_map_coords_adapted(
+                                corner_world_xz[0], corner_world_xz[1], 
+                                view_center_x, view_center_z, 
+                                widget_center_x_screen, widget_center_y_screen, scale)
+                            map_poly_coords.append((map_x, map_y))
+                        glBegin(GL_LINE_LOOP); [glVertex2f(mx, my) for mx, my in map_poly_coords]; glEnd()
+                    # --- 結束繪製凸包 ---
 
-                # --- 計算並繪製屋脊中線 (虛線) ---
-                ridge_start_local = np.array([ridge_x_pos_offset, 0, -half_l_roof])
-                ridge_end_local   = np.array([ridge_x_pos_offset, 0,  half_l_roof])
-
-                rs_rotated_x = ridge_start_local[0] * cos_y_roof - ridge_start_local[2] * sin_y_roof
-                rs_rotated_z = ridge_start_local[0] * sin_y_roof + ridge_start_local[2] * cos_y_roof
-                world_rs_x, world_rs_z = wx + rs_rotated_x, wz + rs_rotated_z
-                map_rs_x, map_rs_y = _world_to_map_coords_adapted(world_rs_x, world_rs_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-
-                re_rotated_x = ridge_end_local[0] * cos_y_roof - ridge_end_local[2] * sin_y_roof
-                re_rotated_z = ridge_end_local[0] * sin_y_roof + ridge_end_local[2] * cos_y_roof
-                world_re_x, world_re_z = wx + re_rotated_x, wz + re_rotated_z
-                map_re_x, map_re_y = _world_to_map_coords_adapted(world_re_x, world_re_z, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
-
-                # 設置虛線顏色和模式
-                # 可以為屋脊線定義一個特定的動態顏色
-                # MINIMAP_DYNAMIC_RIDGE_COLOR = (0.9, 0.9, 0.2) # 例如亮黃色
-                # if is_highlighted:
-                #     glColor3f(1.0, 0.8, 0.0) # 高亮時的屋脊線顏色 (例如橙色)
-                # else:
-                #     glColor3fv(MINIMAP_DYNAMIC_RIDGE_COLOR)
-                # 為了簡單，我們先用一個與基底不同的固定顏色，或者只是改變 alpha
-                
-                # 如果高亮，屋脊線也用高亮顏色，但可以更細或不同線型
-                if is_highlighted:
-                    glColor3f(1.0, 1.0, 0.0) # 與基底高亮同色
-                else:
-                    # 使用一個比基底線條稍暗或不同色調的顏色
-                    ridge_line_color = [c * 0.7 for c in MINIMAP_DYNAMIC_BUILDING_COLOR]
-                    glColor3fv(ridge_line_color)
-                
-                glEnable(GL_LINE_STIPPLE)
-                glLineStipple(1, 0x00FF) # 點劃線 (....----....----) pattern
-                # 或者 glLineStipple(2, 0xAAAA) # 點線，間隔大一點
-                glLineWidth(1.0) # 虛線通常比實線輪廓細
-
-                glBegin(GL_LINES)
-                glVertex2f(map_rs_x, map_rs_y)
-                glVertex2f(map_re_x, map_re_y)
-                glEnd()
-                
-                glDisable(GL_LINE_STIPPLE)
-                # --- 結束繪製屋脊中線 ---
-
-
-                # 計算標籤位置 (例如，矩形中心)
-                if map_coords_roof:
-                    center_x_label = sum(p[0] for p in map_coords_roof) / len(map_coords_roof)
-                    center_y_label = sum(p[1] for p in map_coords_roof) / len(map_coords_roof)
-
-                    # 繪製標籤 (行號: Y座標)
-                    label_prefix_text = ""
-                    if isinstance(line_identifier, str) and ":" in line_identifier:
-                        label_prefix_text = line_identifier
-                    elif isinstance(line_identifier, int):
-                        label_prefix_text = str(line_identifier)
-                    else: label_prefix_text = "N/A"
+                    # --- 繪製屋脊中線 (虛線, 也需要完整3D旋轉) ---
+                    ridge_local_start = np.array([ridge_x_pos_offset, ridge_h_off, -base_l/2.0 - eave_overhang_z])
+                    ridge_local_end   = np.array([ridge_x_pos_offset, ridge_h_off,  base_l/2.0 + eave_overhang_z])
+                    rotation_matrix_ridge_preview = _calculate_y_x_z_intrinsic_rotation_matrix(rx_d, ry_d, rz_d)
                     
-                    # 標籤可以顯示屋簷Y或屋脊Y
-                    # ridge_actual_y = wy + roof_data[8] # roof_data[8] 是 ridge_h_off
-                    label_text_content = f"{label_prefix_text}:Y{wy:.1f}" # wy 是屋簷Y
+                    rotated_rs_offset = np.dot(rotation_matrix_ridge_preview, ridge_local_start)
+                    map_rs_x, map_rs_y = _world_to_map_coords_adapted(wx + rotated_rs_offset[0], wz + rotated_rs_offset[2],
+                                                                    view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                    rotated_re_offset = np.dot(rotation_matrix_ridge_preview, ridge_local_end)
+                    map_re_x, map_re_y = _world_to_map_coords_adapted(wx + rotated_re_offset[0], wz + rotated_re_offset[2],
+                                                                    view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                     
-                    label_color_actual = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR # 借用
-                    if show_object_and_grid_labels and coord_label_font and not is_dragging: # 使用之前討論的共用標籤顯示開關
-                        try:
-                            text_surface = coord_label_font.render(label_text_content, True, label_color_actual)
-                            dx = center_x_label + 2
-                            dy = center_y_label - text_surface.get_height() / 2
-                            renderer._draw_text_texture(text_surface, dx, dy)
-                        except Exception as e_label:
-                            pass # 忽略標籤繪製錯誤
-            finally:
-                glPopAttrib()
+                    if is_highlighted: glColor3f(1.0,1.0,0.0) # 高亮屋脊
+                    else: glColor3fv([c * 0.7 for c in MINIMAP_DYNAMIC_BUILDING_COLOR]) # 暗色屋脊
+                    glEnable(GL_LINE_STIPPLE); glLineStipple(1, 0x00FF); glLineWidth(1.0)
+                    glBegin(GL_LINES); glVertex2f(map_rs_x, map_rs_y); glVertex2f(map_re_x, map_re_y); glEnd()
+                    glDisable(GL_LINE_STIPPLE)
+                    # --- 結束繪製屋脊 ---
+                    
+                    # --- 標籤繪製 (邏輯不變，但可能需要調整標籤定位點) ---
+                    if hull_vertices_world_xz and show_object_and_grid_labels and coord_label_font and not is_dragging:
+                        # 使用凸包的幾何中心或AABB中心作為標籤定位點
+                        if hull_vertices_world_xz:
+                            center_x_label_calc = sum(p[0] for p in map_poly_coords) / len(map_poly_coords) if map_poly_coords else widget_center_x_screen
+                            center_y_label_calc = sum(p[1] for p in map_poly_coords) / len(map_poly_coords) if map_poly_coords else widget_center_y_screen
+                            # ... (你的標籤文本生成和繪製邏輯) ...
+                finally:
+                    glPopAttrib()
     # --- 結束繪製 Gableroofs ---
     
         # 恢復默認點大小

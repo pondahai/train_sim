@@ -940,43 +940,7 @@ def draw_gableroof(
         glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_r_bg)); glVertex3fv(bg_v3)
         glEnd()
 
-#     # --- 重新計算山牆的頂點，使其與懸挑對齊 ---
-#     # 前山牆 (Front Gable, Z = -hl, 使用懸挑後的X邊界 e_lx, e_rx)
-#     fg_v1 = [e_lx, e_y, -hl]  # 左下 (懸挑後的X)
-#     fg_v2 = [e_rx, e_y, -hl]  # 右下 (懸挑後的X)
-#     fg_v3 = [r_x,  r_y, -hl]  # 屋脊點 (X是屋脊偏移，Z是基底邊界)
-# 
-#     # 後山牆 (Back Gable, Z = +hl, 使用懸挑後的X邊緣 e_lx, e_rx)
-#     bg_v1 = [e_rx, e_y,  hl]  # 右下 (懸挑後的X)
-#     bg_v2 = [e_lx, e_y,  hl]  # 左下 (懸挑後的X)
-#     bg_v3 = [r_x,  r_y,  hl]  # 屋脊點
-# 
-#     # --- 繪製山牆 (使用新的 fg_v1,2,3 和 bg_v1,2,3) ---
-#     glBegin(GL_TRIANGLES)
-#     # 前山牆
-#     if not math.isclose(e_lx, e_rx): # 確保山牆有寬度 (即 eave_overhang_x 不是負到讓 e_lx > e_rx)
-#         uv_rect_fg = uv_layout.get("front_gable", (0,0,1,1))
-#         norm_fg = np.array([0,0,-1.0]) # 簡化法線 (朝向 -Z)
-#         # 如果要精確法線: norm_fg = np.cross(np.subtract(fg_v2,fg_v1), np.subtract(fg_v3,fg_v1)); ...normalize...
-#         glNormal3fv(norm_fg)
-#         glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_rect_fg)); glVertex3fv(fg_v1)
-#         glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_rect_fg)); glVertex3fv(fg_v2)
-#         glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_rect_fg)); glVertex3fv(fg_v3)
-# 
-#     # 後山牆
-#     if not math.isclose(e_lx, e_rx):
-#         uv_rect_bg = uv_layout.get("back_gable", (0,0,1,1))
-#         norm_bg = np.array([0,0,1.0]) # 簡化法線 (朝向 +Z)
-#         # 如果要精確法線: norm_bg = np.cross(np.subtract(bg_v2,bg_v1), np.subtract(bg_v3,bg_v1)); ...normalize...
-#         glNormal3fv(norm_bg)
-#         glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_rect_bg)); glVertex3fv(bg_v1) # 注意頂點順序以匹配UV
-#         glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_rect_bg)); glVertex3fv(bg_v2)
-#         glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_rect_bg)); glVertex3fv(bg_v3) # bg_v3 的UV應與fg_v3類似
-#                                                                                       # 修正：應為 uv_rect_bg
-#         # 修正上一行的UV映射，應該使用 uv_rect_bg
-#         # 實際應為：
-#         # glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_rect_bg)); glVertex3fv(bg_v3)
-#     glEnd()
+
 
     # 3. 恢復OpenGL狀態
     if alpha_testing_was_enabled_this_call:
@@ -1294,7 +1258,7 @@ def draw_scene_objects(scene):
         # --- 修改：解包新的數據元組結構 ---
         try:
             # 結構: (world_x, world_y, world_z, height, tex_id, tex_file)
-            x, y, z, height, tex_id, tex_file = tree_data
+            obj_type, x, y, z, height, tex_id, tex_file = tree_data
         except ValueError:
             print(f"警告: 解包 tree 數據時出錯 (來源行: {line_num})")
             continue # 跳過這個損壞的數據
@@ -1334,7 +1298,7 @@ def draw_scene_objects(scene):
         line_num, hill_data = item # 解包行號和數據
         try:
             # 解包 hill_data (與 scene_parser 中打包時一致)
-            (cx, base_y, cz, radius, peak_h_offset,
+            (obj_type, cx, base_y, cz, radius, peak_h_offset,
 #              tex_id,
              uscale, vscale, tex_file,
              gl_tex_id_val, tex_has_alpha_val
@@ -1359,22 +1323,23 @@ def draw_scene_objects(scene):
             line_identifier, roof_data_tuple = item
             try:
                 # 根據 scene_parser 中 gableroof_data_tuple 的結構解包
-                # (world_x, world_y, world_z, abs_rx, abs_ry, abs_rz,  <-- 0-5
-                #  base_w, base_l, ridge_h_off,                       <-- 6-8
-                #  ridge_x_pos, eave_over_x, eave_over_z,             <-- 9-11
-                #  gl_tex_id, tex_has_alpha, tex_f_orig                 <-- 12-14
+                # onj_type, 
+                # (world_x, world_y, world_z, abs_rx, abs_ry, abs_rz,  <-- 1-7
+                #  base_w, base_l, ridge_h_off,                       <-- 7-10
+                #  ridge_x_pos, eave_over_x, eave_over_z,             <-- 10-12
+                #  gl_tex_id, tex_has_alpha, tex_f_orig                 <-- 13-16
                 # )
-                world_x, world_y, world_z, abs_rx, abs_ry, abs_rz = roof_data_tuple[0:6]
-                base_w, base_l, ridge_h_off = roof_data_tuple[6:9]
+                world_x, world_y, world_z, abs_rx, abs_ry, abs_rz = roof_data_tuple[1:7]
+                base_w, base_l, ridge_h_off = roof_data_tuple[7:10]
                 # eave_h_from_parser = roof_data_tuple[8] # 如果你之前有 eave_h
                 
-                ridge_x_pos_offset_val = roof_data_tuple[9]
-                eave_overhang_x_val = roof_data_tuple[10]
-                eave_overhang_z_val = roof_data_tuple[11]
+                ridge_x_pos_offset_val = roof_data_tuple[10]
+                eave_overhang_x_val = roof_data_tuple[11]
+                eave_overhang_z_val = roof_data_tuple[12]
                 
-                gl_texture_id_val = roof_data_tuple[12]
-                texture_has_alpha_val = roof_data_tuple[13]
-                texture_atlas_file_original = roof_data_tuple[14]
+                gl_texture_id_val = roof_data_tuple[13]
+                texture_has_alpha_val = roof_data_tuple[14]
+                texture_atlas_file_original = roof_data_tuple[15]
 
             except (IndexError, ValueError) as e:
                 print(f"警告: 解包 gableroof 數據時出錯 (行標識: {line_identifier})。錯誤: {e}")
