@@ -22,7 +22,7 @@ class Tram:
         self.is_braking = False
 
         # 是否循環
-        self.looping = False
+        self.looping = True
 
     def update(self, dt):
         """更新電車狀態"""

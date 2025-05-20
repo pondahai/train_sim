@@ -1014,14 +1014,117 @@ class SceneTableWidget(QTableWidget):
                     selected_rows.add(i)
         return sorted(list(selected_rows))
 
+    def get_param_column_indices(self, command_str):
+        """ 根據指令字符串，從COMMAND_HINTS返回x,y,z參數的列索引(相對於參數列表) """
+        indices = {"x": -1, "y": -1, "z": -1}
+        if not command_str or command_str not in self._command_hints:
+            return indices
+        
+        hints = self._command_hints[command_str] # ["cmd", "param1", "param2", ...]
+        
+        # 查找X相關參數 (通常是第一個位置參數)
+        # 我們需要更智能地匹配 "x", "rel_x", "cx" 等
+        # 簡單起見，我們先假設位置參數總是在 hints[1], hints[2], hints[3]
+        # 並且它們分別對應 X, Y, Z (這是一個強假設，可能需要改進)
+        
+        # 尋找與 'x', 'rel_x', 'cx' 相關的 (通常是第一個座標參數)
+        for i, hint in enumerate(hints):
+            if i == 0: continue # 跳過 "cmd"
+            hint_lower = hint.lower()
+            if "x" in hint_lower and indices["x"] == -1 and "height" not in hint_lower and "width" not in hint_lower and "ridge" not in hint_lower and "eave" not in hint_lower: # 排除尺寸等
+                indices["x"] = i # 記錄的是在 hints 列表中的索引
+                continue
+            if "y" in hint_lower and indices["y"] == -1 and "ry" not in hint_lower and "height" not in hint_lower and "ridge" not in hint_lower and "eave" not in hint_lower:
+                indices["y"] = i
+                continue
+            if "z" in hint_lower and indices["z"] == -1 and "rz" not in hint_lower and "length" not in hint_lower and "ridge" not in hint_lower and "eave" not in hint_lower:
+                indices["z"] = i
+                continue
+        
+        # COMMAND_HINTS 中的索引是從0開始的，第一個是 "cmd"
+        # 所以實際的表格列索引是 hints 列表中的索引 (因為 parts[0] 是指令)
+        if indices["x"] != -1: indices["x_col"] = indices["x"] # 表格列索引
+        if indices["y"] != -1: indices["y_col"] = indices["y"]
+        if indices["z"] != -1: indices["z_col"] = indices["z"]
+
+        # print(f"DEBUG: Param indices for '{command_str}': {indices}")
+        return indices
+
+    def modify_cell_value(self, row, col_index, delta):
+        """ 讀取單元格，增加delta，寫回，並觸發更新 """
+        if col_index == -1 or col_index >= self.columnCount(): # 檢查列索引是否有效
+            return False 
+            
+        item = self.item(row, col_index)
+        if not item: # 如果單元格不存在，嘗試創建一個
+            item = QTableWidgetItem("")
+            self.setItem(row, col_index, item)
+            # print(f"DEBUG: Created new item for cell ({row}, {col_index})")
+
+        current_text = item.text()
+        try:
+            current_value = float(current_text) if current_text else 0.0
+            new_value = round(current_value + delta, 2) # 四捨五入到兩位小數
+            current_focused_row = self.currentRow() # 應該等於傳入的 row
+            current_focused_col = self.currentColumn() # 應該是指令列 (0)
+
+            
+            item.setText(str(new_value))
+            self._on_item_changed(item) # 觸發更新, 這個會設置 self.needUpdate = True
+            self._on_current_cell_changed(row, current_focused_col, 
+                                          row, current_focused_col, # previousRow/Col 設為與当前相同
+                                          force_update_regardless_of_row_change=True)
+            # print(f"DEBUG: Modified cell ({row}, {col_index}) from '{current_text}' to '{new_value}'")
+            return True
+        except ValueError:
+            print(f"警告: 單元格 ({row}, {col_index}) 的內容 '{current_text}' 不是有效數字。")
+            return False
+        
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
 
-        is_a_full_row_selected = self._is_any_full_row_selected()
-        current_item = self.currentItem() # 當前有焦點的 item
         current_row = self.currentRow()   # 當前有焦點的行
         current_col = self.currentColumn() # 當前有焦點的列
+
+        # --- 新增：處理座標微調 ---
+        if current_col == 0 and current_row >= 0: # 焦點在指令列 (第0列)
+            command_item = self.item(current_row, 0)
+            command_str = command_item.text().lower().strip() if command_item and command_item.text() else ""
+
+            if command_str: # 確保有指令
+                param_indices = self.get_param_column_indices(command_str)
+                delta = 0.1
+                if modifiers & Qt.ShiftModifier: # & 用於位元檢查
+                    delta = 1.0
+                
+                modified = False
+                if key == Qt.Key_Left:
+                    if "x_col" in param_indices and param_indices["x_col"] != -1:
+                        modified = self.modify_cell_value(current_row, param_indices["x_col"], -delta)
+                elif key == Qt.Key_Right:
+                    if "x_col" in param_indices and param_indices["x_col"] != -1:
+                        modified = self.modify_cell_value(current_row, param_indices["x_col"], delta)
+                elif key == Qt.Key_Up: # 上方向鍵調整 Z 負向
+                    if "z_col" in param_indices and param_indices["z_col"] != -1:
+                        modified = self.modify_cell_value(current_row, param_indices["z_col"], -delta)
+                elif key == Qt.Key_Down: # 下方向鍵調整 Z 正向
+                    if "z_col" in param_indices and param_indices["z_col"] != -1:
+                        modified = self.modify_cell_value(current_row, param_indices["z_col"], delta)
+                elif key == Qt.Key_PageUp:
+                    if "y_col" in param_indices and param_indices["y_col"] != -1:
+                        modified = self.modify_cell_value(current_row, param_indices["y_col"], delta) # Y 正向
+                elif key == Qt.Key_PageDown:
+                    if "y_col" in param_indices and param_indices["y_col"] != -1:
+                        modified = self.modify_cell_value(current_row, param_indices["y_col"], -delta) # Y 負向
+                
+                if modified:
+                    event.accept()
+                    return # 座標微調事件已處理
+        # --- 結束座標微調處理 ---
+
+        is_a_full_row_selected = self._is_any_full_row_selected()
+        current_item = self.currentItem() # 當前有焦點的 item
 
         # --- 修改：處理複製、貼上、刪除 ---
         if event.matches(QKeySequence.Copy):
@@ -1048,6 +1151,15 @@ class SceneTableWidget(QTableWidget):
                     self._on_item_changed(current_item) # 手動觸發更改
             event.accept()
             return
+        elif key in (Qt.Key_Return, Qt.Key_Enter) and modifiers == Qt.ControlModifier : # 處理 Ctrl+Enter
+            if current_row >= 0: # 確保有一個有效的當前行
+                self.insertRow(current_row + 1)
+                self.renumber_vertical_headers()
+                self.setCurrentCell(current_row + 1, 0) # 將焦點移動到新行的第一個單元格
+                self._data_modified = True # 標記數據已修改
+                self.sceneDataChanged.emit() # 通知預覽更新
+                event.accept()
+                return # Ctrl+Enter 已處理            
         elif key in (Qt.Key_Return, Qt.Key_Enter) and not modifiers: # Enter/Return without modifiers
             if self.state() == QAbstractItemView.EditingState: # 如果正在編輯單元格
                 # 交給基類處理，它會完成編輯並可能移動到下一個單元格
@@ -1141,12 +1253,18 @@ class SceneTableWidget(QTableWidget):
         else:
             super().mouseDoubleClickEvent(event)
             
-    def _on_current_cell_changed(self, currentRow, currentColumn, previousRow, previousColumn):
+    def _on_current_cell_changed(self, currentRow, currentColumn, previousRow, previousColumn, 
+                                 force_update_regardless_of_row_change=False):
         if currentRow >= 0:
             self._last_active_row = currentRow
 
         # ---  ---
-        if currentRow != previousRow and self.needUpdate:
+        should_emit_scene_data_changed = False
+        if force_update_regardless_of_row_change and self.needUpdate:
+            should_emit_scene_data_changed = True
+        elif currentRow != previousRow and self.needUpdate:
+            should_emit_scene_data_changed = True
+        if should_emit_scene_data_changed:
             # 只有當選中的行確實改變了，並且在之前的行上有數據被修改過 (needUpdate is True)
             # 才觸發場景數據變更的信號，進而更新預覽。
             if currentRow >= 0: # 確保新行是有效的（雖然 currentRow != previousRow 暗示了這一點）
