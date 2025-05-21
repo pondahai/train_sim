@@ -1867,10 +1867,12 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 #             print(hill_data)
             try:
                 # 解包數據 (需要中心, 高度, 半徑)
-                obj_type, cx, base_y, cz, base_radius, peak_height_offset, \
-                uscale, vscale, tex_file, \
-                tex_id, tex_alpha, \
-                parent_origin_ry_deg = hill_data
+                (obj_type, cx, base_y, cz, base_radius, peak_height_offset, 
+                 uscale, vscale,
+                 uoff, voff,
+                 tex_file, 
+                 tex_id, tex_alpha, 
+                 parent_origin_ry_deg) = hill_data
             except ValueError:
                 print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_num})") # 可選警告
                 continue
@@ -1950,7 +1952,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 
                     # --- 繪製高度標籤 ---
                     peak_absolute_y = base_y + peak_height_offset
-                    label_text = f"{line_num}:{peak_absolute_y:.1f}m" # 格式化高度
+                    label_text = f"{line_identifier}:{peak_absolute_y:.1f}m" # 格式化高度
                     try:
                         if show_object_and_grid_labels and coord_label_font and not is_dragging: # 確保字體已設置
                             text_surface = coord_label_font.render(label_text, True, label_color)

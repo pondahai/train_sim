@@ -1066,6 +1066,7 @@ def draw_hill(center_x, base_y, center_z,
 #               texture_id=None,
               texture_id_from_scene=None,
               uscale=10.0, vscale=10.0,
+              u_offset=0.0, v_offset=0.0,
               texture_has_alpha=False,
               default_alpha_test_threshold=0.1
               ):
@@ -1171,9 +1172,11 @@ def draw_hill(center_x, base_y, center_z,
 
                 # --- 計算紋理座標 ---
                 # 將 [-radius, +radius] 映射到 [0, U] 和 [0, V]
-                u = (world_dx / (2.0 * base_radius) + 0.5) * uscale
-                v = (world_dz / (2.0 * base_radius) + 0.5) * vscale
-                glTexCoord2f(u, v)
+                # --- MODIFICATION START: Apply u_offset and v_offset to texture coordinates ---
+                u_raw = (world_dx / (2.0 * base_radius) + 0.5) * uscale
+                v_raw = (world_dz / (2.0 * base_radius) + 0.5) * vscale
+                glTexCoord2f(u_raw + u_offset, v_raw + v_offset)
+                # --- MODIFICATION END ---
 
                 # --- 繪製頂點 ---
                 glVertex3f(world_x, world_y, world_z)
@@ -1187,7 +1190,7 @@ def draw_hill(center_x, base_y, center_z,
         glBindTexture(GL_TEXTURE_2D, 0) # 完成後解綁
     # 繪製結束後不需要禁用 GL_TEXTURE_2D，交給調用者管理
     
-# --- draw_scene_objects (unchanged) ---
+# --- draw_scene_objects ---
 def draw_scene_objects(scene):
 #     glEnable(GL_BLEND)
     # (Logic unchanged)
@@ -1300,7 +1303,9 @@ def draw_scene_objects(scene):
             # 解包 hill_data (與 scene_parser 中打包時一致)
             (obj_type, cx, base_y, cz, radius, peak_h_offset,
 #              tex_id,
-             uscale, vscale, tex_file,
+             uscale, vscale,
+             u_offset, v_offset, # New parameters
+             tex_file,
              gl_tex_id_val, tex_has_alpha_val, parent_origin_ry_deg
              ) = hill_data
         except ValueError:
@@ -1310,11 +1315,12 @@ def draw_scene_objects(scene):
         # 不需要 Push/Pop Matrix，因為 draw_hill 使用絕對座標
         # 可以直接調用繪製函數
         draw_hill(cx, base_y, cz, radius, peak_h_offset,
-                  10, # 可以將解析度設為可配置或常數
+                  resolution=20, # Or make this configurable from scene.txt if needed
 #                   texture_id=tex_id,
-                  gl_tex_id_val, 
-                  uscale, vscale,
-                  tex_has_alpha_val
+                  texture_id_from_scene=gl_tex_id_val,
+                  uscale=uscale, vscale=vscale,
+                  u_offset=u_offset, v_offset=v_offset,
+                  texture_has_alpha=tex_has_alpha_val
                   )
 
     # --- Draw Gableroofs ---

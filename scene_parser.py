@@ -21,19 +21,17 @@ def set_texture_loader(loader):
 COMMAND_HINTS = {
     "map": ["    cmd    ", "file", "cx", "cz", "scale"],
     "start": ["    cmd    ", "x", "y", "z", "angle°"],
-    "skybox": ["    cmd    ", "base_name"], # <--- NEW: Skybox (expects base name for 6 textures)
-    "skydome": ["    cmd    ", "texture_file"], # <--- NEW: Skydome (expects single texture file)
+    "skybox": ["    cmd    ", "base_name"], 
+    "skydome": ["    cmd    ", "texture_file"], 
     "straight": ["    cmd    ", "length", "grad‰"],
     "curve": ["    cmd    ", "radius", "angle°", "grad‰"],
-    # --- START OF MODIFICATION ---
     "vbranch": ["    cmd    ", "type(straight/curve)", "p1(angle°/radius)", "p2(length/angle°)", "grad‰?", "dir(fwd/bwd)?"], 
-    # --- END OF MODIFICATION ---
     "building": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "w", "d", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
     "cylinder": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "rad", "h", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
     "tree": ["    cmd    ", "rel_x", "rel_y", "rel_z", "height", "tex?"],
     "sphere": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "radius", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
-    "hill": ["    cmd    ", "cx", "base_y", "cz", "radius", "peak_h_off", "tex?", "uSc?", "vSc?"], # <--- 新增這一行
-    "import": ["    cmd    ", "filepath"], # <--- 新增 IMPORT 指令提示
+    "hill": ["    cmd    ", "cx", "base_y", "cz", "radius", "peak_h_off", "tex?", "uSc?", "vSc?", "uOf?", "vOf?"], # <--- 新增這一行
+    "import": ["    cmd    ", "filepath"], 
     # Add other commands if they exist
     "gableroof": [
     "    cmd    ",        # 0
@@ -743,23 +741,51 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
 
             elif command == "hill":
                 # ... (hill 解析邏輯，使用新的參數)
-                base_param_count = 5; min_parts = 1 + base_param_count
-                if len(parts) < min_parts: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' 參數不足。"); continue
+                base_param_count = 5;
+                min_parts = 1 + base_param_count
+                if len(parts) < min_parts:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' 參數不足。");
+                    continue
                 try:
                     center_x = float(parts[1]); base_y = float(parts[2]); center_z = float(parts[3])
                     base_radius = float(parts[4]); peak_height_offset = float(parts[5])
-                    if peak_height_offset <= 0 or base_radius <= 0: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' peak_h_offset 和 radius 必須為正。"); continue
-                except ValueError: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' 基本參數無效。"); continue
-                tex_param_start_index = 6
-                tex_file = parts[tex_param_start_index] if len(parts) > tex_param_start_index else "grass.png"
-                uscale, vscale = 10.0,10.0
+                    if peak_height_offset <= 0 or base_radius <= 0:
+                        print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' peak_h_offset 和 radius 必須為正。");
+                        continue
+                except ValueError:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' 基本參數無效。");
+                    continue
+                
+                # --- MODIFICATION START: Parse new texture offset parameters ---
+                tex_param_start_index = 6 # tex_file (optional) starts at index 6
+                tex_file = parts[tex_param_start_index] if len(parts) > tex_param_start_index and not parts[tex_param_start_index].replace('.', '', 1).replace('-', '', 1).isdigit() else "grass.png"
+                
+                # Determine actual start index for uscale, vscale, uoffset, voffset based on whether tex_file was provided
+                next_numeric_param_idx = tex_param_start_index
+                if tex_file != "grass.png" and len(parts) > tex_param_start_index and parts[tex_param_start_index] == tex_file : # if tex_file was explicitly provided
+                    next_numeric_param_idx = tex_param_start_index + 1
+
+
+                uscale, vscale = 10.0, 10.0
+                u_offset, v_offset = 0.0, 0.0 # Default offsets
+
                 try:
-                    uscale = float(parts[tex_param_start_index + 1]) if len(parts) > tex_param_start_index + 1 else 10.0
-                    vscale = float(parts[tex_param_start_index + 2]) if len(parts) > tex_param_start_index + 2 else 10.0
-                except ValueError: pass
-#                 tex_id = texture_loader.load_texture(tex_file).get("id") if load_textures and texture_loader else None
+                    if len(parts) > next_numeric_param_idx:
+                        uscale = float(parts[next_numeric_param_idx])
+                    if len(parts) > next_numeric_param_idx + 1:
+                        vscale = float(parts[next_numeric_param_idx + 1])
+                    if len(parts) > next_numeric_param_idx + 2:
+                        u_offset = float(parts[next_numeric_param_idx + 2])
+                    if len(parts) > next_numeric_param_idx + 3:
+                        v_offset = float(parts[next_numeric_param_idx + 3])
+                except ValueError:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' 紋理縮放/偏移參數解析錯誤。")
+                    # Continue with defaults for scaling/offset
+                # --- MODIFICATION END ---
+
+
                 # 載入紋理並獲取 alpha 信息
-                gl_texture_id = None
+                gl_texture_id_from_loader = None
                 texture_has_alpha_flag = False
                 if load_textures and texture_loader:
                     tex_info = texture_loader.load_texture(tex_file)
@@ -772,8 +798,8 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     center_x, base_y, center_z,
                     base_radius, peak_height_offset,
 #                     tex_id,
-                    uscale,
-                    vscale,
+                    uscale, vscale,
+                    u_offset, v_offset, # New parameters added here
                     tex_file,
                     gl_texture_id_from_loader, # OpenGL 紋理 ID
                     texture_has_alpha_flag, # 新增的 Alpha 標誌
