@@ -647,7 +647,8 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
                     tex_file, # 原始檔名
                     gl_texture_id_from_loader, # OpenGL 紋理 ID
-                    texture_has_alpha_flag # 新增的 Alpha 標誌
+                    texture_has_alpha_flag, # 新增的 Alpha 標誌
+                    math.degrees(origin_angle) # <--- 新增：存儲父原點的Y旋轉角度 (度)
                     )
                 scene_to_populate.buildings.append((line_identifier_for_object, obj_data_tuple))
 
@@ -682,7 +683,8 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
                     tex_file,
                     gl_texture_id_from_loader, # OpenGL 紋理 ID
-                    texture_has_alpha_flag # 新增的 Alpha 標誌
+                    texture_has_alpha_flag, # 新增的 Alpha 標誌
+                    math.degrees(origin_angle) # <--- 新增：存儲父原點的Y旋轉角度 (度)
                     )
                 scene_to_populate.cylinders.append((line_identifier_for_object, obj_data_tuple))
 
@@ -707,7 +709,11 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 origin_angle = scene_to_populate.current_relative_origin_angle_rad; cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = scene_to_populate.current_relative_origin_pos[0] + world_offset_x; world_y = scene_to_populate.current_relative_origin_pos[1] + rel_y; world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z
-                obj_data_tuple = ("tree", world_x, world_y, world_z, height, tex_id, tex_file) # 保持樹的元組結構
+                obj_data_tuple = (
+                    "tree", world_x, world_y, world_z,
+                    height, tex_id, tex_file,
+                    math.degrees(origin_angle) # <--- 新增：存儲父原點的Y旋轉角度 (度)
+                    ) # 保持樹的元組結構
                 scene_to_populate.trees.append((line_identifier_for_object, obj_data_tuple))
                 
             elif command == "sphere":
@@ -726,7 +732,13 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = scene_to_populate.current_relative_origin_pos[0] + world_offset_x; world_y = scene_to_populate.current_relative_origin_pos[1] + rel_y; world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z
                 absolute_ry_deg = math.degrees(-origin_angle) + rel_ry_deg - 90
-                obj_data_tuple = ("sphere", world_x, world_y, world_z, rx_deg, absolute_ry_deg, rz_deg, radius, tex_id, u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file)
+                obj_data_tuple = (
+                    "sphere", world_x, world_y, world_z,
+                    rx_deg, absolute_ry_deg, rz_deg,
+                    radius, tex_id, u_offset, v_offset, tex_angle_deg,
+                    uv_mode, uscale, vscale, tex_file,
+                    math.degrees(origin_angle) # <--- 新增：存儲父原點的Y旋轉角度 (度)
+                    )
                 scene_to_populate.spheres.append((line_identifier_for_object, obj_data_tuple))
 
             elif command == "hill":
@@ -764,41 +776,13 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     vscale,
                     tex_file,
                     gl_texture_id_from_loader, # OpenGL 紋理 ID
-                    texture_has_alpha_flag # 新增的 Alpha 標誌
+                    texture_has_alpha_flag, # 新增的 Alpha 標誌
+                    math.degrees(origin_angle) # <--- 新增：存儲父原點的Y旋轉角度 (度)
                     )
 #                 print(f"DEBUG PARSER: Packing hill_data_tuple for line '{line_identifier_for_object}':")
 #                 for i, val in enumerate(hill_data_tuple):
 #                     print(f"  Index {i}: Value = {val}, Type = {type(val)}")
                 scene_to_populate.hills.append((line_identifier_for_object, hill_data_tuple))
-
-            elif command == "skybox":
-                # ... (skybox 解析邏輯) ...
-                if len(parts) < 2: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'skybox' 需要 base_name。"); continue
-                base_name = parts[1]
-                current_info = {'type': 'skybox', 'base_name': base_name}
-                if scene_to_populate.initial_background_info is None: scene_to_populate.initial_background_info = current_info
-                scene_to_populate.last_background_info = current_info
-
-            elif command == "skydome":
-                # ... (skydome 解析邏輯) ...
-                if len(parts) < 2: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'skydome' 需要 texture_file。"); continue
-                texture_file = parts[1]
-                tex_id = None
-                if load_textures and texture_loader: tex_id = texture_loader.load_texture(texture_file).get("id")
-                current_info = {'type': 'skydome', 'file': texture_file, 'id': tex_id}
-                if scene_to_populate.initial_background_info is None: scene_to_populate.initial_background_info = current_info
-                scene_to_populate.last_background_info = current_info
-                
-            elif command == "map":
-                # ... (map 解析邏輯) ...
-                if len(parts) < 5: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'map' 參數不足。"); continue
-                filename = parts[1]
-                try: center_x, center_z, scale_val = map(float, parts[2:5])
-                except ValueError: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'map' 參數無效。"); continue
-                scene_to_populate.map_filename = filename
-                scene_to_populate.map_world_center_x = center_x
-                scene_to_populate.map_world_center_z = center_z
-                scene_to_populate.map_world_scale = scale_val
 
             elif command == "gableroof":
                 # 預期參數個數：cmd(1) + rel_xyz(3) + abs_ry(1) + base_wl(2) + ridge_h(1) = 8 個是基本必需的
@@ -911,9 +895,40 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     # 形狀調整參數 (3)
                     ridge_x_pos_offset, eave_overhang_x, eave_overhang_z,
                     # 紋理信息 (3)
-                    gl_texture_id, texture_has_alpha_flag, texture_atlas_file
+                    gl_texture_id, texture_has_alpha_flag, texture_atlas_file,
+                    math.degrees(origin_angle) # <--- 新增：存儲父原點的Y旋轉角度 (度)
                 )
                 scene_to_populate.gableroofs.append((line_identifier_for_object, gableroof_data_tuple))
+                
+            elif command == "skybox":
+                # ... (skybox 解析邏輯) ...
+                if len(parts) < 2: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'skybox' 需要 base_name。"); continue
+                base_name = parts[1]
+                current_info = {'type': 'skybox', 'base_name': base_name}
+                if scene_to_populate.initial_background_info is None: scene_to_populate.initial_background_info = current_info
+                scene_to_populate.last_background_info = current_info
+
+            elif command == "skydome":
+                # ... (skydome 解析邏輯) ...
+                if len(parts) < 2: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'skydome' 需要 texture_file。"); continue
+                texture_file = parts[1]
+                tex_id = None
+                if load_textures and texture_loader: tex_id = texture_loader.load_texture(texture_file).get("id")
+                current_info = {'type': 'skydome', 'file': texture_file, 'id': tex_id}
+                if scene_to_populate.initial_background_info is None: scene_to_populate.initial_background_info = current_info
+                scene_to_populate.last_background_info = current_info
+                
+            elif command == "map":
+                # ... (map 解析邏輯) ...
+                if len(parts) < 5: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'map' 參數不足。"); continue
+                filename = parts[1]
+                try: center_x, center_z, scale_val = map(float, parts[2:5])
+                except ValueError: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'map' 參數無效。"); continue
+                scene_to_populate.map_filename = filename
+                scene_to_populate.map_world_center_x = center_x
+                scene_to_populate.map_world_center_z = center_z
+                scene_to_populate.map_world_scale = scale_val
+
             else:
                 print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 未知指令 '{command}'")
 

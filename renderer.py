@@ -1208,7 +1208,7 @@ def draw_scene_objects(scene):
         (obj_type, x, y, z, rx, abs_ry, rz, w, d, h,
 #          tex_id,
          u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file,
-         gl_tex_id_val, tex_has_alpha_val
+         gl_tex_id_val, tex_has_alpha_val, parent_origin_ry_deg
          ) = obj_data
         glPushMatrix();
         glTranslatef(x, y, z);
@@ -1231,7 +1231,7 @@ def draw_scene_objects(scene):
         (obj_type, x, y, z, rx, abs_ry, rz, radius, h,
 #          tex_id,
          u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file,
-         gl_tex_id_val, tex_has_alpha_val
+         gl_tex_id_val, tex_has_alpha_val, parent_origin_ry_deg
          ) = obj_data
         glPushMatrix();
         glTranslatef(x, y, z);
@@ -1258,7 +1258,7 @@ def draw_scene_objects(scene):
         # --- 修改：解包新的數據元組結構 ---
         try:
             # 結構: (world_x, world_y, world_z, height, tex_id, tex_file)
-            obj_type, x, y, z, height, tex_id, tex_file = tree_data
+            obj_type, x, y, z, height, tex_id, tex_file, parent_origin_ry_deg = tree_data
         except ValueError:
             print(f"警告: 解包 tree 數據時出錯 (來源行: {line_num})")
             continue # 跳過這個損壞的數據
@@ -1274,7 +1274,7 @@ def draw_scene_objects(scene):
              rx, abs_ry, rz, # 使用絕對 Y 旋轉
              radius, tex_id,
              u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
-             tex_file) = obj_data_tuple
+             tex_file, parent_origin_ry_deg) = obj_data_tuple
         except ValueError:
              print(f"警告: 解包 sphere 數據時出錯 (來源行: {line_num})")
              continue # 跳過這個物件
@@ -1301,7 +1301,7 @@ def draw_scene_objects(scene):
             (obj_type, cx, base_y, cz, radius, peak_h_offset,
 #              tex_id,
              uscale, vscale, tex_file,
-             gl_tex_id_val, tex_has_alpha_val
+             gl_tex_id_val, tex_has_alpha_val, parent_origin_ry_deg
              ) = hill_data
         except ValueError:
              print(f"警告: 解包 hill 數據時出錯 (來源行: {line_num})")

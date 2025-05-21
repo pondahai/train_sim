@@ -89,6 +89,9 @@ class MinimapGLWidget(QGLWidget):
         self._potential_drag_start_pos = None # 新增：记录潜在拖拽的起始位置
         self.DRAG_START_THRESHOLD = 5 # 移动多少像素才算开始拖拽 (可调整)
 
+#         self._current_f7_tuning_target_table_row = -1 # <--- 新增屬性，存儲0-based表格行索引
+        self._f7_target_line_identifier = -1
+        
     def request_focus_on_line(self, line_number: int):
         """当表格请求小地图定位到场景文件中的某一行时调用此方法。"""
 #         print(f"MinimapGLWidget: Received request to focus on line {line_number}") # Debug
@@ -108,6 +111,42 @@ class MinimapGLWidget(QGLWidget):
 
     def resizeGL(self, w, h):
         pass # Viewport set in paintGL
+
+    @pyqtSlot(int) # 確保導入 pyqtSlot from PyQt5.QtCore
+    def update_f7_tuning_target(self, table_row_index_0_based: int):
+        """
+        槽函數，由 SceneEditorWindow (間接由 SceneTableWidget) 調用，
+        用於更新當前F7微調模式的目標物件的行標識符。
+
+        Args:
+            table_row_index_0_based: F7模式目標在表格中的0-based行索引。
+                                     如果為 -1，表示退出F7模式。
+        """
+        new_target_identifier = -1 # 預設為無效/退出模式
+
+        if table_row_index_0_based != -1:
+            # --- 關鍵轉換邏輯 ---
+            # 假設：
+            # 1. F7微調模式主要針對根場景中的物件。
+            # 2. 根場景物件的 line_identifier 就是它們在原始 scene.txt 中的 1-based 行號。
+            # 3. SceneTableWidget 發射的 table_row_index_0_based 直接對應這個原始行號的 0-based 版本。
+            # 因此，我們將 0-based 的表格行索引轉換為 1-based 的行號標識符。
+            new_target_identifier = table_row_index_0_based + 1
+            # --------------------
+            # !! 如果你的 line_identifier 方案更複雜（例如全局連續行號，或包含檔名），
+            # !! 那麼這裡的轉換邏輯需要相應調整，以確保 new_target_identifier
+            # !! 能與 minimap_renderer.draw_editor_preview 中從 scene.objects
+            # !! 取出的 line_identifier 直接進行比較。
+            # !! 例如，如果 line_identifier 是全局連續的，並且表格行也與之對應，
+            # !! 那麼 table_row_index_0_based + 1 可能仍然適用。
+        
+        if self._f7_target_line_identifier != new_target_identifier:
+            self._f7_target_line_identifier = new_target_identifier
+            print(f"DEBUG MinimapGLWidget: F7 tuning target line_identifier (for preview) set to: {self._f7_target_line_identifier}")
+            self.update() # 觸發重繪，以便 draw_editor_preview 可以使用新的F7目標信息來更新高亮
+        # else:
+            # print(f"DEBUG MinimapGLWidget: F7 tuning target unchanged ({self._f7_target_line_identifier}), no repaint triggered by this signal.")
+
 
     def paintGL(self):
         glClear(GL_COLOR_BUFFER_BIT)
@@ -133,9 +172,11 @@ class MinimapGLWidget(QGLWidget):
         line_to_pass_for_focus = -1
         if self._trigger_focus_on_paint and self._line_to_focus_on > 0: # 确保行号有效
             line_to_pass_for_focus = self._line_to_focus_on
-        
+
+        f7_target_for_preview = self._f7_target_line_identifier # 直接使用這個成員變數
+
         returned_new_cx, returned_new_cz = None, None # 初始化
-    
+
         try:
             # 調用 minimap_renderer 進行動態繪製
             returned_new_cx, returned_new_cz = minimap_renderer.draw_editor_preview(
@@ -146,11 +187,14 @@ class MinimapGLWidget(QGLWidget):
                 w, h,
                 self._is_dragging,
                 highlight_line_nums=self._highlight_line_numbers, # 傳遞集合
-                line_to_focus_on=line_to_pass_for_focus                
+                line_to_focus_on=line_to_pass_for_focus,
+                f7_tuning_target_line_num=f7_target_for_preview                
             )
         except Exception as e:
             print(f"Error calling draw_editor_preview: {e}")
-
+        finally:
+            pass
+        
         # 处理定位结果
         focus_action_taken = False
         if returned_new_cx is not None and returned_new_cz is not None and self._trigger_focus_on_paint:
@@ -331,7 +375,8 @@ class MinimapGLWidget(QGLWidget):
         if self._highlight_line_numbers: # 只在確實有高亮時才清除並更新
             self._highlight_line_numbers.clear()
             self.update() # Trigger repaint
-            
+
+    
 # --- PreviewGLWidget ---
 class PreviewGLWidget(QGLWidget):
     """用於互動式 3D 場景預覽的 OpenGL Widget"""
@@ -640,6 +685,7 @@ class PreviewGLWidget(QGLWidget):
 # --- SceneTableWidget ---
 class SceneTableWidget(QTableWidget):
     sceneDataChanged = pyqtSignal()
+    f7TuningModeChanged = pyqtSignal(int) # <--- 新增信號，參數為行號 (0-based) 或 -1
     HEADER_PADDING = 20
     MIN_COLUMN_WIDTH = 40
 
@@ -680,6 +726,9 @@ class SceneTableWidget(QTableWidget):
         self.itemChanged.connect(self._on_item_changed)
         self.needUpdate = False  # <--- 添加這一行
         self._last_active_row = -1
+
+        self._is_coord_tuning_mode = False # <--- 新增狀態變數
+        self._tuning_target_row = -1      # <--- 記錄進入微調模式時的目標行
 
         self.header_update_timer = QTimer(self)
         self.header_update_timer.setSingleShot(True)
@@ -1079,7 +1128,32 @@ class SceneTableWidget(QTableWidget):
         except ValueError:
             print(f"警告: 單元格 ({row}, {col_index}) 的內容 '{current_text}' 不是有效數字。")
             return False
-        
+
+    def enter_coord_tuning_mode(self):
+        """進入座標微調模式"""
+        if self.currentRow() >= 0:
+            self._is_coord_tuning_mode = True
+            self._tuning_target_row = self.currentRow() # 記錄當前行作為微調目標
+            # 可以更新狀態欄或給出視覺提示
+            main_window = self.window()                    
+            if hasattr(main_window, 'statusBar'):
+                main_window.statusBar.showMessage(f"座標微調模式已激活 (行: {self._tuning_target_row + 1}). 按方向鍵/PgUpDn調整，ESC退出。", 0) # 持續顯示
+            print(f"DEBUG: Entered coord tuning mode for row {self._tuning_target_row}")
+            # 可以考慮改變表格的選中樣式或光標，但暫時先不加複雜度
+            self.f7TuningModeChanged.emit(self._tuning_target_row) # <--- 發射信號，傳遞0-based行索引
+
+    def exit_coord_tuning_mode(self):
+        """退出座標微調模式"""
+        if self._is_coord_tuning_mode:
+            self._is_coord_tuning_mode = False
+            self._tuning_target_row = -1
+            main_window = self.window()                    
+            if hasattr(main_window, 'statusBar'):
+                main_window.statusBar.clearMessage()
+                main_window.statusBar.showMessage("已退出座標微調模式。", 2000)
+            print("DEBUG: Exited coord tuning mode.")
+            self.f7TuningModeChanged.emit(-1) # <--- 發射信號，-1 表示退出模式
+
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
@@ -1087,8 +1161,28 @@ class SceneTableWidget(QTableWidget):
         current_row = self.currentRow()   # 當前有焦點的行
         current_col = self.currentColumn() # 當前有焦點的列
 
+        # --- 處理模式切換 ---
+        if key == Qt.Key_F7: # <--- 假設使用 F7 進入微調模式
+            if not self._is_coord_tuning_mode:
+                if current_row >= 0: # 必須有一行被選中才能進入
+                    self.enter_coord_tuning_mode()
+                    event.accept()
+                    return
+            # 如果已經在微調模式，再按F7可以選擇退出，或者什麼都不做
+            else:
+                self.exit_coord_tuning_mode()
+                event.accept()
+                return
+        
+        if self._is_coord_tuning_mode and key == Qt.Key_Escape: # ESC 退出微調模式
+            self.exit_coord_tuning_mode()
+            event.accept()
+            return
+        # --------------------
+
         # --- 新增：處理座標微調 ---
-        if current_col == 0 and current_row >= 0: # 焦點在指令列 (第0列)
+        if self._is_coord_tuning_mode and self._tuning_target_row >= 0:
+            target_row_for_tuning = self._tuning_target_row
             command_item = self.item(current_row, 0)
             command_str = command_item.text().lower().strip() if command_item and command_item.text() else ""
 
@@ -1121,6 +1215,14 @@ class SceneTableWidget(QTableWidget):
                 if modified:
                     event.accept()
                     return # 座標微調事件已處理
+            # 在微調模式下，如果按的不是有效的微調鍵，我們可能希望阻止事件的進一步傳播
+            # 以免觸發其他如 Enter 編輯單元格等行為。但方向鍵本身可能會導致焦點移動。
+            # 這裡需要小心處理，確保微調模式下的按鍵行為是受控的。
+            # 一個簡單的方法是，如果按鍵是微調鍵之一，就 accept()。
+            if key in [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown]:
+                event.accept()
+                return
+
         # --- 結束座標微調處理 ---
 
         is_a_full_row_selected = self._is_any_full_row_selected()
@@ -1579,6 +1681,8 @@ class SceneEditorWindow(QMainWindow):
         self.table_widget.itemChanged.connect(self._on_table_item_changed_for_title)
         # -----------------------------------------
 
+        self.table_widget.f7TuningModeChanged.connect(self.minimap_widget.update_f7_tuning_target)
+
     def _on_table_item_changed_for_title(self, item):
         """Called when a table item is changed, updates the window title if modified."""
         if self.table_widget.is_modified(): # is_modified 應該由 table_widget._on_item_changed 設置
@@ -1774,6 +1878,7 @@ class SceneEditorWindow(QMainWindow):
                 # Keep current state or clear? For now, keep.
                 self._update_window_title() # Reflect that the file didn't change
 
+
     def update_previews(self): # 這是新的 update_previews，作為槽函數
         """
         Schedules the actual preview update logic to run in the next event loop iteration.
@@ -1882,6 +1987,9 @@ class SceneEditorWindow(QMainWindow):
                 
                 if last_bg_info_found_upwards is not None:
                     background_info_for_preview = last_bg_info_found_upwards
+
+
+
 
         # --- 5. 更新小地圖預覽 ---
         try:

@@ -37,7 +37,7 @@ EDITOR_BG_COLOR = (0.85, 0.85, 0.88, 1.0) # Editor preview BG fallback if no map
 MINIMAP_TRACK_COLOR = (1.0, 0.0, 0.0)
 MINIMAP_BRANCH_TRACK_COLOR = (1.0, 0.5, 0.0)
 MINIMAP_GRID_SCALE = 50.0
-MINIMAP_GRID_LABEL_COLOR = (255, 155, 0, 180)
+MINIMAP_GRID_LABEL_COLOR = (255, 155, 0, 0.1)
 # MINIMAP_GRID_LABEL_FONT_SIZE = 24
 MINIMAP_GRID_LABEL_OFFSET = 2
 #
@@ -45,7 +45,7 @@ MINIMAP_GRID_LABEL_OFFSET = 2
 # Constants for Dynamic Drawing (Editor Preview - matching original renderer)
 MINIMAP_DYNAMIC_GRID_COLOR = (0.5, 0.5, 0.5, 0.3) # Color for editor grid lines
 MINIMAP_DYNAMIC_BUILDING_COLOR = (0.6, 0.4, 0.9) # Editor building lines
-MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_BUILDING_COLOR) + (180,)
+MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_BUILDING_COLOR) + (30,)
 MINIMAP_DYNAMIC_CYLINDER_COLOR = (0.5, 0.9, 0.5) # Editor cylinder lines/circles
 MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_CYLINDER_COLOR) + (180,)
 MINIMAP_DYNAMIC_TREE_COLOR = (0.1, 0.8, 0.1) # Editor tree points
@@ -735,7 +735,7 @@ def _render_static_elements_to_fbo(scene: Scene):
     glBegin(GL_POINTS) # Using points for simplicity in bake
     for item in scene.trees:
         line_num, tree = item
-        obj_type, tx, ty, tz, th, _tex_id, _tex_file = tree; fbo_x, fbo_y = _world_to_fbo_coords(tx, tz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+        obj_type, tx, ty, tz, th, _tex_id, _tex_file, *rest= tree; fbo_x, fbo_y = _world_to_fbo_coords(tx, tz, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
         if 0 <= fbo_x <= fbo_w and 0 <= fbo_y <= fbo_h: glVertex2f(fbo_x, fbo_y)
     glEnd();
     
@@ -1006,7 +1006,11 @@ def circle_intersects_aabb(circle_wx, circle_wz, circle_radius,
     return distance_squared <= (circle_radius**2)
 
 # --- Editor Runtime Drawing (DYNAMIC RENDERING RESTORED) ---
-def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, widget_width, widget_height, is_dragging, highlight_line_nums: set = set(), line_to_focus_on: int = -1):
+def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, widget_width, widget_height,
+                        is_dragging,
+                        highlight_line_nums: set = set(),
+                        line_to_focus_on: int = -1,
+                        f7_tuning_target_line_num: int = -1):
     """ Draws the EDITOR minimap preview using DYNAMIC rendering (like original). """
     global editor_bg_texture_id, editor_bg_width_px, editor_bg_height_px, editor_current_map_filename
 #     print(f"draw_editor_preview -> highlight_line_nums:{highlight_line_nums}, line_to_focus_on:{line_to_focus_on}")
@@ -1300,7 +1304,10 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 line_identifier, bldg_data_tuple = item
                 try:
                     # 與FBO中解包方式保持一致
-                    obj_type, wx, wy, wz, rx_d, ry_d, rz_d, ww, wd, wh, *_ = bldg_data_tuple
+                    obj_type, wx, wy, wz, rx_d, ry_d, rz_d, ww, wd, wh, \
+                u_off, v_off, t_ang, uv_m, u_s, v_s, \
+                tex_f, gl_id, tex_alpha, \
+                parent_origin_ry_deg = bldg_data_tuple
                 except (IndexError, TypeError, ValueError) as e_unpack_preview:
                     print(f"警告 Preview: 解包 building 數據 (行: {line_identifier}) 失敗: {e_unpack_preview}")
                     print(f"DEBUG Preview: Building data tuple was: {bldg_data_tuple}")
@@ -1316,12 +1323,77 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT)
                     try:
                         is_highlighted = line_identifier in highlight_line_nums
-                        if is_highlighted:
-                            glColor3f(1.0,1.0,0.0); glLineWidth(3.0)
+                        is_also_f7_target = (f7_tuning_target_line_num != -1 and line_identifier == f7_tuning_target_line_num) # <--- 判斷是否為F7目標
+#                         print(f"is_highlighted {is_highlighted}")
+#                         print(f"is_also_f7_target {is_also_f7_target}")
+                                
 #                             if line_identifier == line_to_focus_on:
-#                                 focused_element_world_x, focused_element_world_z = wx, wz  
-                        else:
-                            glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR); glLineWidth(2.0)
+#                                 focused_element_world_x, focused_element_world_z = wx, wz
+                        if is_highlighted or is_also_f7_target:
+
+                            # --- 繪製局部軸線 (僅在高亮時) ---
+                            # 需要物件的Y軸旋轉 ry_d (以及可能的 rx_d, rz_d 如果軸線也受其影響)
+                            # 我們先只考慮Y軸旋轉對XZ平面軸線的影響
+                            
+                            # 軸線長度 (可以根據 scale 或物件尺寸調整)
+                            axis_length_map = min(widget_width, widget_height) * 1.00 # 小地圖視窗尺寸的5%
+                            # 或者一個固定的世界單位長度，然後再乘以 scale
+                            # axis_world_length = max(ww, wd) * 0.3 # 物件最大邊的30%
+                            # axis_length_map = axis_world_length * scale
+
+                            # 物件的局部X軸在世界XZ平面上的方向 (考慮了Y軸旋轉)
+                            # 局部X軸通常是 (1,0,0)。繞Y軸旋轉 ry_d 度後：
+                            # world_ry_rad = math.radians(ry_d)
+                            # local_x_axis_dir_x = math.cos(world_ry_rad)
+                            # local_x_axis_dir_z = math.sin(world_ry_rad)
+                            # 但我們的小地圖X軸是反的，Y軸旋轉是負的
+                            angle_y_map_rad = math.radians(-parent_origin_ry_deg) # 與投影計算一致
+                            
+                            # 局部X軸 (1,0) 旋轉 angle_y_map_rad 後的方向 (在小地圖的XZ平面上)
+                            map_local_x_dir_x = math.cos(angle_y_map_rad)
+                            map_local_x_dir_z = math.sin(angle_y_map_rad)
+                            
+                            # 局部Z軸 (0,1) 旋轉 angle_y_map_rad 後的方向
+                            map_local_z_dir_x = -math.sin(angle_y_map_rad) # cos(a+90) = -sin(a)
+                            map_local_z_dir_z =  math.cos(angle_y_map_rad) # sin(a+90) = cos(a)
+
+                            # 物件中心點在小地圖上的座標
+                            center_map_x, center_map_y = _world_to_map_coords_adapted(
+                                wx, wz, view_center_x, view_center_z,
+                                widget_center_x_screen, widget_center_y_screen, scale
+                            )
+
+                            glLineWidth(2.0)
+                            glBegin(GL_LINES)
+                            # 軸的顏色
+                            # 繪製X軸 (例如用稍亮的顏色，或與高亮色一致)
+                            glColor3f(1.0, 0.5, 0.5) # 示例：粉紅色X軸
+                            glVertex2f(center_map_x, center_map_y)
+                            glVertex2f(center_map_x + map_local_x_dir_x * axis_length_map, 
+                                       center_map_y + map_local_x_dir_z * axis_length_map)
+                            
+                            # 繪製Z軸 (例如用稍亮的顏色)
+                            glColor3f(0.5, 1.0, 0.5) # 示例：淺綠色Z軸
+                            glVertex2f(center_map_x, center_map_y)
+                            glVertex2f(center_map_x + map_local_z_dir_x * axis_length_map, 
+                                       center_map_y + map_local_z_dir_z * axis_length_map)
+                            glEnd()
+                            # --- 結束繪製局部軸線 ---
+#                         else:
+#                             glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR); glLineWidth(2.0)
+
+                        # 不同情況被選的顏色
+                        if is_also_f7_target: # F7目標優先顯示紅色
+#                             print("紅色")
+                            glColor3f(1.0, 0.0, 0.0) # 紅色
+                            glLineWidth(3.0) # 可以比普通高亮更粗一點
+                        elif is_highlighted: # 普通高亮
+#                             print("黃色")
+                            glColor3f(1.0, 1.0, 0.0) # 黃色
+                            glLineWidth(3.0)
+                        else: # 非高亮
+                            glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR)
+                            glLineWidth(2.0)
 
                         # 獲取凸包投影
                         hull_vertices_world_xz = get_convex_hull_projection_for_building(
@@ -1430,10 +1502,14 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 #         glColor3fv(MINIMAP_DYNAMIC_CYLINDER_COLOR); num_circle_segments = 12
         if hasattr(scene, 'cylinders'): # 檢查列表是否存在
             for item in scene.cylinders:
-                line_num, cyl = item # 解包行號和數據元組
+                line_identifier, cyl = item # 解包行號和數據元組
                 # 注意來自scene_parser那邊的剖析結果的變數排列
                 try:
-                    c_type, wx, wy, wz, rx, ry, rz, cr, ch, tid, *_ = cyl;
+                    c_type, wx, wy, wz, rx, ry, rz, cr, ch, \
+                    u_offset, v_offset, tex_angle_deg, \
+                    uv_mode, uscale, vscale, \
+                    tex_file, tex_id, tex_alpha, \
+                    parent_origin_ry_deg = cyl;
                 except: continue # 簡化錯誤處理
                 
                 # Cylinders 的包圍圓半徑就是其 cr
@@ -1456,9 +1532,40 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 
                     # 如果通過裁剪，則進行繪製
                     glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # --- MODIFICATION: Added GL_LINE_BIT ---
-                    glColor3fv(MINIMAP_DYNAMIC_CYLINDER_COLOR); num_circle_segments = 12
+#                     glColor3fv(MINIMAP_DYNAMIC_CYLINDER_COLOR);
+                    num_circle_segments = 12
                     try:
-                        if line_num in highlight_line_nums:
+                        is_highlighted = line_identifier in highlight_line_nums
+                        is_also_f7_target = (f7_tuning_target_line_num != -1 and line_identifier == f7_tuning_target_line_num) # <--- 判斷是否為F7目標
+
+                        if is_highlighted or is_also_f7_target:
+                            axis_length_map = min(widget_width, widget_height) * 1.00 # 小地圖視窗尺寸的5%
+                            angle_y_map_rad = math.radians(-parent_origin_ry_deg) # 與投影計算一致
+                            map_local_x_dir_x = math.cos(angle_y_map_rad)
+                            map_local_x_dir_z = math.sin(angle_y_map_rad)
+                            map_local_z_dir_x = -math.sin(angle_y_map_rad) # cos(a+90) = -sin(a)
+                            map_local_z_dir_z =  math.cos(angle_y_map_rad) # sin(a+90) = cos(a)
+                            center_map_x, center_map_y = _world_to_map_coords_adapted(
+                                wx, wz, view_center_x, view_center_z,
+                                widget_center_x_screen, widget_center_y_screen, scale
+                            )
+                            glLineWidth(2.0)
+                            glBegin(GL_LINES)
+                            glColor3f(1.0, 0.5, 0.5) # 示例：粉紅色X軸
+                            glVertex2f(center_map_x, center_map_y)
+                            glVertex2f(center_map_x + map_local_x_dir_x * axis_length_map, 
+                                       center_map_y + map_local_x_dir_z * axis_length_map)
+                            glColor3f(0.5, 1.0, 0.5) # 示例：淺綠色Z軸
+                            glVertex2f(center_map_x, center_map_y)
+                            glVertex2f(center_map_x + map_local_z_dir_x * axis_length_map, 
+                                       center_map_y + map_local_z_dir_z * axis_length_map)
+                            glEnd()
+                        
+                        if is_also_f7_target: # F7目標優先顯示紅色
+    #                             print("紅色")
+                            glColor3f(1.0, 0.0, 0.0) # 紅色
+                            glLineWidth(3.0) # 可以比普通高亮更粗一點
+                        elif is_highlighted:
                             glColor3f(1.0, 1.0, 0.0) # 高亮顏色 (黃色)
                             glLineWidth(3.0) # 可以加粗線條
 #                             if line_num == line_to_focus_on:
@@ -1541,8 +1648,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                                 glEnd()
 
                         # 顯示line_num:Y值
-                        label_text=f"{line_num}:{wy:.1f}";
-                        label_color = MINIMAP_GRID_LABEL_COLOR if line_num in highlight_line_nums else MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR
+                        label_text=f"{line_identifier}:{wy:.1f}";
+                        label_color = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_CYLINDER_LABEL_COLOR
                         try:
                             if show_object_and_grid_labels and coord_label_font and not is_dragging: # --- MODIFICATION: Added coord_label_font check ---
                                 text_surface=coord_label_font.render(label_text,True,label_color);
@@ -1568,7 +1675,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         for item in scene.trees:
             line_num, tree = item # 解包行號和數據元組
             if line_num not in highlight_line_nums: # 只處理非高亮的
-                obj_type, tx, ty, tz, th, _tex_id, _tex_file = tree;
+                obj_type, tx, ty, tz, th, _tex_id, _tex_file, parent_origin_ry_deg = tree;
                 map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                 # Basic point culling
                 if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
@@ -1592,29 +1699,62 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 
         # --- 繪製高亮的樹 ---
         if highlight_line_nums: # 只有當有需要高亮的行時才執行
-            glColor3f(1.0, 1.0, 0.0) # 高亮顏色
-            glPointSize(max(1.0, point_size) * 1.5) # 高亮點可以稍微大一點 (示例)
 
             for item in scene.trees:
-                line_num, tree_data = item
-                if line_num in highlight_line_nums: # 只處理高亮的
-                    obj_type, tx, ty, tz, th, _tex_id, _tex_file = tree_data
-                    map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+                line_identifier, tree_data = item
+                is_highlighted = line_identifier in highlight_line_nums
+                if is_highlighted: # 只處理高亮的
+                    obj_type, tx, ty, tz, th, _tex_id, _tex_file, parent_origin_ry_deg = tree_data
+                    center_map_x, center_map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
+
+                    is_also_f7_target = (f7_tuning_target_line_num != -1 and line_identifier == f7_tuning_target_line_num) # <--- 判斷是否為F7目標
+
+                    if is_highlighted or is_also_f7_target:
+                        axis_length_map = min(widget_width, widget_height) * 1.00 # 小地圖視窗尺寸的5%
+                        angle_y_map_rad = math.radians(-parent_origin_ry_deg) # 與投影計算一致
+                        map_local_x_dir_x = math.cos(angle_y_map_rad)
+                        map_local_x_dir_z = math.sin(angle_y_map_rad)
+                        map_local_z_dir_x = -math.sin(angle_y_map_rad) # cos(a+90) = -sin(a)
+                        map_local_z_dir_z =  math.cos(angle_y_map_rad) # sin(a+90) = cos(a)
+#                         center_map_x, center_map_y = _world_to_map_coords_adapted(
+#                             wx, wz, view_center_x, view_center_z,
+#                             widget_center_x_screen, widget_center_y_screen, scale
+#                         )
+                        glLineWidth(2.0)
+                        glBegin(GL_LINES)
+                        glColor3f(1.0, 0.5, 0.5) # 示例：粉紅色X軸
+                        glVertex2f(center_map_x, center_map_y)
+                        glVertex2f(center_map_x + map_local_x_dir_x * axis_length_map, 
+                                   center_map_y + map_local_x_dir_z * axis_length_map)
+                        glColor3f(0.5, 1.0, 0.5) # 示例：淺綠色Z軸
+                        glVertex2f(center_map_x, center_map_y)
+                        glVertex2f(center_map_x + map_local_z_dir_x * axis_length_map, 
+                                   center_map_y + map_local_z_dir_z * axis_length_map)
+                        glEnd()
+
                     # Basic point culling
-                    if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
+                    if is_also_f7_target: # F7目標優先顯示紅色
+#                             print("紅色")
+                        glColor3f(1.0, 0.0, 0.0) # 紅色
+                        glPointSize(max(1.0, point_size) * 1.5) # 高亮點可以稍微大一點 (示例)
+                    elif is_highlighted:
+                        glColor3f(1.0, 1.0, 0.0) # 高亮顏色
+                        glPointSize(max(1.0, point_size) * 1.5) # 高亮點可以稍微大一點 (示例)
+                        
+                    if 0 <= center_map_x <= widget_width and 0 <= center_map_y <= widget_height:
                         glBegin(GL_POINTS)
-                        glVertex2f(map_x, map_y)
+                        glVertex2f(center_map_x, center_map_y)
                         glEnd() # 結束高亮點的繪製
 
-                    # --- 繪製 line_num:Y 座標標籤 ---
-                    label_text = f"{line_num}:{ty:.1f}"
+                    # --- 繪製 line_identifier:Y 座標標籤 ---
+                    label_text = f"{line_identifier}:{ty:.1f}"
                     label_color = MINIMAP_DYNAMIC_TREE_COLOR 
                     try:
                         if show_object_and_grid_labels and coord_label_font and not is_dragging: # 確保字體存在
                             text_surface = coord_label_font.render(label_text, True, label_color)
                             # 計算繪製位置 (例如在圓心右側)
-                            dx = map_x + 2 # 加一點偏移
-                            dy = map_y - text_surface.get_height() / 2
+                            dx = center_map_x + 2 # 加一點偏移
+                            dy = center_map_y - text_surface.get_height() / 2
                             renderer._draw_text_texture(text_surface, dx, dy)
                     except Exception as e:
                         pass # 忽略繪製標籤錯誤
@@ -1627,12 +1767,15 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         if hasattr(scene, 'spheres'):
 #         num_circle_segments_sphere = 12 # 圓的邊數 (可以根據縮放調整)
             for item in scene.spheres:
-                line_num, sphere_data = item
+                line_identifier, sphere_data = item
                 # 解包獲取必要資訊 (世界座標 wx, wy, wz 和半徑 cr)
                 try:
-                    s_type, wx, wy, wz, srx, sabs_ry, srz, cr, *rest = sphere_data
+                    s_type, wx, wy, wz, srx, sabs_ry, srz, cr, \
+                    tex_id, u_offset, v_offset, tex_angle_deg, \
+                    uv_mode, uscale, vscale, tex_file, \
+                    parent_origin_ry_deg = sphere_data
                 except ValueError:
-                     print(f"警告: 解包 sphere 數據 (動態小地圖) 時出錯 (來源行: {line_num})")
+                     print(f"警告: 解包 sphere 數據 (動態小地圖) 時出錯 (來源行: {line_identifier})")
                      continue
 
                 # Spheres 的包圍圓半徑就是其 cr (球體旋轉不改變其投影包圍圓)
@@ -1646,9 +1789,42 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT) # 保存顏色和線寬狀態
                     num_circle_segments_sphere = 12
                     try:
+                        center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                         # --- 高亮處理 ---
-                        is_highlighted = line_num in highlight_line_nums
-                        if is_highlighted:
+#                         is_highlighted = line_num in highlight_line_nums
+                        is_highlighted = line_identifier in highlight_line_nums
+                        is_also_f7_target = (f7_tuning_target_line_num != -1 and line_identifier == f7_tuning_target_line_num) # <--- 判斷是否為F7目標
+
+                        if is_highlighted or is_also_f7_target:
+                            axis_length_map = min(widget_width, widget_height) * 1.00 # 小地圖視窗尺寸的5%
+                            angle_y_map_rad = math.radians(-parent_origin_ry_deg) # 與投影計算一致
+                            map_local_x_dir_x = math.cos(angle_y_map_rad)
+                            map_local_x_dir_z = math.sin(angle_y_map_rad)
+                            map_local_z_dir_x = -math.sin(angle_y_map_rad) # cos(a+90) = -sin(a)
+                            map_local_z_dir_z =  math.cos(angle_y_map_rad) # sin(a+90) = cos(a)
+                            center_map_x, center_map_y = _world_to_map_coords_adapted(
+                                wx, wz, view_center_x, view_center_z,
+                                widget_center_x_screen, widget_center_y_screen, scale
+                            )
+                            glLineWidth(2.0)
+                            glBegin(GL_LINES)
+                            glColor3f(1.0, 0.5, 0.5) # 示例：粉紅色X軸
+                            glVertex2f(center_map_x, center_map_y)
+                            glVertex2f(center_map_x + map_local_x_dir_x * axis_length_map, 
+                                       center_map_y + map_local_x_dir_z * axis_length_map)
+                            glColor3f(0.5, 1.0, 0.5) # 示例：淺綠色Z軸
+                            glVertex2f(center_map_x, center_map_y)
+                            glVertex2f(center_map_x + map_local_z_dir_x * axis_length_map, 
+                                       center_map_y + map_local_z_dir_z * axis_length_map)
+                            glEnd()
+
+
+
+                        if is_also_f7_target: # F7目標優先顯示紅色
+    #                             print("紅色")
+                            glColor3f(1.0, 0.0, 0.0) # 紅色
+                            glLineWidth(3.0) # 可以比普通高亮更粗一點
+                        elif is_highlighted:
                             glColor3f(1.0, 1.0, 0.0) # 高亮黃色
                             glLineWidth(3.0)
 #                             if line_num == line_to_focus_on:
@@ -1659,7 +1835,6 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                             glLineWidth(2.0)
 
                         # --- 繪製圓形 ---
-                        center_map_x, center_map_y = _world_to_map_coords_adapted(wx, wz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                         radius_map = cr * scale
                         if radius_map > 0.5: # 簡單的細節剔除
                             glBegin(GL_LINE_LOOP)
@@ -1669,8 +1844,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                                            center_map_y + radius_map * math.sin(angle))
                             glEnd()
 
-                        # --- 繪製 line_num:Y 座標標籤 ---
-                        label_text = f"{line_num}:{wy:.1f}"
+                        # --- 繪製 line_identifier:Y 座標標籤 ---
+                        label_text = f"{line_identifier}:{wy:.1f}"
                         label_color = MINIMAP_GRID_LABEL_COLOR if is_highlighted else MINIMAP_DYNAMIC_SPHERE_LABEL_COLOR
                         try:
                             if show_object_and_grid_labels and coord_label_font and not is_dragging: # 確保字體存在
@@ -1688,12 +1863,16 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         num_circle_segments_editor_hill = 16 # 編輯器預覽用稍低精度即可
         hill_center_point_size = 6.0 # 中心點標記大小
         for item in scene.hills:
-            line_num, hill_data = item
+            line_identifier, hill_data = item
+#             print(hill_data)
             try:
                 # 解包數據 (需要中心, 高度, 半徑)
-                obj_type, cx, base_y, cz, base_radius, peak_height_offset, *_ = hill_data
+                obj_type, cx, base_y, cz, base_radius, peak_height_offset, \
+                uscale, vscale, tex_file, \
+                tex_id, tex_alpha, \
+                parent_origin_ry_deg = hill_data
             except ValueError:
-                # print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_num})") # 可選警告
+                print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_num})") # 可選警告
                 continue
 
             # --- 計算 Widget 座標 ---
@@ -1702,19 +1881,49 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 
             # --- 檢查是否在可見範圍內 (簡單檢查中心點) ---
             is_visible = 0 <= center_map_x <= widget_width and 0 <= center_map_y <= widget_height
-            # --- 檢查高亮狀態 ---
-            is_highlighted = line_num in highlight_line_nums
+#             # --- 檢查高亮狀態 ---
+#             is_highlighted = line_identifier in highlight_line_nums
             
-#                     if is_highlighted and line_num == line_to_focus_on:
-#                         focused_element_world_x = cx
-#                         focused_element_world_z = cz                        
 
             if is_visible:
 
                 # --- 保存和設置繪製狀態 ---
                 glPushAttrib(GL_CURRENT_BIT | GL_POINT_BIT | GL_LINE_BIT)
                 try:
-                    if is_highlighted:
+                    is_highlighted = line_identifier in highlight_line_nums
+                    is_also_f7_target = (f7_tuning_target_line_num != -1 and line_identifier == f7_tuning_target_line_num) # <--- 判斷是否為F7目標
+
+                    if is_highlighted or is_also_f7_target:
+                        axis_length_map = min(widget_width, widget_height) * 1.00 # 小地圖視窗尺寸的5%
+                        angle_y_map_rad = math.radians(-parent_origin_ry_deg) # 與投影計算一致
+                        map_local_x_dir_x = math.cos(angle_y_map_rad)
+                        map_local_x_dir_z = math.sin(angle_y_map_rad)
+                        map_local_z_dir_x = -math.sin(angle_y_map_rad) # cos(a+90) = -sin(a)
+                        map_local_z_dir_z =  math.cos(angle_y_map_rad) # sin(a+90) = cos(a)
+#                         center_map_x, center_map_y = _world_to_map_coords_adapted(
+#                             wx, wz, view_center_x, view_center_z,
+#                             widget_center_x_screen, widget_center_y_screen, scale
+#                         )
+                        glLineWidth(2.0)
+                        glBegin(GL_LINES)
+                        glColor3f(1.0, 0.5, 0.5) # 示例：粉紅色X軸
+                        glVertex2f(center_map_x, center_map_y)
+                        glVertex2f(center_map_x + map_local_x_dir_x * axis_length_map, 
+                                   center_map_y + map_local_x_dir_z * axis_length_map)
+                        glColor3f(0.5, 1.0, 0.5) # 示例：淺綠色Z軸
+                        glVertex2f(center_map_x, center_map_y)
+                        glVertex2f(center_map_x + map_local_z_dir_x * axis_length_map, 
+                                   center_map_y + map_local_z_dir_z * axis_length_map)
+                        glEnd()
+
+
+
+
+                    if is_also_f7_target: # F7目標優先顯示紅色
+#                             print("紅色")
+                        glColor3f(1.0, 0.0, 0.0) # 紅色
+                        glLineWidth(3.0) # 可以比普通高亮更粗一點
+                    elif is_highlighted:
                         glColor3fv(MINIMAP_HIGHLIGHT_HILL_COLOR)
                         glPointSize(hill_center_point_size * 1.5) # 高亮點稍大
                         glLineWidth(2.5) # 高亮輪廓稍粗
@@ -1771,6 +1980,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     ridge_x_pos_offset = roof_data[10]
                     eave_overhang_x = roof_data[11]
                     eave_overhang_z = roof_data[12]
+                    parent_origin_ry_deg = roof_data[16]
                 except (IndexError, ValueError):
                     # print(f"警告: 解包 gableroof 數據 (編輯器預覽) 時出錯 (行: {line_identifier})")
                     continue
@@ -1785,11 +1995,48 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                     continue
                 # --- 結束包圍圓裁剪 ---
 
+
                 glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT)
                 try:
                     is_highlighted = line_identifier in highlight_line_nums
-                    if is_highlighted: glColor3f(1.0,1.0,0.0); glLineWidth(3.0)
-                    else: glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR); glLineWidth(2.0) # 借用顏色
+                    is_also_f7_target = (f7_tuning_target_line_num != -1 and line_identifier == f7_tuning_target_line_num) # <--- 判斷是否為F7目標
+
+                    if is_highlighted or is_also_f7_target:
+                        axis_length_map = min(widget_width, widget_height) * 1.00 # 小地圖視窗尺寸的5%
+                        angle_y_map_rad = math.radians(-parent_origin_ry_deg) # 與投影計算一致
+                        map_local_x_dir_x = math.cos(angle_y_map_rad)
+                        map_local_x_dir_z = math.sin(angle_y_map_rad)
+                        map_local_z_dir_x = -math.sin(angle_y_map_rad) # cos(a+90) = -sin(a)
+                        map_local_z_dir_z =  math.cos(angle_y_map_rad) # sin(a+90) = cos(a)
+                        center_map_x, center_map_y = _world_to_map_coords_adapted(
+                            wx, wz, view_center_x, view_center_z,
+                            widget_center_x_screen, widget_center_y_screen, scale
+                        )
+                        glLineWidth(2.0)
+                        glBegin(GL_LINES)
+                        glColor3f(1.0, 0.5, 0.5) # 示例：粉紅色X軸
+                        glVertex2f(center_map_x, center_map_y)
+                        glVertex2f(center_map_x + map_local_x_dir_x * axis_length_map, 
+                                   center_map_y + map_local_x_dir_z * axis_length_map)
+                        glColor3f(0.5, 1.0, 0.5) # 示例：淺綠色Z軸
+                        glVertex2f(center_map_x, center_map_y)
+                        glVertex2f(center_map_x + map_local_z_dir_x * axis_length_map, 
+                                   center_map_y + map_local_z_dir_z * axis_length_map)
+                        glEnd()
+
+
+#                     is_highlighted = line_identifier in highlight_line_nums
+                    if is_also_f7_target: # F7目標優先顯示紅色
+#                             print("紅色")
+                        glColor3f(1.0, 0.0, 0.0) # 紅色
+                        glLineWidth(3.0) # 可以比普通高亮更粗一點
+                    elif is_highlighted:
+                        glColor3f(1.0,1.0,0.0);
+                        glLineWidth(3.0)
+                    else:
+                        glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR);
+                        glLineWidth(2.0) # 借用顏色
+
 
                     # --- 繪製凸包線框 ---
                     hull_vertices_world_xz = get_convex_hull_projection_for_gableroof(
@@ -1898,7 +2145,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                         track_info = f"S {segment.horizontal_length:.1f}" # Use horizontal_length
                     
                     label_text_main=f"{track_info} y: {segment.points[0][1]:.1f} ({line_num_main})"; # Added line_num
-                    label_color_main = (255, 255, 0, 255) if is_highlighted_main else MINIMAP_GRID_LABEL_COLOR
+                    label_color_main = (255, 255, 0, 0.1) if is_highlighted_main else MINIMAP_GRID_LABEL_COLOR
                     try:
                         if show_object_and_grid_labels and coord_label_font: # Check if font exists
                             text_surface_main=coord_label_font.render(label_text_main,True,label_color_main);
