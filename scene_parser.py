@@ -31,7 +31,7 @@ COMMAND_HINTS = {
     "tree": ["    cmd    ", "rel_x", "rel_y", "rel_z", "height", "tex?"],
     "sphere": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "radius", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
     "hill": ["    cmd    ", "cx", "base_y", "cz", "radius", "peak_h_off", "tex?", "uSc?", "vSc?", "uOf?", "vOf?"], # <--- 新增這一行
-    "import": ["    cmd    ", "filepath"], 
+    "import": ["    cmd    ", "filepath", "rel_x?", "rel_y?", "rel_z?", "rel_angle°?"], 
     # Add other commands if they exist
     "gableroof": [
     "    cmd    ",        # 0
@@ -314,6 +314,35 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     continue
                 
                 import_filename_param  = parts[1]
+                ### --- START OF MODIFICATION FOR IMPORT PARAMS ---
+                import_offset_x, import_offset_y, import_offset_z = 0.0, 0.0, 0.0
+                import_offset_angle_deg = 0.0
+                
+                # 預設情況下，如果 import 沒有提供角度，可以考慮繼承父級的角度
+                # 或者，如果希望導入的內容總是從 "世界正前方" 開始（相對於其導入的x,y,z原點），則設為0
+                # 這裡我們暫時設為0，如果 import 未提供角度。
+                # parts[1]是檔名, parts[2]是x, parts[3]是y, parts[4]是z, parts[5]是angle
+                if len(parts) >= 5: # 至少有 x, y, z
+                    try:
+                        import_offset_x = float(parts[2])
+                        import_offset_y = float(parts[3])
+                        import_offset_z = float(parts[4])
+                        if len(parts) >= 6: # 有角度參數
+                            import_offset_angle_deg = float(parts[5])
+                        # else:
+                            # 如果沒有提供角度，可以選擇繼承當前的 relative_origin_angle_rad
+                            # import_offset_angle_deg = math.degrees(scene_to_populate.current_relative_origin_angle_rad)
+                            # 或是繼承 current_parse_angle_rad
+                            # import_offset_angle_deg = math.degrees(scene_to_populate.current_parse_angle_rad)
+                            # 為了簡單起見，如果沒提供，就用預設的 0.0 (或者上次 `start` 的值)
+                            # 我們這裡讓它預設為0，意味著導入的內容如果自己有軌道，會從其局部X=0,Z=0,Y=0點的"正前方"（Z+或X+，取決於角度）開始
+                    except ValueError:
+                        print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'import' 指令的 x,y,z,angle 參數無效。將使用預設偏移(0,0,0)和角度(0)。")
+                        import_offset_x, import_offset_y, import_offset_z = 0.0, 0.0, 0.0
+                        import_offset_angle_deg = 0.0
+                
+                # --- 解析相對路徑 --- (這部分移到參數解析之後，如果參數無效可能就不需要繼續了)
+                ### --- END OF MODIFICATION FOR IMPORT PARAMS ---
                 # --- 解析相對路徑 ---
                 # 假設 import_filename 是相對於 current_file_directory 的
                 imported_filepath_abs = os.path.abspath(os.path.join(current_file_directory, import_filename_param))
@@ -328,7 +357,51 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
 
                 imported_files.add(imported_filepath_abs)
                 print(f"信息: ({current_filename_for_display} 行 {line_num_in_file}) 导入 '{import_filename_param}'...")
+
+    ### --- START OF MODIFICATION FOR IMPORT PARAMS (State Save/Restore for ACCUMULATIVE import) ---
+                # 保存當前的解析狀態 (包括相對原點和軌道解析位置)
+                old_relative_origin_pos = np.copy(scene_to_populate.current_relative_origin_pos)
+                old_relative_origin_angle_rad = scene_to_populate.current_relative_origin_angle_rad
+                old_parse_pos = np.copy(scene_to_populate.current_parse_pos)
+                old_parse_angle_rad = scene_to_populate.current_parse_angle_rad
+                old_last_background_info = scene_to_populate.last_background_info
+
+                # --- 計算新的臨時原點 (累加方式) ---
+                # import_offset_x, y, z 被視為在 "old_relative_origin" 座標系下的局部偏移
+                # import_offset_angle_deg 被視為相對於 "old_relative_origin_angle_rad" 的角度增量
+
+                # 父級原點的角度
+                parent_angle_rad = old_relative_origin_angle_rad # 使用導入前的相對原點角度
+
+                cos_parent_angle = math.cos(parent_angle_rad)
+                sin_parent_angle = math.sin(parent_angle_rad)
+
+                # 將 import 指令中的局部偏移 (import_offset_x, import_offset_z) 轉換為世界座標系下的偏移量
+                # 假設 import_offset_x 是側向偏移 (父級局部X), import_offset_z 是向前偏移 (父級局部Z)
+                # 這與 building, cylinder 等物件的 rel_x, rel_z 語義一致
+                world_dx_from_parent = import_offset_z * cos_parent_angle + import_offset_x * sin_parent_angle
+                world_dz_from_parent = import_offset_z * sin_parent_angle - import_offset_x * cos_parent_angle
+                world_dy_from_parent = import_offset_y # Y 軸偏移通常是直接疊加
+
+                # 新的臨時相對原點是父級原點加上計算出的世界偏移
+                new_temp_origin_x = old_relative_origin_pos[0] + world_dx_from_parent
+                new_temp_origin_y = old_relative_origin_pos[1] + world_dy_from_parent
+                new_temp_origin_z = old_relative_origin_pos[2] + world_dz_from_parent
                 
+                scene_to_populate.current_relative_origin_pos[:] = [new_temp_origin_x, new_temp_origin_y, new_temp_origin_z]
+                
+                # 新的臨時角度是父級角度加上 import 提供的角度增量
+                scene_to_populate.current_relative_origin_angle_rad = parent_angle_rad + math.radians(import_offset_angle_deg)
+                
+                # 更新 current_parse_pos 和 angle，使得導入檔案內的軌道指令（如果有的話）
+                # 也會從這個新的臨時原點開始。
+                scene_to_populate.current_parse_pos[:] = scene_to_populate.current_relative_origin_pos
+                scene_to_populate.current_parse_angle_rad = scene_to_populate.current_relative_origin_angle_rad
+                scene_to_populate.last_background_info = None # 導入的檔案應該重新開始背景觸發邏輯
+                
+                print(f"信息: 导入 '{import_filename_param}'，临时原点设为 ({new_temp_origin_x:.1f}, {new_temp_origin_y:.1f}, {new_temp_origin_z:.1f})，角度 {math.degrees(scene_to_populate.current_relative_origin_angle_rad):.1f}° (累加)")
+                ### --- END OF MODIFICATION FOR IMPORT PARAMS (State Save/Restore for ACCUMULATIVE import) ---
+
                 try:
                     with open(imported_filepath_abs, 'r', encoding='utf-8') as f_import:
                         imported_lines = f_import.readlines()
@@ -342,7 +415,17 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
 
                 except Exception as e_import:
                     print(f"錯誤: (文件: {os.path.basename(current_filename_for_display)} 行 {line_num_in_file}) 导入文件 '{import_filename_param}' 时发生错误: {e_import}")
-                
+
+                ### --- START OF MODIFICATION FOR IMPORT PARAMS (State Restore) ---
+                # 恢復之前的解析狀態
+                scene_to_populate.current_relative_origin_pos[:] = old_relative_origin_pos
+                scene_to_populate.current_relative_origin_angle_rad = old_relative_origin_angle_rad
+                scene_to_populate.current_parse_pos[:] = old_parse_pos
+                scene_to_populate.current_parse_angle_rad = old_parse_angle_rad
+                scene_to_populate.last_background_info = old_last_background_info # 恢復背景觸發器狀態
+                print(f"信息: 导入 '{import_filename_param}' 完成後，恢复原点至 ({old_relative_origin_pos[0]:.1f}, {old_relative_origin_pos[1]:.1f}, {old_relative_origin_pos[2]:.1f}) 角度 {math.degrees(old_relative_origin_angle_rad):.1f}°")
+                ### --- END OF MODIFICATION FOR IMPORT PARAMS (State Restore) ---
+
                 # 從集合中移除，允許其他分支再次導入同一個檔案（如果不是循環的一部分）
                 # 或者，如果一個檔案只應被導入一次，則不移除
                 imported_files.remove(imported_filepath_abs) # 允許非循環的重複導入 (例如 A import C, B import C)

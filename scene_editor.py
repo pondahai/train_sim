@@ -48,10 +48,10 @@ EDITOR_LABEL_OFFSET_X = 5
 EDITOR_LABEL_OFFSET_Y = 3
 
 # --- 3D 預覽視窗常數 ---
-PREVIEW_UPDATE_INTERVAL = 100 # ms 
-PREVIEW_MOVE_SPEED = 25.0 # units per second
-PREVIEW_MOUSE_SENSITIVITY = 0.15
-PREVIEW_ACCEL_FACTOR = 6.0 # Shift 加速倍率
+PREVIEW_UPDATE_INTERVAL = 80 # ms 
+PREVIEW_MOVE_SPEED = 15.0 # units per second
+PREVIEW_MOUSE_SENSITIVITY = 0.1
+PREVIEW_ACCEL_FACTOR = 8.0 # Shift 加速倍率
 
 # --- Minimap OpenGL Widget ---
 class MinimapGLWidget(QGLWidget):
