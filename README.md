@@ -397,11 +397,12 @@ gableroof <rel_x> <rel_y> <rel_z> <abs_rx°> <abs_ry°> <abs_rz°> <base_w> <bas
 #   <tex_atlas>     ：(可選) 使用的紋理圖集檔名 (預設 "default_roof_atlas.png")。使用預定義UV佈局。
 
 # 14. 導入外部場景檔案
-import <filepath>
+import <filepath> [<rel_x>] [<rel_y>] [<rel_z>] [<rel_angle°>]
 # 參數說明：
 #   <filepath> ：要導入的場景檔路徑 (相對於包含此 import 指令的檔案)。
 #                導入的檔案內容會在其位置被解析，就像直接寫在那裡一樣。
 #                支援相對路徑。程式會處理循環導入。
+#   <rel_x> <rel_y> <rel_z> <rel_angle> ：(可選)外部場景的臨時原點(相對於目前)
 
 # 備註：
 # - `skybox` 或 `skydome` 指令會設定其後的軌道段開始時的背景。第一個出現的背景指令也會作為初始背景。
