@@ -525,6 +525,66 @@ def get_convex_hull_projection_for_gableroof(
     hull_points_xz = calculate_2d_convex_hull(points_xz_projection) # <--- 調用在這裡
     return hull_points_xz
 
+def get_world_space_corners_of_flexroof(
+    wx_base_center, wy_base_center, wz_base_center, # 下底面中心的世界座標
+    world_rx_deg, world_ry_deg, world_rz_deg,     # 物件的世界旋轉
+    base_w, base_l, top_w, top_l, height,
+    top_off_x, top_off_z
+):
+    """計算 flexroof 的8個世界空間角點。"""
+    # 下底面頂點 (相對於下底中心 (0,0,0) 的局部偏移)
+    b_half_w, b_half_l = base_w / 2.0, base_l / 2.0
+    local_bottom_corners = [
+        np.array([-b_half_w, 0.0, -b_half_l]), np.array([ b_half_w, 0.0, -b_half_l]),
+        np.array([ b_half_w, 0.0,  b_half_l]), np.array([-b_half_w, 0.0,  b_half_l]),
+    ]
+
+    # 上底面頂點 (相對於上底中心 (top_off_x, height, top_off_z) 的局部偏移)
+    t_half_w, t_half_l = top_w / 2.0, top_l / 2.0
+    local_top_corners_rel_to_top_center = [
+        np.array([-t_half_w, 0.0, -t_half_l]), np.array([ t_half_w, 0.0, -t_half_l]),
+        np.array([ t_half_w, 0.0,  t_half_l]), np.array([-t_half_w, 0.0,  t_half_l]),
+    ]
+    
+    # 將上底角點轉換為相對於下底中心 (0, height+offset, 0) 的局部偏移
+    local_top_corners = []
+    for corner_offset in local_top_corners_rel_to_top_center:
+        local_top_corners.append(
+            np.array([corner_offset[0] + top_off_x, 
+                      height, 
+                      corner_offset[2] + top_off_z])
+        )
+
+    all_local_corners = local_bottom_corners + local_top_corners
+    
+    rotation_matrix = _calculate_y_x_z_intrinsic_rotation_matrix(world_rx_deg, world_ry_deg, world_rz_deg)
+    
+    world_corners = []
+    for lc_offset in all_local_corners:
+        rotated_offset = np.dot(rotation_matrix, lc_offset)
+        world_corners.append(
+            np.array([wx_base_center + rotated_offset[0],
+                      wy_base_center + rotated_offset[1], # wy_base_center 是下底面的Y
+                      wz_base_center + rotated_offset[2]])
+        )
+    return world_corners
+
+def get_convex_hull_projection_for_flexroof(
+    wx, wy, wz, world_rx, world_ry, world_rz,
+    base_w, base_l, top_w, top_l, height,
+    top_off_x, top_off_z
+) -> list:
+    """計算 flexroof 在XZ平面投影的凸包頂點 (世界座標)。"""
+    world_corners_3d = get_world_space_corners_of_flexroof(
+        wx, wy, wz, world_rx, world_ry, world_rz,
+        base_w, base_l, top_w, top_l, height,
+        top_off_x, top_off_z
+    )
+    points_xz_projection = [(corner[0], corner[2]) for corner in world_corners_3d]
+    hull_points_xz = calculate_2d_convex_hull(points_xz_projection)
+    return hull_points_xz
+
+
 def _render_static_elements_to_fbo(scene: Scene):
     """ Renders grid, buildings, cylinders, trees into the currently bound FBO. """
     # --- KEEPING LOGIC IDENTICAL (using your tested _world_to_fbo_coords) ---
@@ -862,6 +922,58 @@ def _render_static_elements_to_fbo(scene: Scene):
             # --- 結束屋脊線烘焙 ---
                 
         # --- 結束烘焙 Gableroofs ---
+
+    if hasattr(scene, 'flexroofs'):
+        # 假設 flexroof 使用與 building 相似的烘焙顏色
+        glColor4fv(MINIMAP_BAKE_BUILDING_COLOR) # 或者定義一個 MINIMAP_BAKE_FLEXROOF_COLOR
+
+        for item in scene.flexroofs:
+            line_identifier, flexroof_data = item
+            try:
+                # 解包 flexroof_data_tuple (與 scene_parser.py 中打包時一致)
+                (obj_type_str,
+                 wx, wy, wz, abs_rx, final_ry, abs_rz,
+                 base_w, base_l, top_w, top_l, height_val,
+                 top_off_x, top_off_z,
+                 _tex_id, _tex_alpha, _tex_file,
+                 _parent_origin_ry_deg) = flexroof_data
+                
+                if obj_type_str != "flexroof": continue
+
+            except (IndexError, ValueError) as e_unpack_fbo:
+                print(f"警告 FBO: 解包 flexroof 數據 (行: {line_identifier}) 失敗: {e_unpack_fbo}")
+                continue
+
+            # 使用輔助函數獲取凸包的XZ投影頂點 (世界座標)
+            hull_vertices_world_xz = get_convex_hull_projection_for_flexroof(
+                wx, wy, wz, abs_rx, final_ry, abs_rz,
+                base_w, base_l, top_w, top_l, height_val,
+                top_off_x, top_off_z
+            )
+            
+            if hull_vertices_world_xz and len(hull_vertices_world_xz) >= 3:
+                fbo_poly_coords = []
+                for corner_world_xz in hull_vertices_world_xz:
+                    map_x, map_y = _world_to_fbo_coords(
+                        corner_world_xz[0], corner_world_xz[1], 
+                        world_cx, world_cz, world_w, world_h, fbo_w, fbo_h
+                    )
+                    fbo_poly_coords.append((map_x, map_y))
+                
+                glBegin(GL_POLYGON)
+                for mx, my in fbo_poly_coords:
+                    glVertex2f(mx, my)
+                glEnd()
+            
+            # (可選) 烘焙屋脊線，如果 top_w 或 top_l 很小
+            if min(top_w, top_l) < max(base_w, base_l) * 0.1: # 如果頂部某邊明顯小於底部
+                # 計算屋脊線的兩個端點的3D世界座標
+                # 這需要將上底面的中心線 (考慮 top_off_x/z) 投影下來
+                # 為了簡化，我們先不畫屋脊線，因為其定義可能多樣
+                # 如果頂部完全退化 (top_w=0 或 top_l=0)，那麼 get_convex_hull_projection_for_flexroof
+                # 的結果應該已經能較好地反映其形狀 (例如人字形的三角形投影)。
+                pass
+
 
     print("靜態元素 FBO 繪製完成。")
 
@@ -2086,7 +2198,134 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 finally:
                     glPopAttrib()
     # --- 結束繪製 Gableroofs ---
-    
+        
+        if hasattr(scene, 'flexroofs'):
+            # 假設 flexroof 使用與 building 相似的預覽顏色和線寬
+            # MINIMAP_DYNAMIC_FLEXROOF_COLOR = (0.75, 0.35, 0.75) # 可自訂
+            # MINIMAP_DYNAMIC_FLEXROOF_LABEL_COLOR = tuple(c * 255 for c in MINIMAP_DYNAMIC_FLEXROOF_COLOR) + (180,)
+
+            for item in scene.flexroofs:
+                line_identifier, flexroof_data = item
+                try:
+                    # 解包 flexroof_data_tuple
+                    (obj_type_str,
+                     wx, wy, wz, abs_rx, final_ry, abs_rz,
+                     base_w, base_l, top_w, top_l, height_val,
+                     top_off_x, top_off_z,
+                     _tex_id, _tex_alpha, _tex_file,
+                     parent_origin_ry_deg_val) = flexroof_data # 父原點角度用於繪製局部軸
+
+                    if obj_type_str != "flexroof": continue
+                
+                except (IndexError, ValueError) as e_unpack_preview_dyn:
+                    print(f"警告 Preview Dynamic: 解包 flexroof 數據 (行: {line_identifier}) 失敗: {e_unpack_preview_dyn}")
+                    continue
+
+                # --- 包圍圓裁剪 (與 gableroof 類似，使用整體估算) ---
+                # 估算 flexroof 在XZ平面的最大延伸範圍
+                # 可以取 base_w/l 和 top_w/l + abs(offsets) 的最大值
+                max_extent_x = max(base_w, top_w + 2 * abs(top_off_x)) / 2.0
+                max_extent_z = max(base_l, top_l + 2 * abs(top_off_z)) / 2.0
+                flexroof_bounding_radius = math.sqrt(max_extent_x**2 + max_extent_z**2) * 1.1 # 加一點餘裕
+                
+                if not circle_intersects_aabb(wx, wz, flexroof_bounding_radius,
+                                              viewport_world_min_x, viewport_world_max_x,
+                                              viewport_world_min_z, viewport_world_max_z):
+                    continue
+                # --- 結束包圍圓裁剪 ---
+
+                glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT)
+                try:
+                    is_highlighted = line_identifier in highlight_line_nums
+                    is_f7_target = (f7_tuning_target_line_num != -1 and line_identifier == f7_tuning_target_line_num)
+
+                    # 設置顏色和線寬
+                    if is_f7_target:
+                        glColor3f(1.0, 0.0, 0.0) # 紅色 F7 目標
+                        glLineWidth(3.0)
+                    elif is_highlighted:
+                        glColor3f(1.0, 1.0, 0.0) # 黃色高亮
+                        glLineWidth(3.0)
+                    else:
+                        glColor3fv(MINIMAP_DYNAMIC_BUILDING_COLOR) # 借用 building 的顏色
+                        glLineWidth(2.0)
+                    
+                    # 獲取凸包投影
+                    hull_vertices_world_xz = get_convex_hull_projection_for_flexroof(
+                        wx, wy, wz, abs_rx, final_ry, abs_rz,
+                        base_w, base_l, top_w, top_l, height_val,
+                        top_off_x, top_off_z
+                    )
+
+                    map_poly_coords = []
+                    if hull_vertices_world_xz and len(hull_vertices_world_xz) >= 3:
+                        for corner_world_xz in hull_vertices_world_xz:
+                            map_x, map_y = _world_to_map_coords_adapted(
+                                corner_world_xz[0], corner_world_xz[1], 
+                                view_center_x, view_center_z, 
+                                widget_center_x_screen, widget_center_y_screen, scale
+                            )
+                            map_poly_coords.append((map_x, map_y))
+                        
+                        glBegin(GL_LINE_LOOP)
+                        for mx, my in map_poly_coords:
+                            glVertex2f(mx, my)
+                        glEnd()
+
+                    # 繪製局部座標軸 (如果高亮或F7)
+                    if (is_highlighted or is_f7_target) and map_poly_coords:
+                        center_map_x, center_map_y = _world_to_map_coords_adapted(
+                            wx, wz, view_center_x, view_center_z,
+                            widget_center_x_screen, widget_center_y_screen, scale
+                        )
+                        axis_length_map = min(widget_width, widget_height) * 1.00 # 軸線長度
+                        
+                        # 使用 parent_origin_ry_deg_val 來決定物件的"初始"或"基座"朝向
+                        # 物件自身的 final_ry (已包含父旋轉) 用於幾何變換，
+                        # 但局部軸可能更適合展示其 "設計時" 的前後左右。
+                        # 或者，直接使用 final_ry 來展示其最終世界朝向下的局部軸。
+                        # 這裡我們用 parent_origin_ry_deg_val 來模擬其放置時的參考框架。
+                        # 如果想展示最終的局部軸，應該用 final_ry_deg。
+                        # 為了與 building 等保持一致，我們用 parent_origin_ry_deg_val。
+                        object_base_angle_rad_map = math.radians(-parent_origin_ry_deg_val)
+
+                        map_local_x_dir_x = math.cos(object_base_angle_rad_map)
+                        map_local_x_dir_z = math.sin(object_base_angle_rad_map) # map Y 對應 world Z
+                        
+                        map_local_z_dir_x = -math.sin(object_base_angle_rad_map)
+                        map_local_z_dir_z =  math.cos(object_base_angle_rad_map)
+
+                        glLineWidth(1.0)
+                        glBegin(GL_LINES)
+                        glColor3f(1.0, 0.5, 0.5) # X軸 (紅)
+                        glVertex2f(center_map_x, center_map_y)
+                        glVertex2f(center_map_x + map_local_x_dir_x * axis_length_map, 
+                                   center_map_y + map_local_x_dir_z * axis_length_map)
+                        glColor3f(0.5, 1.0, 0.5) # Z軸 (綠)
+                        glVertex2f(center_map_x, center_map_y)
+                        glVertex2f(center_map_x + map_local_z_dir_x * axis_length_map, 
+                                   center_map_y + map_local_z_dir_z * axis_length_map)
+                        glEnd()
+
+                    # 繪製標籤
+                    if map_poly_coords and show_object_and_grid_labels and coord_label_font and not is_dragging:
+                        center_x_label = sum(p[0] for p in map_poly_coords) / len(map_poly_coords)
+                        center_y_label = sum(p[1] for p in map_poly_coords) / len(map_poly_coords)
+                        
+                        label_text_content = f"{line_identifier}:{wy:.1f}" # wy 是下底面的Y
+                        label_color_actual = MINIMAP_GRID_LABEL_COLOR if is_highlighted or is_f7_target else MINIMAP_DYNAMIC_BUILDING_LABEL_COLOR
+                        
+                        try:
+                            text_surface = coord_label_font.render(label_text_content, True, label_color_actual)
+                            dx = center_x_label + EDITOR_LABEL_OFFSET_X
+                            dy = center_y_label + EDITOR_LABEL_OFFSET_Y 
+                            renderer._draw_text_texture(text_surface, dx, dy)
+                        except Exception as e_label_flex:
+                            pass
+                finally:
+                    glPopAttrib()        
+        
+        
         # 恢復默認點大小
         glPointSize(1.0)
 

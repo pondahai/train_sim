@@ -79,7 +79,7 @@ EDITOR_LABEL_OFFSET_Y = 3 # Keep
 #             |         |         |         |       |  <-- 山牆
 #             |         |         |         |       |
 #       V=0.0 +---------+---------+-----------------+
-#             U=-1.0    U=-0.75    U=-0.5     U=-0.25  U=0.0 為了紋理水平鏡像因此width是負值也因此倒過來
+#             U=-1.0    U=-0.75    U=-0.5     U=-0.25  U=0.0 為了紋理水平鏡像因此width是負值也因此倒過來 (可能是法線方向錯誤
 DEFAULT_UV_LAYOUTS = {
     # ... (cube, cylinder 的佈局，如果將來也用圖集的話) ...
     "cube": { 
@@ -98,6 +98,23 @@ DEFAULT_UV_LAYOUTS = {
         "front_gable":  (0.0,  0.0,         -0.25, 0.5  ),# 兩個山牆
         "back_gable":   (0.0,  0.5,       -0.25, 0.5  ) # 
         # 你需要根據你的圖集設計調整這些UV子矩形
+    },
+    "flexroof_layout": {
+        # 這些UV值 (u_start, v_start, width, height) 需要您根據
+        # 您為 flexroof 設計的紋理圖集來精心設定。
+        # 以下只是佔位符/示例，假設一個簡單的十字型或L型展開的某部分。
+        # 頂面 (Y+)
+        "top_face":    (0.25, 0.0, 0.25, 0.33), # 
+        # 底面 (Y-) - 通常不可見，但可以為其定義以保持完整性
+        "bottom_face": (0.25, 0.66, 0.25, 0.33), # 
+        # +Z方向側面 (通常是主要屋頂斜面之一，如果 top_l < base_l)
+        "side_z_pos":  (0.25, 0.33, 0.25, 0.33),  # 
+        # -Z方向側面 (通常是另一個主要屋頂斜面)
+        "side_z_neg":  (0.75, 0.33, 0.25, 0.33),  # 
+        # +X方向側面 (山牆面或較窄的斜面)
+        "side_x_pos":  (0.5, 0.33,  0.25, 0.33), # 
+        # -X方向側面
+        "side_x_neg":  (0.0, 0.33, 0.25, 0.33)  # 
     }
 }
 
@@ -951,7 +968,160 @@ def draw_gableroof(
     else: # 如果之前是glColor3f
         glColor3f(1,1,1) # 恢復預設顏色
         
+def draw_flexroof(
+    base_w, base_l, top_w, top_l, height,
+    top_off_x, top_off_z,
+    texture_id=None, # OpenGL 紋理 ID
+    texture_has_alpha=False,
+    # original_tex_file=None, # 可選，用於調試，如果 scene_parser 傳遞了它
+    alpha_test_threshold=0.1, # 預設的 alpha 測試閾值
+    uv_layout_key_internal="flexroof_layout" # 內部使用的固定鍵名
+):
+    # 0. 紋理和 Alpha 測試設置
+    gl_texture_id_to_use = None
+    alpha_testing_was_enabled_this_call = False
+
+    if texture_id is not None:
+        try:
+            if glIsTexture(texture_id):
+                gl_texture_id_to_use = texture_id
+                glBindTexture(GL_TEXTURE_2D, gl_texture_id_to_use)
+                glEnable(GL_TEXTURE_2D)
+                # 假設使用 GL_REPEAT，如果邊緣需要裁剪，可以改為 GL_CLAMP_TO_EDGE
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+            else:
+                glDisable(GL_TEXTURE_2D)
+        except Exception as e_tex_check:
+            print(f"DEBUG: draw_flexroof - Error checking texture ID {texture_id}: {e_tex_check}")
+            glDisable(GL_TEXTURE_2D)
+    else:
+        glDisable(GL_TEXTURE_2D)
+        glColor3f(1.0, 1.0, 1.0) # 無紋理時的預設顏色
+
+    if gl_texture_id_to_use and texture_has_alpha:
+        glEnable(GL_ALPHA_TEST)
+        glAlphaFunc(GL_GREATER, alpha_test_threshold)
+        alpha_testing_was_enabled_this_call = True
+        glDepthMask(GL_TRUE)
+        glDisable(GL_BLEND)
+
+    # 1. 獲取此屋頂的UV佈局 (使用內部固定的鍵名)
+    uv_layout_map = DEFAULT_UV_LAYOUTS.get(uv_layout_key_internal)
+    if not uv_layout_map:
+        print(f"警告: 未找到 flexroof 的UV佈局 (鍵: '{uv_layout_key_internal}')！紋理可能無法正確顯示。")
+        # Fallback: 創建一個空的 uv_layout_map，這樣 get 不會失敗，但紋理會是 (0,0)
+        uv_layout_map = {} 
+
+    # 2. 計算8個頂點的局部座標
+    # 下底面中心在 (0,0,0)，Y=0
+    # 上底面中心在 (top_off_x, height, top_off_z)，Y=height
+
+    # 下底面頂點 (Y=0)
+    b_half_w, b_half_l = base_w / 2.0, base_l / 2.0
+    v_bottom_fnw = np.array([-b_half_w, 0.0, -b_half_l]) # 前西北 (Front-North-West)
+    v_bottom_fne = np.array([ b_half_w, 0.0, -b_half_l]) # 前東北
+    v_bottom_fse = np.array([ b_half_w, 0.0,  b_half_l]) # 前東南
+    v_bottom_fsw = np.array([-b_half_w, 0.0,  b_half_l]) # 前西南
+
+    # 上底面頂點 (Y=height)，相對於上底中心 (top_off_x, height, top_off_z)
+    t_half_w, t_half_l = top_w / 2.0, top_l / 2.0
+    v_top_fnw = np.array([top_off_x - t_half_w, height, top_off_z - t_half_l])
+    v_top_fne = np.array([top_off_x + t_half_w, height, top_off_z - t_half_l])
+    v_top_fse = np.array([top_off_x + t_half_w, height, top_off_z + t_half_l])
+    v_top_fsw = np.array([top_off_x - t_half_w, height, top_off_z + t_half_l])
+
+    # 3. 開始繪製各個面
+    
+
+    # 頂面 (Top Face, Y = height) - 只有當 top_w 和 top_l 都大於0時才繪製四邊形
+    if top_w > 1e-6 and top_l > 1e-6: # 使用小容差比較浮點數
+        uv_r_top = uv_layout_map.get("top_face", (0,0,0,0)) # 提供預設以防鍵缺失
+        glNormal3f(0, 1, 0) # 法線朝上
+        # 頂點順序：v_top_fsw, v_top_fse, v_top_fne, v_top_fnw (例如，從+Z邊的左點開始逆時針)
+        # 對應局部UV： (0,0), (1,0), (1,1), (0,1)
+        glBegin(GL_QUADS)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r_top)); glVertex3fv(v_top_fsw)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r_top)); glVertex3fv(v_top_fse)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r_top)); glVertex3fv(v_top_fne)
+        glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r_top)); glVertex3fv(v_top_fnw)
+        glEnd()
         
+    # 底面 (Bottom Face, Y = 0) - 通常不需要渲染，但可以保留邏輯
+    # uv_r_bottom = uv_layout_map.get("bottom_face", (0,0,0,0))
+    # glNormal3f(0, -1, 0)
+    # # 順序：v_bottom_fnw, v_bottom_fne, v_bottom_fse, v_bottom_fsw (例如，從-Z邊的左點開始逆時針)
+    # glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_r_bottom)); glVertex3fv(v_bottom_fnw)
+    # glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_r_bottom)); glVertex3fv(v_bottom_fne)
+    # glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_r_bottom)); glVertex3fv(v_bottom_fse)
+    # glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_r_bottom)); glVertex3fv(v_bottom_fsw)
+
+
+    # 輔助函數，用於繪製一個側面 (可以是四邊形或三角形)
+    def draw_side_face(v_bottom_1, v_bottom_2, v_top_1, v_top_2, uv_rect_info, expected_normal_approx):
+        # expected_normal_approx 是一個大致的期望法線方向，用於校驗計算出的法線
+        
+        # 判斷頂部邊是否退化成一個點 (即 v_top_1 和 v_top_2 非常接近)
+        # 這裡的 v_top_1 和 v_top_2 是指構成這個特定側面頂邊的兩個上部頂點
+        is_top_edge_degenerate = np.linalg.norm(v_top_1 - v_top_2) < 1e-5 
+
+        if is_top_edge_degenerate: # 頂部退化成點 -> 側面是三角形
+            # 三角形頂點: v_bottom_1, v_bottom_2, v_top_1 (或 v_top_2，它們是同一個點)
+            p_apex_side = v_top_1 
+            normal_calc = np.cross(v_bottom_2 - v_bottom_1, p_apex_side - v_bottom_1)
+            # 進行法線方向校驗和標準化
+            if np.dot(normal_calc, expected_normal_approx) < 0: normal_calc = -normal_calc
+            norm_val = np.linalg.norm(normal_calc)
+            if norm_val > 1e-6: glNormal3fv(normal_calc / norm_val)
+            else: glNormal3fv(expected_normal_approx) # Fallback
+
+            glBegin(GL_TRIANGLES)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_rect_info)); glVertex3fv(v_bottom_1)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_rect_info)); glVertex3fv(v_bottom_2)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0.5,1,uv_rect_info)); glVertex3fv(p_apex_side)
+            glEnd()
+        else: # 側面是四邊形
+            # 四邊形頂點: v_bottom_1, v_bottom_2, v_top_2, v_top_1 (確保順序)
+            normal_calc = np.cross(v_bottom_2 - v_bottom_1, v_top_1 - v_bottom_1) # 用 p0,p1,p3
+             # 進行法線方向校驗和標準化
+            if np.dot(normal_calc, expected_normal_approx) < 0: normal_calc = -normal_calc
+            norm_val = np.linalg.norm(normal_calc)
+            if norm_val > 1e-6: glNormal3fv(normal_calc / norm_val)
+            else: glNormal3fv(expected_normal_approx)
+
+            glBegin(GL_QUADS)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,0,uv_rect_info)); glVertex3fv(v_bottom_1)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,0,uv_rect_info)); glVertex3fv(v_bottom_2)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(1,1,uv_rect_info)); glVertex3fv(v_top_2)
+            glTexCoord2f(*map_local_uv_to_atlas_subrect(0,1,uv_rect_info)); glVertex3fv(v_top_1)
+            glEnd()
+
+    # 四個側面
+    
+    # -Z 面
+    draw_side_face(v_bottom_fnw, v_bottom_fne, v_top_fnw, v_top_fne, 
+                   uv_layout_map.get("side_z_neg", (0,0,0,0)), np.array([0,0,-1.0]))
+    # +X 面
+    draw_side_face(v_bottom_fne, v_bottom_fse, v_top_fne, v_top_fse, 
+                   uv_layout_map.get("side_x_pos", (0,0,0,0)), np.array([1.0,0,0]))
+    # +Z 面
+    draw_side_face(v_bottom_fse, v_bottom_fsw, v_top_fse, v_top_fsw, 
+                   uv_layout_map.get("side_z_pos", (0,0,0,0)), np.array([0,0,1.0]))
+    # -X 面
+    draw_side_face(v_bottom_fsw, v_bottom_fnw, v_top_fsw, v_top_fnw, 
+                   uv_layout_map.get("side_x_neg", (0,0,0,0)), np.array([-1.0,0,0]))
+    
+
+
+    # 4. 恢復OpenGL狀態
+    if alpha_testing_was_enabled_this_call:
+        glDisable(GL_ALPHA_TEST)
+    
+    if gl_texture_id_to_use:
+        glBindTexture(GL_TEXTURE_2D, 0)
+    else: # 如果之前是 glColor3f
+        glColor3f(1,1,1) # 恢復預設顏色
+
 # --- draw_tree (unchanged) ---
 def draw_tree(x, y, z, height, texture_id=None): # 函數簽名保持不變
     """
@@ -1383,7 +1553,60 @@ def draw_scene_objects(scene):
             )
             glPopMatrix()
 
+
+    # --- Draw flexroofs ---
+    if hasattr(scene, 'flexroofs'):
+        for item in scene.flexroofs:
+            line_identifier, flexroof_data = item
+            try:
+                # 解包 flexroof_data_tuple (與 scene_parser.py 中打包時一致)
+                # (obj_type, wx, wy, wz, abs_rx, final_ry, abs_rz,  <-- 0-6
+                #  base_w, base_l, top_w, top_l, height,             <-- 7-11
+                #  top_off_x, top_off_z,                             <-- 12-13
+                #  tex_id, tex_alpha, tex_file,                      <-- 14-16
+                #  parent_origin_ry_deg                              <-- 17
+                # )
+                obj_type_str, \
+                world_x, world_y, world_z, \
+                abs_rx_deg, final_world_ry_deg, abs_rz_deg, \
+                base_w_val, base_l_val, top_w_val, top_l_val, height_val, \
+                top_off_x_val, top_off_z_val, \
+                gl_texture_id_val, texture_has_alpha_val, texture_atlas_file_val, \
+                _parent_origin_ry_deg_val = flexroof_data
+
+                if obj_type_str != "flexroof": # 安全檢查
+                    print(f"警告: 在 flexroofs 列表中發現非 flexroof 物件: {obj_type_str}")
+                    continue
+
+            except (IndexError, ValueError) as e_unpack:
+                print(f"警告: 解包 flexroof 數據時出錯 (行標識: {line_identifier})。錯誤: {e_unpack}")
+                print(f"DEBUG: Flexroof data tuple was: {flexroof_data}")
+                continue
+
+            glPushMatrix()
+            glTranslatef(world_x, world_y, world_z) # 平移到物件的世界基準點
+            
+            # 應用旋轉 (順序通常是 Y (Yaw), X (Pitch), Z (Roll) 相對於自身)
+            glRotatef(final_world_ry_deg, 0, 1, 0)  # 1. Yaw (已經包含了父原點的旋轉)
+            glRotatef(abs_rx_deg,       1, 0, 0)  # 2. Pitch
+            glRotatef(abs_rz_deg,       0, 0, 1)  # 3. Roll
+            
+            # 調用新的繪製函數
+            draw_flexroof(
+                base_w_val, base_l_val, top_w_val, top_l_val, height_val,
+                top_off_x_val, top_off_z_val,
+                texture_id=gl_texture_id_val,
+                texture_has_alpha=texture_has_alpha_val
+                # alpha_test_threshold 可以使用 draw_flexroof 中的預設值
+                # uv_layout_key_internal 也是使用 draw_flexroof 中的預設值
+            )
+            glPopMatrix()
+
+
 #     glDisable(GL_BLEND)
+
+
+
 # --- draw_tram_cab (unchanged) ---
 def draw_tram_cab(tram, camera):
     # (Logic unchanged)

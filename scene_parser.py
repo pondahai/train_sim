@@ -51,6 +51,10 @@ COMMAND_HINTS = {
     "texture_atlas?",     # 13: 使用的紋理圖集檔名 (預設 "default_roof_atlas.png")
     # "alpha_threshold?" # 14: 可選的Alpha測試閾值 (如果想讓用戶指定)
     ],
+    "flexroof": ["    cmd    ", "rel_x", "rel_y", "rel_z", "abs_rx°?", "abs_ry°", "abs_rz°?", # 定位與旋轉 (abs_rx, abs_rz 可選)
+                 "base_w", "base_l", "top_w", "top_l", "height",                       # 核心幾何
+                 "top_off_x?", "top_off_z?",                                           # 上底偏移 (可選)
+                 "texture_atlas?"],                                                    # 紋理圖集 (可選)    
 }
 
 class Scene:
@@ -100,6 +104,7 @@ class Scene:
         # ----------------------------------
         self.gableroofs = []
         
+        self.flexroofs = [] # 新增 flexroofs 列表
         
     def clear(self):
         self.track.clear()
@@ -127,10 +132,17 @@ class Scene:
         self.last_background_info = None
         # ---------------------
         self.gableroofs = []
+        self.flexroofs = [] # 清空 flexroofs
         
     def clear_content(self): # 用於清空場景內容，但不一定釋放 OpenGL 資源
         self.track = Track() # 創建一個新的空軌道
         self.buildings = []
+        self.trees = []
+        self.cylinders = []
+        self.spheres = []
+        self.hills = []
+        self.gableroofs = []
+        self.flexroofs = []
         # ... (清空其他列表) ...
         self.map_filename = None
         # ...
@@ -146,33 +158,33 @@ class Scene:
 #         self.is_render_ready = False
         print(f"Scene resources cleaned up.")
 
-    def populate_from_lines(self, lines_list, load_textures=True):
-        """用解析器填充此 Scene 實例的內容。會先清空現有內容。"""
-        self.clear_content() # 先清空當前 Scene 的數據
-        # _parse_scene_content 應該被修改或有一個輔助函數
-        # 它不再創建新的 Scene，而是填充傳入的 Scene 實例
-        # 或者，_parse_scene_content 仍然返回一個新 Scene，然後我們手動複製其內容
-        # 為了簡單起見，我們先假設 _parse_scene_content 返回一個新 Scene
-        
-        temp_parsed_scene = _parse_scene_content(lines_list, load_textures) # 假設這個函數依然返回新的 Scene
-        if temp_parsed_scene:
-            # 將 temp_parsed_scene 的屬性複製到 self
-            self.track = temp_parsed_scene.track
-            self.buildings = temp_parsed_scene.buildings
-            self.trees = temp_parsed_scene.trees
-            self.cylinders = temp_parsed_scene.cylinders
-            self.spheres = temp_parsed_scene.spheres
-            self.hills = temp_parsed_scene.hills
-            self.start_position = temp_parsed_scene.start_position
-            self.start_angle_deg = temp_parsed_scene.start_angle_deg
-            self.map_filename = temp_parsed_scene.map_filename
-            self.map_world_center_x = temp_parsed_scene.map_world_center_x
-            self.map_world_center_z = temp_parsed_scene.map_world_center_z
-            self.map_world_scale = temp_parsed_scene.map_world_scale
-            self.initial_background_info = temp_parsed_scene.initial_background_info
-            self.background_triggers = temp_parsed_scene.background_triggers
-            return True
-        return False
+#     def populate_from_lines(self, lines_list, load_textures=True):
+#         """用解析器填充此 Scene 實例的內容。會先清空現有內容。"""
+#         self.clear_content() # 先清空當前 Scene 的數據
+#         # _parse_scene_content 應該被修改或有一個輔助函數
+#         # 它不再創建新的 Scene，而是填充傳入的 Scene 實例
+#         # 或者，_parse_scene_content 仍然返回一個新 Scene，然後我們手動複製其內容
+#         # 為了簡單起見，我們先假設 _parse_scene_content 返回一個新 Scene
+#         
+#         temp_parsed_scene = _parse_scene_content(lines_list, load_textures) # 假設這個函數依然返回新的 Scene
+#         if temp_parsed_scene:
+#             # 將 temp_parsed_scene 的屬性複製到 self
+#             self.track = temp_parsed_scene.track
+#             self.buildings = temp_parsed_scene.buildings
+#             self.trees = temp_parsed_scene.trees
+#             self.cylinders = temp_parsed_scene.cylinders
+#             self.spheres = temp_parsed_scene.spheres
+#             self.hills = temp_parsed_scene.hills
+#             self.start_position = temp_parsed_scene.start_position
+#             self.start_angle_deg = temp_parsed_scene.start_angle_deg
+#             self.map_filename = temp_parsed_scene.map_filename
+#             self.map_world_center_x = temp_parsed_scene.map_world_center_x
+#             self.map_world_center_z = temp_parsed_scene.map_world_center_z
+#             self.map_world_scale = temp_parsed_scene.map_world_scale
+#             self.initial_background_info = temp_parsed_scene.initial_background_info
+#             self.background_triggers = temp_parsed_scene.background_triggers
+#             return True
+#         return False
 
     @property # 將其作為一個屬性來訪問
     def is_render_ready(self):
@@ -1008,7 +1020,104 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     math.degrees(origin_angle) # <--- 新增：存儲父原點的Y旋轉角度 (度)
                 )
                 scene_to_populate.gableroofs.append((line_identifier_for_object, gableroof_data_tuple))
+
+            elif command == "flexroof":
+                # 參數順序: rel_x rel_y rel_z abs_rx° abs_ry° abs_rz° base_w base_l top_w top_l height [top_off_x] [top_off_z] [texture_atlas]
+                num_required_params = 11 # cmd + 6定位旋轉 + 5核心幾何
+                if len(parts) < 1 + num_required_params: # parts[0] 是指令本身
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) '{command}' 指令必需參數不足。需要至少 {num_required_params} 個參數，得到 {len(parts)-1} 個。")
+                    continue
                 
+                try:
+                    p_idx = 1
+                    rel_x = float(parts[p_idx]); p_idx += 1
+                    rel_y = float(parts[p_idx]); p_idx += 1
+                    rel_z = float(parts[p_idx]); p_idx += 1
+                    
+                    # 旋轉參數 (abs_rx 可選, abs_ry 必需, abs_rz 可選)
+                    abs_rx_deg = float(parts[p_idx]) if len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0
+                    if abs_rx_deg != 0.0 or (len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit()):
+                        p_idx +=1
+                    
+                    if len(parts) <= p_idx: raise ValueError("缺少必需的 abs_ry° 參數")
+                    abs_ry_deg = float(parts[p_idx]); p_idx += 1 # abs_ry 是必需的
+                    
+                    abs_rz_deg = float(parts[p_idx]) if len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0
+                    if abs_rz_deg != 0.0 or (len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit()):
+                        p_idx +=1
+
+                    # 核心幾何參數
+                    if len(parts) <= p_idx + 4: raise ValueError("缺少核心幾何參數 (base_w, base_l, top_w, top_l, height)")
+                    base_w = float(parts[p_idx]); p_idx += 1
+                    base_l = float(parts[p_idx]); p_idx += 1
+                    top_w = float(parts[p_idx]); p_idx += 1
+                    top_l = float(parts[p_idx]); p_idx += 1
+                    height_val = float(parts[p_idx]); p_idx += 1
+
+                    if base_w <= 0 or base_l <= 0 or top_w < 0 or top_l < 0 or height_val <= 0:
+                        print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) '{command}' 尺寸參數無效 (base_w/l > 0, top_w/l >= 0, height > 0)。")
+                        continue
+
+                    # 可選的上底偏移參數
+                    top_off_x = float(parts[p_idx]) if len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0
+                    if top_off_x != 0.0 or (len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit()):
+                         p_idx += 1
+                    
+                    top_off_z = float(parts[p_idx]) if len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0
+                    if top_off_z != 0.0 or (len(parts) > p_idx and parts[p_idx].replace('.', '', 1).replace('-', '', 1).isdigit()):
+                         p_idx += 1
+                    
+                    # 可選的紋理圖集
+                    texture_atlas_file = parts[p_idx] if len(parts) > p_idx else "default_flexroof_atlas.png" # 或者您選擇的預設名稱
+                    # p_idx += 1 # 如果後面還有參數
+
+                except (ValueError, IndexError) as e_parse:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) '{command}' 參數解析錯誤: {e_parse}")
+                    continue
+
+                # 紋理加載
+                gl_texture_id = None
+                texture_has_alpha_flag = False
+                if load_textures and texture_loader:
+                    tex_info = texture_loader.load_texture(texture_atlas_file)
+                    if tex_info:
+                        gl_texture_id = tex_info.get("id")
+                        texture_has_alpha_flag = tex_info.get("has_alpha", False)
+                
+                # 轉換到世界座標
+                origin_pos = scene_to_populate.current_relative_origin_pos
+                origin_angle_rad = scene_to_populate.current_relative_origin_angle_rad
+                
+                cos_oa = math.cos(origin_angle_rad)
+                sin_oa = math.sin(origin_angle_rad)
+                
+                world_offset_x = rel_z * cos_oa + rel_x * sin_oa 
+                world_offset_z = rel_z * sin_oa - rel_x * cos_oa
+
+                world_x = origin_pos[0] + world_offset_x
+                world_y = origin_pos[1] + rel_y 
+                world_z = origin_pos[2] + world_offset_z
+                
+                # 旋轉值直接使用解析出來的 abs_rx_deg, abs_ry_deg, abs_rz_deg
+                # 但 Y 軸旋轉需要疊加父原點的旋轉
+                final_world_ry_deg = math.degrees(-origin_angle_rad) + abs_ry_deg - 90# Yaw 疊加
+
+                flexroof_data_tuple = (
+                    "flexroof", # 物件類型標識
+                    # 定位與世界旋轉 (6)
+                    world_x, world_y, world_z, 
+                    abs_rx_deg, final_world_ry_deg, abs_rz_deg, # 使用疊加後的Y旋轉
+                    # 核心幾何參數 (5)
+                    base_w, base_l, top_w, top_l, height_val,
+                    # 上底偏移參數 (2)
+                    top_off_x, top_off_z,
+                    # 紋理信息 (3)
+                    gl_texture_id, texture_has_alpha_flag, texture_atlas_file,
+                    # 父原點的Y旋轉角度 (用於可能的調試或小地圖特殊繪製)
+                    math.degrees(origin_angle_rad) 
+                )
+                scene_to_populate.flexroofs.append((line_identifier_for_object, flexroof_data_tuple))
+
             elif command == "skybox":
                 # ... (skybox 解析邏輯) ...
                 if len(parts) < 2: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'skybox' 需要 base_name。"); continue
