@@ -159,6 +159,16 @@ def main():
     scene_parser.set_texture_loader(texture_loader)
     renderer.init_renderer() # Initialize main 3D renderer states and common textures
 
+    ### --- START OF MODIFICATION: Initialize Hill Shader ---
+    if hasattr(renderer, 'init_hill_shader'):
+        print("正在初始化山丘著色器...")
+        renderer.init_hill_shader()
+        if renderer._hill_shader_program_id is None: # 檢查是否成功
+            print("警告: 山丘著色器初始化失敗！山丘可能無法正常渲染。")
+    else:
+        print("警告: renderer 模塊中未找到 init_hill_shader 函數。")
+    ### --- END OF MODIFICATION ---
+
     # Pass font to main renderer and minimap renderer
     if hud_font:
         renderer.set_hud_font(hud_font)
@@ -182,6 +192,29 @@ def main():
             if scene.track:
                 print("初始場景載入成功，創建軌道緩衝區...")
                 scene.track.create_all_segment_buffers() # Create VBOs for the loaded track
+
+            ### --- START OF MODIFICATION: Create Hill Buffers for Initial Scene ---
+            if hasattr(scene, 'hills') and scene.hills and renderer._hill_shader_program_id:
+                print("正在為初始場景的山丘創建渲染緩衝區...")
+                new_hills_list_init = []
+                for i, hill_entry in enumerate(scene.hills):
+                    # create_hill_buffers 返回 (修改後的 hill_data_tuple, success_flag)
+                    # 而 hill_entry 是 (line_id, hill_data_tuple)
+                    original_line_id, original_hill_data = hill_entry
+                    modified_hill_data, success = renderer.create_hill_buffers(hill_entry)
+                    if success:
+                        new_hills_list_init.append((original_line_id, modified_hill_data))
+                    else:
+                        # 如果創建失敗，保留原始數據（不含VBO/VAO ID）
+                        # 或者可以選擇從列表中移除該山丘，或記錄錯誤
+                        print(f"警告: 為山丘 (行: {original_line_id}) 創建緩衝區失敗。")
+                        new_hills_list_init.append(hill_entry) # 保留原始條目
+                scene.hills = new_hills_list_init # 更新場景中的列表
+                print("初始場景山丘緩衝區創建完成。")
+            elif renderer._hill_shader_program_id is None and hasattr(scene, 'hills') and scene.hills:
+                print("警告: 山丘著色器未就緒，跳過為初始場景山丘創建緩衝區。")
+            ### --- END OF MODIFICATION ---
+
 
             # Bake minimap AFTER successful scene load and track buffer creation
             minimap_renderer.bake_static_map_elements(scene)
@@ -247,42 +280,77 @@ def main():
                     pygame.mouse.set_visible(not lock_state)
                     pygame.event.set_grab(lock_state)
                 elif event.key == pygame.K_r:
-                     print("手動觸發場景重新載入...")
-                     if scene_parser.load_scene(force_reload=True): # Reload scene data
-                         scene = scene_parser.get_current_scene()
-                         # --- NEW: Update active background after reload ---
-                         active_background_info = scene.initial_background_info if scene else None
-                         print(f"手動重載後背景設定為: {active_background_info}")
+                    print("手動觸發場景重新載入...")
 
-                         if scene and scene.track:
-                             print("手動重載成功，創建軌道緩衝區...")
-                             scene.track.create_all_segment_buffers()
-                         minimap_renderer.bake_static_map_elements(scene)
-                         print("手動重載後小地圖已烘焙。")
+                    ### --- START OF MODIFICATION: Cleanup Old Scene Resources FIRST ---
+                    if scene: # 確保舊的 scene 對象存在
+                        # 清理舊場景的山丘緩衝區
+                        if hasattr(scene, 'hills') and scene.hills:
+                            if hasattr(renderer, 'cleanup_all_hill_buffers'):
+                                print("重新加載前，清理舊場景的山丘緩衝區...")
+                                renderer.cleanup_all_hill_buffers(scene.hills)
+                            else:
+                                print("警告: renderer 模塊中未找到 cleanup_all_hill_buffers 函數。")
+                        
+                        # （可選）如果軌道等其他資源也需要在 load_scene 前清理，也放在這裡
+                        # 例如: if scene.track: scene.track.clear()
+                        # 但通常 load_scene 內部會處理紋理緩存等，軌道緩衝區的創建通常在加載後。
+                        # 主要問題是VBO/VAO這種與特定場景實例數據關聯的資源。
+                    ### --- END OF MODIFICATION ---
 
-                         # Reset tram based on NEW scene data
-                         tram_instance.track = scene.track if scene else None
-                         if scene:
-                             # 場景重載後不要重置
-#                               tram_instance.position = np.copy(scene.start_position)
-#                               start_angle_rad = math.radians(scene.start_angle_deg)
-#                               tram_instance.forward_vector_xz = (math.cos(start_angle_rad), math.sin(start_angle_rad))
-#                               tram_instance.distance_on_track = 0.0 # Reset distance
-                              tram_instance.current_speed = 0.0 # Reset speed
-                         else: # Reset to default if reload somehow resulted in empty scene
-                              tram_instance.position = np.array([0.0, 0.0, 0.0])
-                              tram_instance.forward_vector_xz = (1.0, 0.0)
-                              tram_instance.distance_on_track = 0.0
-                              tram_instance.current_speed = 0.0
+                    if scene_parser.load_scene(force_reload=True): # 現在 load_scene 會創建一個全新的 scene
+                        scene = scene_parser.get_current_scene() # scene 現在是新加載的對象
+                        
+                        active_background_info = scene.initial_background_info if scene else None
+                        print(f"手動重載後背景設定為: {active_background_info}")
 
-                         print("場景已手動重新載入並重設電車。")
-                     else:
-                         print("手動重新載入失敗。")
-                         scene = scene_parser.get_current_scene() # Get potentially empty scene
-                         # --- NEW: Reset background on failed reload too ---
-                         active_background_info = scene.initial_background_info if scene else None
-                         tram_instance.track = scene.track if scene else None
-                         minimap_renderer.bake_static_map_elements(scene)
+                        if scene and scene.track:
+                            print("手動重載成功，為新軌道創建緩衝區...")
+                            scene.track.create_all_segment_buffers() # 為新軌道創建
+
+                        ### --- START OF MODIFICATION: Create Hill Buffers for NEWLY Reloaded Scene ---
+                        if scene and hasattr(scene, 'hills') and scene.hills and renderer._hill_shader_program_id:
+                            print("正在為重新載入的場景的山丘創建渲染緩衝區...")
+                            new_hills_list_reload = []
+                            for i, hill_entry_reload in enumerate(scene.hills):
+                                original_line_id_reload, _ = hill_entry_reload
+                                # 確保傳遞的是 hill_entry_reload，而不是舊的 scene 中的數據
+                                modified_hill_data_reload, success_reload = renderer.create_hill_buffers(hill_entry_reload)
+                                if success_reload:
+                                    new_hills_list_reload.append((original_line_id_reload, modified_hill_data_reload))
+                                else:
+                                    print(f"警告: 為重新載入的山丘 (行: {original_line_id_reload}) 創建緩衝區失敗。")
+                                    new_hills_list_reload.append(hill_entry_reload)
+                            scene.hills = new_hills_list_reload # 更新新場景的 hills 列表
+                            print("重新載入場景山丘緩衝區創建完成。")
+                        elif renderer._hill_shader_program_id is None and hasattr(scene, 'hills') and scene.hills:
+                            print("警告: 山丘著色器未就緒，跳過為重新載入場景山丘創建緩衝區。")
+                        ### --- END OF MODIFICATION ---
+                                 
+                        minimap_renderer.bake_static_map_elements(scene)
+                        print("手動重載後小地圖已烘焙。")
+
+                        # Reset tram based on NEW scene data
+                        tram_instance.track = scene.track if scene else None
+                        if scene:
+                            tram_instance.current_speed = 0.0 # Reset speed
+                        else: 
+                            tram_instance.position = np.array([0.0, 0.0, 0.0])
+                            tram_instance.forward_vector_xz = (1.0, 0.0)
+                            tram_instance.distance_on_track = 0.0
+                            tram_instance.current_speed = 0.0
+                        print("場景已手動重新載入並重設電車。")
+                    else:
+                        print("手動重新載入失敗。")
+                        # scene 變量可能仍然指向舊的場景，或者 load_scene 內部可能將其設為空
+                        # 為了安全，如果 load_scene 失敗，最好也 clear 一下舊的 scene （如果還存在）
+                        if scene and hasattr(scene, 'hills') and scene.hills: # 如果 scene 還是舊的
+                             if hasattr(renderer, 'cleanup_all_hill_buffers'):
+                                 renderer.cleanup_all_hill_buffers(scene.hills)
+                        scene = scene_parser.get_current_scene() # 獲取 load_scene 失敗後可能的空場景
+                        active_background_info = scene.initial_background_info if scene else None
+                        tram_instance.track = scene.track if scene else None
+                        minimap_renderer.bake_static_map_elements(scene)
 
                 elif event.key == pygame.K_c: show_cab = not show_cab
                 elif event.key == pygame.K_m: show_minimap = not show_minimap; print(f"小地圖: {'開啟' if show_minimap else '關閉'}")
@@ -314,71 +382,100 @@ def main():
                     if action == "load_scene" and filepath_from_menu:
                         print(f"選單選擇：載入場景檔案 '{filepath_from_menu}'")
                         
-                        # 1. 清理舊場景的 OpenGL 資源 (如果需要，並且 current_scene 不是 None)
-                        if scene and hasattr(scene, 'cleanup_resources'):
+                        # --- 1. 清理舊場景的 OpenGL 資源 ---
+                        if scene: # 確保舊的 scene 對象存在
                             print(f"清理舊場景 '{current_loaded_scene_file}' 的資源...")
-                            scene.cleanup_resources() 
-                            # 如果 texture_loader 也需要清理特定於場景的紋理（而不是全局快取），也應在這裡處理
-                            # 但通常 texture_loader.clear_texture_cache() 是在 load_scene 內部做的
+                            
+                            # --- a. 清理舊山丘緩衝區 ---
+                            if hasattr(scene, 'hills') and scene.hills:
+                                if hasattr(renderer, 'cleanup_all_hill_buffers'):
+                                    print("清理舊場景的山丘緩衝區...")
+                                    renderer.cleanup_all_hill_buffers(scene.hills)
+                                else:
+                                    print("警告: renderer 模塊中未找到 cleanup_all_hill_buffers。")
+                            
+                            # --- b. 清理舊軌道緩衝區 (如果 scene.cleanup_resources 不做這個，或者做得不夠徹底) ---
+                            if scene.track: # 確保舊軌道存在
+                                print("清理舊場景的軌道緩衝區...")
+                                scene.track.clear() # Track.clear() 應處理其內部VBOs
 
-                        # 2. 使用 scene_parser 載入新場景數據
+                            # --- c. (可選)調用通用的場景清理 (如果它還做其他事情) ---
+                            # 如果 scene.cleanup_resources() 只是簡單的 scene.track.clear()，上面已經做了
+                            # if hasattr(scene, 'cleanup_resources'):
+                            #     scene.cleanup_resources() 
+                            
+                            # d. 清理紋理緩存 (load_scene 內部通常會做，但這裡再做一次也無妨，確保徹底)
+                            if texture_loader:
+                                print("清理紋理緩存...")
+                                texture_loader.clear_texture_cache()
+                            # 清理天空盒緩存
+                            if hasattr(renderer, 'skybox_texture_cache'):
+                                for tex_id in renderer.skybox_texture_cache.values():
+                                    try:
+                                        if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
+                                    except: pass
+                                renderer.skybox_texture_cache.clear()
+
+                        # --- 2. 使用 scene_parser 載入新場景數據 ---
                         if scene_parser.load_scene(specific_filepath=filepath_from_menu, force_reload=True):
                             scene = scene_parser.get_current_scene() # 獲取新載入的 scene
-                            current_loaded_scene_file = filepath_from_menu # 更新當前檔案路徑
+                            current_loaded_scene_file = filepath_from_menu
                             
                             active_background_info = scene.initial_background_info if scene else None
                             
-                            # --- 新增：為新載入的場景創建軌道緩衝區 ---
+                            # --- 3. 為新載入的場景創建軌道緩衝區 ---
                             if scene and scene.track:
-                                print(f"場景 '{filepath_from_menu}' 數據已載入，正在創建軌道緩衝區...")
+                                print(f"場景 '{filepath_from_menu}' 數據已載入，正在創建新軌道緩衝區...")
                                 scene.track.create_all_segment_buffers()
-                                # 假設 create_all_segment_buffers 執行後，軌道就緒
-                                # 我們可以簡化 is_render_ready 的判斷，或者依賴 Track 內部的狀態
-#                                 scene.is_render_ready = True # 手動設置為 True，或基於更精確的檢查
-                                print("軌道緩衝區創建完成。")
-                            elif scene: # Scene 存在但沒有軌道
-#                                 scene.is_render_ready = True # 也認為準備好了（沒軌道可渲染）
-                                print(f"場景 '{filepath_from_menu}' 已載入，但沒有軌道數據。")
-                            else: # Scene 為 None (理論上 load_scene 返回 True 時不應發生)
-                                # 這個分支可能不需要，因為 load_scene 返回 True 意味著 scene 不為 None
-                                pass
-                            # -------------------------------------------
+                                print("新軌道緩衝區創建完成。")
                             
-                            # --- 重新烘焙小地圖 ---
+                            ### --- START OF MODIFICATION: Create Hill Buffers for NEW Scene from Menu ---
+                            if scene and hasattr(scene, 'hills') and scene.hills and renderer._hill_shader_program_id:
+                                print("正在為通過選單載入的新場景的山丘創建渲染緩衝區...")
+                                new_hills_list_menu = []
+                                for i, hill_entry_menu in enumerate(scene.hills):
+                                    original_line_id_menu, _ = hill_entry_menu
+                                    modified_hill_data_menu, success_menu = renderer.create_hill_buffers(hill_entry_menu)
+                                    if success_menu:
+                                        new_hills_list_menu.append((original_line_id_menu, modified_hill_data_menu))
+                                    else:
+                                        print(f"警告: 為選單載入的山丘 (行: {original_line_id_menu}) 創建緩衝區失敗。")
+                                        new_hills_list_menu.append(hill_entry_menu)
+                                scene.hills = new_hills_list_menu # 更新新場景的 hills 列表
+                                print("選單載入場景山丘緩衝區創建完成。")
+                            elif renderer._hill_shader_program_id is None and hasattr(scene, 'hills') and scene.hills:
+                                print("警告: 山丘著色器未就緒，跳過為選單載入場景山丘創建緩衝區。")
+                            ### --- END OF MODIFICATION ---
+                            
                             minimap_renderer.bake_static_map_elements(scene)
                             print("新場景的小地圖已烘焙。")
                             
-                            # 更新電車實例的軌道引用
                             tram_instance.track = scene.track if scene else None
                             
-                            # 現在再檢查 is_render_ready (應該為 True 了)
-                            if scene and scene.is_render_ready:
+                            if scene: # 確保 scene 成功加載
                                 tram_instance.position = np.copy(scene.start_position)
                                 start_angle_rad_main = math.radians(scene.start_angle_deg)
                                 tram_instance.forward_vector_xz = (math.cos(start_angle_rad_main), math.sin(start_angle_rad_main))
                                 tram_instance.distance_on_track = 0.0
                                 tram_instance.current_speed = 0.0
-                                pygame.display.set_caption(f"簡易 3D 電車模擬器 - {os.path.basename(filepath_from_menu)}") # 更新視窗標題
+                                pygame.display.set_caption(f"簡易 3D 電車模擬器 - {os.path.basename(filepath_from_menu)}")
                                 print(f"場景 '{filepath_from_menu}' 已成功載入並準備就緒。電車已重置。")
-                            elif scene: # is_render_ready 仍然是 False (不應該發生了)
-                                print(f"警告(內部邏輯問題): 場景 '{filepath_from_menu}' 已載入但 is_render_ready 仍為 False。")
-                                tram_instance.position = np.array([0.0, 0.0, 0.0]) # Fallback
-                                tram_instance.forward_vector_xz = (1.0, 0.0)
-                                pygame.display.set_caption(f"簡易 3D 電車模擬器 - {os.path.basename(filepath_from_menu)} (渲染可能不完整)")
                             else: # scene is None after load_scene returned True (異常)
                                 print(f"錯誤: scene_parser.load_scene 聲稱成功，但 scene 為 None。")
+                                # Fallback to default state
                                 tram_instance.position = np.array([0.0, 0.0, 0.0])
                                 tram_instance.forward_vector_xz = (1.0, 0.0)
+                                tram_instance.distance_on_track = 0.0
+                                tram_instance.current_speed = 0.0
                                 active_background_info = None
                                 minimap_renderer.bake_static_map_elements(scene_parser.get_current_scene()) # 傳遞空場景
                                 pygame.display.set_caption("簡易 3D 電車模擬器 - 載入錯誤")
-                        else:
+                        else: # scene_parser.load_scene 返回 False
                             print(f"通過選單載入場景 '{filepath_from_menu}' 失敗。模擬器將保留原場景（如果存在）。")
-                            # scene = scene_parser.get_current_scene() # 不需要重新獲取，load_scene 失敗時 current_scene 不變
                             # 恢復舊的視窗標題
-                            if current_loaded_scene_file and os.path.exists(current_loaded_scene_file):
+                            if current_loaded_scene_file and os.path.exists(current_loaded_scene_file): # 確保路徑有效
                                 pygame.display.set_caption(f"簡易 3D 電車模擬器 - {os.path.basename(current_loaded_scene_file)}")
-                            else:
+                            else: # 如果之前的路徑也無效了，回到預設
                                 pygame.display.set_caption("簡易 3D 電車模擬器") 
                     elif action == "exit":
                         print("選單選擇：離開")
@@ -486,6 +583,17 @@ def main():
     print("正在退出...")
     if scene and scene.track:
          scene.track.clear()
+         
+    ### --- START OF MODIFICATION: Cleanup Hill Buffers on Exit ---
+    if scene and hasattr(scene, 'hills') and scene.hills:
+        if hasattr(renderer, 'cleanup_all_hill_buffers'):
+            print("程序退出前，清理山丘緩衝區...")
+            renderer.cleanup_all_hill_buffers(scene.hills)
+        else:
+            print("警告: renderer 模塊中未找到 cleanup_all_hill_buffers 函數。")
+    ### --- END OF MODIFICATION ---
+         
+         
     minimap_renderer.cleanup_minimap_renderer()
     # Texture cache cleanup is handled by scene_parser.load_scene,
     # but maybe one final clear is good practice?
@@ -499,6 +607,16 @@ def main():
                  except: pass # Ignore errors during cleanup
              renderer.skybox_texture_cache.clear()
              print("Skybox 紋理快取已清除。")
+
+    ### --- START OF MODIFICATION: Cleanup Hill Shader Program on Exit ---
+    if hasattr(renderer, '_hill_shader_program_id') and renderer._hill_shader_program_id is not None:
+        try:
+            glDeleteProgram(renderer._hill_shader_program_id)
+            renderer._hill_shader_program_id = None # 標記為已清理
+            print("山丘著色器程序已清理。")
+        except Exception as e_shader_del:
+            print(f"清理山丘著色器程序時出錯: {e_shader_del}")
+    ### --- END OF MODIFICATION ---
 
     ## Keep profiler cleanup if used
     # print("profiler,disable()")

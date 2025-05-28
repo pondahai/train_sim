@@ -427,6 +427,18 @@ class PreviewGLWidget(QGLWidget):
         glLightfv(GL_LIGHT0, GL_POSITION, [100.0, 150.0, 100.0, 1.0])
         glEnable(GL_NORMALIZE)
 
+
+        ### --- START OF MODIFICATION: Initialize Hill Shader for Preview ---
+        if hasattr(renderer, 'init_hill_shader'):
+            print("編輯器預覽：正在初始化山丘著色器...")
+            renderer.init_hill_shader() # 確保在有效的GL上下文中調用
+            if renderer._hill_shader_program_id is None:
+                 print("警告 (編輯器預覽): 山丘著色器初始化失敗！")
+        else:
+            print("警告 (編輯器預覽): renderer 模塊中未找到 init_hill_shader 函數。")
+        ### --- END OF MODIFICATION ---
+
+
         self._timer.timeout.connect(self.update_preview)
         self._timer.start(PREVIEW_UPDATE_INTERVAL)
         self._last_update_time = time.time()
@@ -558,22 +570,26 @@ class PreviewGLWidget(QGLWidget):
             self._camera.base_position += move_vector * current_speed * dt
 
     def update_scene(self, scene_object, background_info=None):
-        """接收新的場景數據和對應的背景資訊"""
-        should_update = False
+        """接收新的場景數據和對應的背景資訊。
+           假定 scene_object 中的資源 (如VBOs) 已經在正確的上下文中被創建。
+           此方法僅更新內部數據指針並觸發重繪。
+        """
+        should_trigger_repaint = False
+        
+        # 注意：這裡不再清理舊的 self._scene_data 中的OpenGL資源，
+        # 因為這個職責已經移交給了 _perform_preview_update_logic，
+        # 它會在將新的 scene_object 賦值給 PreviewGLWidget._scene_data 之前完成清理。
+        
         if isinstance(scene_object, Scene) or scene_object is None:
-            # 检查场景对象本身或背景信息是否真的改变了
             if self._scene_data is not scene_object or self._current_background_info != background_info:
-                 self._scene_data = scene_object
-                 self._current_background_info = background_info
-                 should_update = True
-            # Don't call self.update() here automatically, let external changes trigger it
+                self._scene_data = scene_object # 直接指向新的，已處理好資源的場景對象
+                self._current_background_info = background_info
+                should_trigger_repaint = True
         else:
             print("Editor Preview received invalid scene data type.")
 
-        # --- 如果数据确实更新了，触发一次重绘 ---
-        if should_update:
-            # print("Scene data updated, requesting repaint.") # Debug
-            self.update() # Explicitly request repaint for scene changes
+        if should_trigger_repaint:
+            self.update()
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -1889,131 +1905,132 @@ class SceneEditorWindow(QMainWindow):
         QTimer.singleShot(0, self._perform_preview_update_logic) # 延遲 0ms 執行
         
     def _perform_preview_update_logic(self):
-        self.preview_widget.makeCurrent()
-        """解析表格數據，更新小地圖和 3D 預覽 (包含背景)"""
-        print("Updating editor previews...") # 可選的調試信息
+        # print("Updating editor previews...") #減少訊息
 
-        # 1. 從表格獲取當前所有行的文本內容 (這個函數本身是沒問題的)
-        # lines = self.table_widget.get_scene_lines() # 我們可以直接讀取表格內容
         current_table_lines = self.table_widget.get_scene_lines()
-#         print(f"DEBUG: update_previews - current_table_lines (around suspected tree): {current_table_lines[28]}") # 需要知道行號
-
-#         if self.table_widget.is_modified(): # 只要表格被修改過
-#             texture_loader.clear_texture_cache()
-#             time.sleep(1)
-
-        # --- 在這裡添加你之前的調試打印 ---
-        # 假設你知道被修改的行是第28行 (0-based index for list)
-#         MODIFIED_ROW_INDEX_FOR_DEBUG = 28 
-#         if MODIFIED_ROW_INDEX_FOR_DEBUG < len(current_table_lines):
-#             print(f"DEBUG: _perform_preview_update_logic - Line {MODIFIED_ROW_INDEX_FOR_DEBUG + 1} from table: '{current_table_lines[MODIFIED_ROW_INDEX_FOR_DEBUG]}'")
-#         else:
-#             print(f"DEBUG: _perform_preview_update_logic - Row index {MODIFIED_ROW_INDEX_FOR_DEBUG} is out of bounds for current_table_lines (len: {len(current_table_lines)}).")
-        # ---------------------------------
-
-        # 2. 獲取當前表格中選中的行號
-        base_directory_for_imports = os.getcwd() # 預設為當前工作目錄
-        current_filename_for_display = "Untitled" # 預設顯示的檔名
-
+        
+        base_directory_for_imports = os.getcwd()
+        current_filename_for_display = "Untitled"
         if self._current_scene_filepath and os.path.exists(self._current_scene_filepath):
             base_directory_for_imports = os.path.dirname(self._current_scene_filepath)
             current_filename_for_display = os.path.basename(self._current_scene_filepath)
-        elif self.table_widget.get_current_filepath(): # 如果表格知道自己的路徑（例如剛另存過）
-            # 這種情況較少見，通常 _current_scene_filepath 會被優先更新
+        elif self.table_widget.get_current_filepath():
             temp_path = self.table_widget.get_current_filepath()
             base_directory_for_imports = os.path.dirname(temp_path)
             current_filename_for_display = os.path.basename(temp_path)
 
-
-        # --- 確保 texture_loader 可用 ---
         if scene_parser.texture_loader is None:
             scene_parser.set_texture_loader(texture_loader)
-        # ------------------------------
 
-        # 3. 使用 scene_parser 解析當前表格的 *完整* 內容
-        #    我們先獲取一次完整的 lines 列表用於解析 Scene 物件        
-        parsed_scene = scene_parser.parse_scene_from_lines(current_table_lines, 
-                                                            base_dir_for_import=base_directory_for_imports,
-            filename_for_display=current_filename_for_display, load_textures=True)
+        # --- 1. 解析場景數據 ---
+        parsed_scene = scene_parser.parse_scene_from_lines(
+            current_table_lines, 
+            base_directory_for_imports,
+            current_filename_for_display,
+            initial_scene=None, # 總是為預覽創建新的Scene對象
+            load_textures=True
+        )
 
-        # --- 4. 決定 3D 預覽窗口應該顯示哪個背景 ---
-        background_info_for_preview = None 
-        current_row_in_table = self.table_widget.currentRow() # 獲取表格中當前選中的行
-
-        if parsed_scene: # 只有在場景成功解析後才繼續判斷背景
-            background_info_for_preview = parsed_scene.initial_background_info # 預設使用場景的初始背景
-
-            if current_row_in_table >= 0 and current_row_in_table < len(current_table_lines):
-                # 從當前選中的行開始，向上查找最近定義的 skybox 或 skydome 指令
-                # 注意：這裡的 current_table_lines 是原始的、未經 import 展開的表格行
-                # 我們需要解析的是這些原始行，而不是 parsed_scene 中的 background_triggers (那是基於軌道距離的)
+        # --- 2. OpenGL 操作：清理舊資源、創建新資源 ---
+        self.preview_widget.makeCurrent() # <--- 在所有GL操作之前獲取上下文
+        try:
+            # --- a. 清理 PreviewGLWidget 中舊場景的資源 ---
+            if self.preview_widget._scene_data: # 如果 PreviewGLWidget 中有舊場景
+                old_scene_to_cleanup = self.preview_widget._scene_data
+                # 清理山丘
+                if hasattr(old_scene_to_cleanup, 'hills') and old_scene_to_cleanup.hills:
+                    if hasattr(renderer, 'cleanup_all_hill_buffers'):
+                        # print("編輯器預覽：清理舊場景的山丘緩衝區...") #減少訊息
+                        renderer.cleanup_all_hill_buffers(old_scene_to_cleanup.hills)
+                # 清理軌道
+                if hasattr(old_scene_to_cleanup, 'track') and old_scene_to_cleanup.track:
+                    # print("編輯器預覽：清理舊場景的軌道緩衝區...") #減少訊息
+                    old_scene_to_cleanup.track.clear() 
+            
+            # --- b. 為新解析的 parsed_scene 創建資源 ---
+            if parsed_scene:
+                # 創建軌道緩衝區
+                if parsed_scene.track:
+                    try:
+                        # print("編輯器預覽：為解析出的軌道創建緩衝區...") #減少訊息
+                        parsed_scene.track.create_all_segment_buffers()
+                    except Exception as e_track_buf:
+                        print(f"  Error creating track buffers for preview in _perform_preview_update_logic: {e_track_buf}")
                 
+                # 創建山丘緩衝區
+                if hasattr(parsed_scene, 'hills') and parsed_scene.hills and renderer._hill_shader_program_id:
+                    # print("編輯器預覽：為新場景的山丘創建渲染緩衝區...") #減少訊息
+                    new_hills_list_editor = []
+                    for i, hill_entry_editor in enumerate(parsed_scene.hills):
+                        original_line_id_editor, _ = hill_entry_editor
+                        modified_hill_data_editor, success_editor = renderer.create_hill_buffers(hill_entry_editor)
+                        if success_editor:
+                            new_hills_list_editor.append((original_line_id_editor, modified_hill_data_editor))
+                        else:
+                            # print(f"警告 (編輯器預覽): 為山丘 (行: {original_line_id_editor}) 創建緩衝區失敗。") #減少訊息
+                            new_hills_list_editor.append(hill_entry_editor)
+                    parsed_scene.hills = new_hills_list_editor # 直接修改 parsed_scene
+                    # print("編輯器預覽山丘緩衝區創建完成。") #減少訊息
+                elif renderer._hill_shader_program_id is None and hasattr(parsed_scene, 'hills') and parsed_scene.hills:
+                     print("警告 (編輯器預覽): 山丘著色器未就緒，跳過創建緩衝區。")
+        
+        finally:
+            self.preview_widget.doneCurrent() # <--- 在所有GL操作之後釋放上下文
+        # --- 結束 OpenGL 操作 ---
+
+        # --- 3. 決定背景信息 (非GL操作) ---
+        background_info_for_preview = None 
+        current_row_in_table = self.table_widget.currentRow()
+        if parsed_scene:
+            background_info_for_preview = parsed_scene.initial_background_info
+            if current_row_in_table >= 0 and current_row_in_table < len(current_table_lines):
+                # ... (向上查找背景指令的邏輯不變) ...
                 last_bg_info_found_upwards = None
                 for i in range(current_row_in_table, -1, -1):
                     line_text = current_table_lines[i].strip()
                     if line_text and not line_text.startswith('#'):
                         parts = line_text.split()
                         cmd = parts[0].lower() if parts else ""
-                        
                         if cmd == "skybox" and len(parts) > 1:
-                            # 為了預覽，我們只需要類型和基本名稱
                             last_bg_info_found_upwards = {'type': 'skybox', 'base_name': parts[1]}
                             break 
                         elif cmd == "skydome" and len(parts) > 1:
-                            # 為了預覽，我們需要類型、檔案名，並嘗試獲取已載入的紋理ID
                             skydome_file = parts[1]
                             skydome_tex_id = None
-                            # 嘗試從 parsed_scene 中找到這個 skydome 的紋理 ID (如果它被定義為初始背景或觸發器)
                             if parsed_scene.initial_background_info and \
                                parsed_scene.initial_background_info.get('type') == 'skydome' and \
                                parsed_scene.initial_background_info.get('file') == skydome_file:
                                 skydome_tex_id = parsed_scene.initial_background_info.get('id')
-                            
                             if skydome_tex_id is None and parsed_scene.background_triggers:
                                 for _, bg_info_dict in parsed_scene.background_triggers:
                                     if bg_info_dict.get('type') == 'skydome' and bg_info_dict.get('file') == skydome_file:
                                         skydome_tex_id = bg_info_dict.get('id')
                                         if skydome_tex_id: break
-                            
-                            # 如果在 parsed_scene 中找不到，並且 texture_loader 存在，可以嘗試即時載入 (通常不推薦在更新循環中)
-                            # 或者依賴 parsed_scene 中已有的ID
                             if skydome_tex_id is None and texture_loader:
-                                # print(f"Preview: Attempting to dynamically load skydome texture '{skydome_file}' for preview.")
-                                skydome_tex_id = texture_loader.load_texture(skydome_file)
-
-
+                                tex_info_skydome = texture_loader.load_texture(skydome_file) # load_texture返回字典
+                                if tex_info_skydome: skydome_tex_id = tex_info_skydome.get('id')
                             last_bg_info_found_upwards = {'type': 'skydome', 'file': skydome_file, 'id': skydome_tex_id}
                             break
-                
                 if last_bg_info_found_upwards is not None:
                     background_info_for_preview = last_bg_info_found_upwards
 
-
-
-
-        # --- 5. 更新小地圖預覽 ---
+        # --- 4. 更新小地圖 (非GL操作) ---
         try:
-            # 小地圖只需要解析後的 Scene 物件
-            self.minimap_widget.update_scene(parsed_scene)
+            self.minimap_widget.update_scene(parsed_scene) # update_scene 內部只更新數據，不調用GL
         except Exception as e:
             print(f"Error updating minimap widget: {e}")
 
-        # --- 6. 更新 3D 預覽窗口 ---
+        # --- 5. 更新3D預覽窗口 (傳遞已處理好資源的 scene 和背景) ---
         try:
-            # 為新解析的場景創建軌道渲染所需的緩衝區
-            if parsed_scene and parsed_scene.track:
-                try:
-                    self.preview_widget.makeCurrent() # 確保OpenGL上下文正確
-                    parsed_scene.track.create_all_segment_buffers() # 創建主軌道和vbranch的緩衝區
-                except Exception as e:
-                    print(f"  Error creating track buffers for preview: {e}")
-            
-            # 將解析後的場景數據 和 決定好的預覽背景信息 傳遞給 3D 預覽窗口
+            # PreviewGLWidget.update_scene 現在只負責更新其內部數據指針和觸發重繪
+            # 它不再負責清理舊資源或創建新資源，這些已在上面完成。
             self.preview_widget.update_scene(parsed_scene, background_info_for_preview)
         except Exception as e:
             print(f"Error updating 3D preview widget: {e}")
             import traceback
-            traceback.print_exc() # 打印更詳細的錯誤信息
+            traceback.print_exc()
+        
+        # print("編輯器預覽已更新。") #減少訊息
 
 
     def ask_reload_current_scene(self):
@@ -2061,30 +2078,64 @@ class SceneEditorWindow(QMainWindow):
                 return
 
         # ... (其餘 cleanup 邏輯保持不變) ...
-        print("Cleaning up editor resources...")
-        if hasattr(self, 'preview_widget') and self.preview_widget._timer.isActive():
-            self.preview_widget._timer.stop()
-            print("Stopped preview timer.")
+        if event.isAccepted(): # 確保事件沒有被忽略
+            print("Cleaning up editor resources...")
+            if hasattr(self, 'preview_widget') and self.preview_widget._timer.isActive():
+                self.preview_widget.makeCurrent() # <--- 獲取GL上下文
+                try:
+                    if self.preview_widget._timer.isActive():
+                        self.preview_widget._timer.stop()
+                        print("Stopped preview timer.")
+                    ### --- START OF MODIFICATION: Cleanup Hill Buffers from Editor's Scene ---
+                    if self.preview_widget._scene_data and \
+                       hasattr(self.preview_widget._scene_data, 'hills') and \
+                       self.preview_widget._scene_data.hills:
+                        if hasattr(renderer, 'cleanup_all_hill_buffers'):
+                            print("編輯器關閉前，清理預覽場景的山丘緩衝區...")
+                            renderer.cleanup_all_hill_buffers(self.preview_widget._scene_data.hills)
+                        else:
+                            print("警告 (編輯器關閉): renderer 模塊中未找到 cleanup_all_hill_buffers。")
+                    ### --- END OF MODIFICATION ---
 
-        minimap_renderer.cleanup_minimap_renderer()
-        last_scene_in_editor = self.preview_widget._scene_data 
-        if last_scene_in_editor and last_scene_in_editor.track:
-            last_scene_in_editor.track.clear()
-            print("Cleaned up track buffers from editor's last scene.")
-        if texture_loader:
-            texture_loader.clear_texture_cache()
-        if hasattr(renderer, 'skybox_texture_cache'):
-             for tex_id in renderer.skybox_texture_cache.values():
-                 try:
-                     glDeleteTextures(1, [tex_id])
-                 except Exception as cleanup_error: print(f"Warn: Error cleaning up skybox texture {tex_id}: {cleanup_error}")
-             renderer.skybox_texture_cache.clear()
-             print("Skybox texture cache cleared.")
+                    last_scene_in_editor = self.preview_widget._scene_data 
+                    if last_scene_in_editor and last_scene_in_editor.track:
+                        last_scene_in_editor.track.clear()
+                        print("Cleaned up track buffers from editor's last scene.")
+                    if texture_loader:
+                        texture_loader.clear_texture_cache()
+                    if hasattr(renderer, 'skybox_texture_cache'):
+                         for tex_id in renderer.skybox_texture_cache.values():
+                             try:
+                                if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
+                             except Exception as cleanup_error: print(f"Warn: Error cleaning up skybox texture {tex_id}: {cleanup_error}")
+                         renderer.skybox_texture_cache.clear()
+                         print("Skybox texture cache cleared.")
 
-        if pygame.font.get_init():
-            pygame.font.quit()
-        print("Editor cleanup complete.")
-        event.accept()
+                    ### --- START OF MODIFICATION: Cleanup Hill Shader Program from Editor ---
+                    if hasattr(renderer, '_hill_shader_program_id') and renderer._hill_shader_program_id is not None:
+                        # 著色器程序通常是全局的，主程序退出時清理一次即可。
+                        # 但如果編輯器是獨立運行的，且主程序可能還在，這裡清理是合適的。
+                        # 為了避免重複清理，可以加個標誌，或者讓主程序負責最終清理。
+                        # 假設編輯器關閉時就清理它加載的。
+                        # 確保在 PreviewGLWidget 的上下文中刪除
+                        try:
+                            glDeleteProgram(renderer._hill_shader_program_id)
+                            renderer._hill_shader_program_id = None
+                            print("山丘著色器程序已由編輯器清理。")
+                        except Exception as e_shader_del_editor:
+                            print(f"編輯器清理山丘著色器程序時出錯: {e_shader_del_editor}")
+                    ### --- END OF MODIFICATION ---
+
+                    minimap_renderer.cleanup_minimap_renderer()
+
+                finally:
+                    self.preview_widget.doneCurrent() # <--- 釋放GL上下文
+
+
+            if pygame.font.get_init():
+                pygame.font.quit()
+            print("Editor cleanup complete.")
+            event.accept()
 
     def _on_table_selection_changed(self, current_row, current_column, previous_row, previous_column):
         # --- 高亮邏輯 ---

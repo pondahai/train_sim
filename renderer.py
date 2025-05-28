@@ -11,6 +11,8 @@ import os
 
 from numba import jit, njit # Keep numba imports
 
+import shaders_inline 
+
 # --- Drawing Parameters (General) ---
 # (保持不變)
 GROUND_SIZE = 200.0
@@ -122,6 +124,65 @@ def map_local_uv_to_atlas_subrect(local_u, local_v, atlas_sub_rect_uvwh):
     rect_u, rect_v, rect_w, rect_h = atlas_sub_rect_uvwh
     return rect_u + local_u * rect_w, rect_v + local_v * rect_h
 
+# # 著色器加載和編譯的輔助函數 
+# def load_shader(shader_file, shader_type):
+#     """載入並編譯單個著色器文件"""
+#     shader_source = ""
+#     try:
+#         with open(shader_file, 'r', encoding='utf-8') as f:
+#             shader_source = f.read()
+#     except Exception as e:
+#         print(f"錯誤: 無法讀取著色器文件 {shader_file}: {e}")
+#         return None
+# 
+#     shader_id = glCreateShader(shader_type)
+#     glShaderSource(shader_id, shader_source)
+#     glCompileShader(shader_id)
+# 
+#     # 檢查編譯錯誤
+#     if glGetShaderiv(shader_id, GL_COMPILE_STATUS) != GL_TRUE:
+#         info_log = glGetShaderInfoLog(shader_id)
+#         print(f"著色器編譯錯誤在 {shader_file}:\n{info_log.decode()}")
+#         glDeleteShader(shader_id)
+#         return None
+#     return shader_id
+# 
+# def create_shader_program(vertex_shader_file, fragment_shader_file):
+#     """創建並鏈接著色器程序"""
+#     vertex_shader = load_shader(vertex_shader_file, GL_VERTEX_SHADER)
+#     fragment_shader = load_shader(fragment_shader_file, GL_FRAGMENT_SHADER)
+# 
+#     if not vertex_shader or not fragment_shader:
+#         return None
+# 
+#     program_id = glCreateProgram()
+#     glAttachShader(program_id, vertex_shader)
+#     glAttachShader(program_id, fragment_shader)
+#     glLinkProgram(program_id)
+# 
+#     # 檢查鏈接錯誤
+#     if glGetProgramiv(program_id, GL_LINK_STATUS) != GL_TRUE:
+#         info_log = glGetProgramInfoLog(program_id)
+#         print(f"著色器程序鏈接錯誤:\n{info_log.decode()}")
+#         glDeleteProgram(program_id)
+#         glDeleteShader(vertex_shader)
+#         glDeleteShader(fragment_shader)
+#         return None
+# 
+#     # 鏈接成功後可以刪除單個著色器對象
+#     glDeleteShader(vertex_shader)
+#     glDeleteShader(fragment_shader)
+#     
+#     print(f"著色器程序已創建並鏈接: ID={program_id} (VS: {vertex_shader_file}, FS: {fragment_shader_file})")
+#     return program_id
+# 
+# # 在 renderer.py 的頂部某處（或 init_renderer 中）加載山丘著色器
+# # _hill_shader_program_id = None # 已在上面定義
+# 
+
+
+
+
 # --- Keep set_hud_font ---
 # (保持不變)
 def set_hud_font(font):
@@ -146,6 +207,71 @@ def set_hud_font(font):
 
 
 # --- REMOVED: Minimap Texture Loading Functions ---
+
+# --- 著色器加載和編譯輔助函數 ---
+def compile_shader_from_source(shader_source, shader_type): # 這個函數用於從字符串編譯
+    """編譯單個著色器源碼字符串"""
+    if not shader_source:
+        print(f"錯誤: 著色器源碼為空 (類型: {shader_type})")
+        return None
+    shader_id = glCreateShader(shader_type)
+    glShaderSource(shader_id, shader_source)
+    glCompileShader(shader_id)
+    if glGetShaderiv(shader_id, GL_COMPILE_STATUS) != GL_TRUE:
+        info_log = glGetShaderInfoLog(shader_id)
+        shader_type_str = "Vertex" if shader_type == GL_VERTEX_SHADER else "Fragment" if shader_type == GL_FRAGMENT_SHADER else "Unknown"
+        print(f"{shader_type_str} 著色器源碼編譯錯誤:\n{info_log.decode()}")
+        glDeleteShader(shader_id)
+        return None
+    return shader_id
+
+def create_shader_program_from_sources(vertex_source, fragment_source): # 這個函數用於從字符串創建程序
+    """從源碼字符串創建並鏈接著色器程序"""
+    vertex_shader = compile_shader_from_source(vertex_source, GL_VERTEX_SHADER)
+    fragment_shader = compile_shader_from_source(fragment_source, GL_FRAGMENT_SHADER)
+
+    if not vertex_shader or not fragment_shader:
+        # compile_shader_from_source 內部已經打印了錯誤，這裡可以不再打印
+        # 清理已成功編譯的部分（如果有的話）
+        if vertex_shader: glDeleteShader(vertex_shader)
+        if fragment_shader: glDeleteShader(fragment_shader)
+        return None
+
+    program_id = glCreateProgram()
+    glAttachShader(program_id, vertex_shader)
+    glAttachShader(program_id, fragment_shader)
+    glLinkProgram(program_id)
+
+    if glGetProgramiv(program_id, GL_LINK_STATUS) != GL_TRUE:
+        info_log = glGetProgramInfoLog(program_id)
+        print(f"著色器程序鏈接錯誤 (源碼):\n{info_log.decode()}")
+        glDeleteProgram(program_id) # 清理程序對象
+        # 單個shader對象也需要清理
+        glDeleteShader(vertex_shader)
+        glDeleteShader(fragment_shader)
+        return None
+
+    glDeleteShader(vertex_shader) # 鏈接後即可刪除
+    glDeleteShader(fragment_shader)
+    
+    print(f"著色器程序已從源碼創建並鏈接: ID={program_id}")
+    return program_id
+
+_hill_shader_program_id = None # 全局變量
+
+def init_hill_shader(): # 可以在 init_renderer 中調用
+    global _hill_shader_program_id
+    if _hill_shader_program_id is None:
+        print("正在從 shaders_inline 初始化山丘著色器...") # 添加日誌
+        _hill_shader_program_id = create_shader_program_from_sources(
+            shaders_inline.HILL_VERTEX_SHADER_SOURCE, 
+            shaders_inline.HILL_FRAGMENT_SHADER_SOURCE
+        )
+        if _hill_shader_program_id is None:
+            print("致命錯誤: 無法從源碼初始化山丘著色器程序！")
+        else:
+            print(f"山丘著色器程序已從源碼成功初始化: ID={_hill_shader_program_id}")
+             
 
 # --- init_renderer (Update) ---
 def init_renderer():
@@ -1230,6 +1356,177 @@ def draw_tree(x, y, z, height, texture_id=None): # 函數簽名保持不變
 #     glPopMatrix(); glPopMatrix()
 #     glBindTexture(GL_TEXTURE_2D, 0); glEnable(GL_TEXTURE_2D); glColor3f(1.0, 1.0, 1.0)
 
+def generate_hill_mesh_data(center_x, base_y, center_z,
+                            base_radius, peak_height_offset,
+                            uscale=10.0, vscale=10.0,
+                            u_offset=0.0, v_offset=0.0,
+                            resolution=20):
+    """
+    Generates vertex data (positions, normals, texcoords) for a hill.
+    Returns a NumPy array of vertices and the total vertex count.
+    Vertices are ordered for GL_TRIANGLE_STRIP.
+    Vertex format: [x, y, z, nx, ny, nz, u, v]
+    """
+    if peak_height_offset <= 1e-6 or base_radius <= 1e-6 or resolution < 2:
+        return np.array([], dtype=np.float32), 0
+
+    vertices_list = []
+
+    for i in range(resolution): # 沿著 Z 方向 (或者說半徑方向的一個維度)
+        for j in range(resolution + 1): # 沿著 X 方向 (或者說半徑方向的另一個維度)
+            for k in range(2): # 每個網格點處理兩次，形成條帶 (i,j) 和 (i+1, j)
+                current_i = i + k
+                
+                nx_norm = (j / resolution) * 2.0 - 1.0 # Normalized x in [-1, 1]
+                nz_norm = (current_i / resolution) * 2.0 - 1.0 # Normalized z in [-1, 1]
+
+                world_dx = nx_norm * base_radius
+                world_dz = nz_norm * base_radius
+
+                distance_from_center = math.sqrt(world_dx**2 + world_dz**2)
+                height_from_base = 0.0
+                if distance_from_center <= base_radius:
+                    # Cosine interpolation for height
+                    height_from_base = peak_height_offset * 0.5 * (math.cos(math.pi * distance_from_center / base_radius) + 1.0)
+                
+                # Vertex position
+                vx = center_x + world_dx
+                vy = base_y + height_from_base
+                vz = center_z + world_dz
+
+                # Approximate Normal (can be improved with finite differences if needed)
+                norm_x, norm_y, norm_z = 0.0, 1.0, 0.0 # Default up
+                if 1e-6 < distance_from_center <= base_radius:
+                    # Derivative of cosine interpolation (simplified)
+                    slope_factor = -peak_height_offset * 0.5 * math.pi / base_radius * math.sin(math.pi * distance_from_center / base_radius)
+                    # Distribute slope to x and z components of normal
+                    raw_nx = - (world_dx / distance_from_center) * slope_factor
+                    raw_nz = - (world_dz / distance_from_center) * slope_factor
+                    # y component remains 1 (approx), then normalize
+                    normal_magnitude = math.sqrt(raw_nx**2 + 1.0**2 + raw_nz**2)
+                    if normal_magnitude > 1e-6:
+                        norm_x = raw_nx / normal_magnitude
+                        norm_y = 1.0 / normal_magnitude
+                        norm_z = raw_nz / normal_magnitude
+                
+                # Texture Coordinates
+                # Map world_dx, world_dz from [-base_radius, +base_radius] to [0,1] then apply scale/offset
+                # Raw UVs before scale/offset
+                raw_u = (world_dx / (2.0 * base_radius)) + 0.5
+                raw_v = (world_dz / (2.0 * base_radius)) + 0.5
+                # Apply scale and offset
+                tex_u = raw_u * uscale + u_offset
+                tex_v = raw_v * vscale + v_offset
+                
+                vertices_list.extend([vx, vy, vz, norm_x, norm_y, norm_z, tex_u, tex_v])
+
+    vertex_data = np.array(vertices_list, dtype=np.float32)
+    vertex_count = len(vertices_list) // 8 # 8 floats per vertex (pos, norm, uv)
+    return vertex_data, vertex_count
+
+_hill_shader_program_id = None # Global to store the shader program ID for hills
+
+def create_hill_buffers(hill_entry):
+    """
+    Creates VBO and VAO for a single hill entry.
+    hill_entry is a tuple: (line_identifier, hill_data_tuple)
+    hill_data_tuple needs to be mutable or replaced if we store IDs back.
+    A better approach might be to pass the hill_data_tuple directly if it's a mutable list/dict,
+    or pass the scene.hills list and an index.
+    For now, let's assume we can modify/replace the tuple in the scene.hills list.
+    """
+    line_id, hill_data = hill_entry
+    
+    # Unpack parameters needed for mesh generation
+    # Indices match the new tuple structure in scene_parser.py
+    obj_type, cx, base_y, cz, radius, peak_h_off, \
+    uscale, vscale, u_off, v_off, \
+    _tex_file, _tex_id, _tex_alpha, _parent_ry = hill_data[:14] # Get first 14 elements
+
+    # Generate mesh data
+    vertex_data, vertex_count = generate_hill_mesh_data(
+        cx, base_y, cz, radius, peak_h_off,
+        uscale, vscale, u_off, v_off,
+        resolution=20 # Or make resolution a parameter from scene_parser if needed
+    )
+
+    if vertex_count == 0:
+        print(f"警告: 山丘 (行: {line_id}) 未生成頂點數據，無法創建緩衝區。")
+        # Ensure any old buffers are cleared and IDs are None
+        new_hill_data = list(hill_data)
+        if len(new_hill_data) > 14 and new_hill_data[14] is not None: cleanup_hill_buffers(hill_entry) # VAO ID
+        new_hill_data[14] = None # vao_id
+        new_hill_data[15] = None # vbo_id
+        new_hill_data[16] = 0    # vertex_count
+        return tuple(new_hill_data), False # Return modified tuple and status
+
+    # Create VBO
+    vbo_id = glGenBuffers(1)
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_id)
+    glBufferData(GL_ARRAY_BUFFER, vertex_data.nbytes, vertex_data, GL_STATIC_DRAW)
+
+    # Create VAO
+    vao_id = glGenVertexArrays(1)
+    glBindVertexArray(vao_id)
+
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_id) # Bind VBO to this VAO's context
+
+    # Vertex attribute pointers (must match shader layout)
+    # Stride: 8 floats * 4 bytes/float = 32 bytes
+    stride = 8 * sizeof(GLfloat)
+    # Position attribute (location = 0)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+    glEnableVertexAttribArray(0)
+    # Normal attribute (location = 1)
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(3 * sizeof(GLfloat)))
+    glEnableVertexAttribArray(1)
+    # Texture coordinate attribute (location = 2)
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(6 * sizeof(GLfloat)))
+    glEnableVertexAttribArray(2)
+
+    glBindVertexArray(0) # Unbind VAO
+    glBindBuffer(GL_ARRAY_BUFFER, 0) # Unbind VBO (optional, VAO remembers VBO binding for attributes)
+
+    # Store IDs and vertex_count back into a new tuple (since tuples are immutable)
+    # This assumes hill_data was the original tuple from scene_parser
+    new_hill_data_list = list(hill_data)
+    new_hill_data_list[14] = vao_id
+    new_hill_data_list[15] = vbo_id
+    new_hill_data_list[16] = vertex_count
+    
+    print(f"山丘 (行: {line_id}) 緩衝區已創建: VAO={vao_id}, VBO={vbo_id}, 頂點數={vertex_count}")
+    return tuple(new_hill_data_list), True # Return modified tuple and status
+
+def cleanup_hill_buffers_for_entry(hill_entry):
+    """Cleans up VBO and VAO for a single hill entry."""
+    _line_id, hill_data = hill_entry
+    # Indices match the new tuple structure
+    vao_id = hill_data[14]
+    vbo_id = hill_data[15]
+
+    if vao_id is not None:
+        try:
+            glDeleteVertexArrays(1, [vao_id])
+        except Exception as e: print(f"清理山丘 VAO {vao_id} 錯誤: {e}")
+    if vbo_id is not None:
+        try:
+            glDeleteBuffers(1, [vbo_id])
+        except Exception as e: print(f"清理山丘 VBO {vbo_id} 錯誤: {e}")
+    
+    # Return a new tuple with None for IDs, useful for updating the scene list
+    new_hill_data_list = list(hill_data)
+    new_hill_data_list[14] = None
+    new_hill_data_list[15] = None
+    new_hill_data_list[16] = 0
+    return (_line_id, tuple(new_hill_data_list))
+
+def cleanup_all_hill_buffers(scene_hills_list):
+    """Cleans up VBOs and VAOs for all hills in the provided list."""
+    print("正在清理所有山丘的緩衝區...")
+    for i in range(len(scene_hills_list)):
+        # cleanup_hill_buffers_for_entry returns the modified entry
+        scene_hills_list[i] = cleanup_hill_buffers_for_entry(scene_hills_list[i])
+
 def draw_hill(center_x, base_y, center_z,
               base_radius, peak_height_offset,
               resolution=20,
@@ -1465,33 +1762,123 @@ def draw_scene_objects(scene):
 
         glPopMatrix()
 
-    # --- Draw Hills ---
-    glColor3f(1.0, 1.0, 1.0) # 重設顏色，draw_hill 內部會處理紋理或顏色
-    for item in scene.hills:
-        line_num, hill_data = item # 解包行號和數據
-        try:
-            # 解包 hill_data (與 scene_parser 中打包時一致)
-            (obj_type, cx, base_y, cz, radius, peak_h_offset,
-#              tex_id,
-             uscale, vscale,
-             u_offset, v_offset, # New parameters
-             tex_file,
-             gl_tex_id_val, tex_has_alpha_val, parent_origin_ry_deg
-             ) = hill_data
-        except ValueError:
-             print(f"警告: 解包 hill 數據時出錯 (來源行: {line_num})")
-             continue # 跳過這個物件
+    # --- Draw Hills (Using VBO and Shaders) ---
+    if hasattr(scene, 'hills') and scene.hills:
+        if _hill_shader_program_id is not None: # 確保著色器已成功加載和鏈接
+            glUseProgram(_hill_shader_program_id)
 
-        # 不需要 Push/Pop Matrix，因為 draw_hill 使用絕對座標
-        # 可以直接調用繪製函數
-        draw_hill(cx, base_y, cz, radius, peak_h_offset,
-                  resolution=20, # Or make this configurable from scene.txt if needed
-#                   texture_id=tex_id,
-                  texture_id_from_scene=gl_tex_id_val,
-                  uscale=uscale, vscale=vscale,
-                  u_offset=u_offset, v_offset=v_offset,
-                  texture_has_alpha=tex_has_alpha_val
-                  )
+            # --- 設置一次性的 Uniforms (對於所有山丘可能相同的) ---
+            # 這些也可以在渲染循環開始時為 _hill_shader_program_id 設置一次
+            # 光源信息 (示例，您應該從場景或全局設置中獲取)
+            light_pos_loc = glGetUniformLocation(_hill_shader_program_id, "lightPos_worldspace")
+            glUniform3f(light_pos_loc, 100.0, 150.0, 100.0)
+            light_color_loc = glGetUniformLocation(_hill_shader_program_id, "lightColor")
+            glUniform3f(light_color_loc, 0.8, 0.8, 0.8)
+            
+            # 光照強度和材質參數 (示例，可以設為固定值或從材質系統獲取)
+            ambient_loc = glGetUniformLocation(_hill_shader_program_id, "u_ambient_strength")
+            glUniform1f(ambient_loc, 0.2)
+            specular_loc = glGetUniformLocation(_hill_shader_program_id, "u_specular_strength")
+            glUniform1f(specular_loc, 0.3)
+            shininess_loc = glGetUniformLocation(_hill_shader_program_id, "u_shininess")
+            glUniform1f(shininess_loc, 16.0)
+
+            # View 和 Projection 矩陣 (這些通常在主渲染循環中為每個著色器設置)
+            current_mv_matrix = glGetFloatv(GL_MODELVIEW_MATRIX) # View matrix
+            view_loc = glGetUniformLocation(_hill_shader_program_id, "view")
+            glUniformMatrix4fv(view_loc, 1, GL_FALSE, current_mv_matrix)
+            
+            current_proj_matrix = glGetFloatv(GL_PROJECTION_MATRIX)
+            proj_loc = glGetUniformLocation(_hill_shader_program_id, "projection")
+            glUniformMatrix4fv(proj_loc, 1, GL_FALSE, current_proj_matrix)
+
+            # View position (攝影機世界座標)
+            view_matrix_inv = np.linalg.inv(current_mv_matrix)
+            cam_pos_from_mv = view_matrix_inv[3,:3] 
+            view_pos_loc = glGetUniformLocation(_hill_shader_program_id, "viewPos_worldspace")
+            glUniform3fv(view_pos_loc, 1, cam_pos_from_mv)
+            # --- 結束一次性 Uniforms 設置 ---
+
+            for item in scene.hills:
+                line_identifier, hill_data_tuple = item
+                
+                try:
+                    if len(hill_data_tuple) < 17: continue
+                    obj_type_str = hill_data_tuple[0]
+                    if obj_type_str != "hill": continue
+
+                    # 解包繪製時需要的參數
+                    gl_texture_id     = hill_data_tuple[11]
+                    texture_has_alpha = hill_data_tuple[12]
+                    vao_id            = hill_data_tuple[14]
+                    vertex_count      = hill_data_tuple[16]
+
+                    if vao_id is None or vertex_count == 0:
+                        # print(f"信息: 山丘 (行: {line_identifier}) VAO ({vao_id}) 或頂點數 ({vertex_count}) 無效，跳過VBO繪製。") # 已有此信息
+                        continue
+
+                except (ValueError, TypeError, IndexError) as e_unpack_render:
+                    print(f"警告: 解包 hill 數據 (renderer) 時出錯 (行: {line_identifier}): {e_unpack_render}")
+                    continue 
+
+                # Model 矩陣 (山丘頂點是世界座標，所以是單位矩陣)
+                model_matrix = np.identity(4, dtype=np.float32) 
+                model_loc = glGetUniformLocation(_hill_shader_program_id, "model")
+                glUniformMatrix4fv(model_loc, 1, GL_FALSE, model_matrix)
+
+                # --- 設置每個山丘特定的 Uniforms ---
+                use_texture_loc = glGetUniformLocation(_hill_shader_program_id, "u_use_diffuse_texture")
+                fallback_color_loc = glGetUniformLocation(_hill_shader_program_id, "u_fallback_diffuse_color")
+                
+                if gl_texture_id is not None and glIsTexture(gl_texture_id):
+                    glUniform1i(use_texture_loc, 1) # true: 使用紋理
+                    glActiveTexture(GL_TEXTURE0)
+                    glBindTexture(GL_TEXTURE_2D, gl_texture_id)
+                    tex_sampler_loc = glGetUniformLocation(_hill_shader_program_id, "texture_diffuse1")
+                    glUniform1i(tex_sampler_loc, 0) # 紋理單元 0
+                else:
+                    glUniform1i(use_texture_loc, 0) # false: 不使用紋理
+                    # 設置無紋理時的回退顏色
+                    # 您可以在這裡定義山丘的預設無紋理顏色
+                    glUniform3f(fallback_color_loc, 0.35, 0.85, 0.25) # 例如：一種深綠色/棕色
+                    # 如果不綁定紋理，確保紋理單元0上沒有意外的紋理
+                    # glActiveTexture(GL_TEXTURE0)
+                    # glBindTexture(GL_TEXTURE_2D, 0) # 或者綁定一個1x1的白色紋理
+
+                has_alpha_uniform_loc = glGetUniformLocation(_hill_shader_program_id, "u_texture_has_alpha")
+                glUniform1i(has_alpha_uniform_loc, 1 if texture_has_alpha else 0)
+                alpha_thresh_uniform_loc = glGetUniformLocation(_hill_shader_program_id, "u_alpha_test_threshold")
+                glUniform1f(alpha_thresh_uniform_loc, ALPHA_TEST_THRESHOLD) # 使用全局的閾值
+
+                # 綁定VAO並繪製
+                glBindVertexArray(vao_id)
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, vertex_count)
+                # glBindVertexArray(0) # 可以在循環結束後統一解綁，或者每次都解綁
+
+            # 循環結束後解綁
+            glBindVertexArray(0)
+            glUseProgram(0)
+            glActiveTexture(GL_TEXTURE0) # 重置回默認紋理單元
+            glBindTexture(GL_TEXTURE_2D, 0) # 解綁2D紋理
+
+        elif _hill_shader_program_id is None and hasattr(scene, 'hills') and scene.hills:
+             print(f"警告: 山丘著色器程序未初始化，無法使用VBO渲染山丘。")
+             # 此處可以選擇是否調用舊的立即模式 draw_hill 作為回退
+             # for item in scene.hills:
+             #    ... (解包舊的 hill_data 參數) ...
+             #    old_draw_hill_function(...)
+        # --- 結束山丘繪製 ---
+
+#         # 不需要 Push/Pop Matrix，因為 draw_hill 使用絕對座標
+#         # 可以直接調用繪製函數
+#         draw_hill(cx, base_y, cz, radius, peak_h_offset,
+#                   resolution=20, # Or make this configurable from scene.txt if needed
+# #                   texture_id=tex_id,
+#                   texture_id_from_scene=gl_tex_id_val,
+#                   uscale=uscale, vscale=vscale,
+#                   u_offset=u_offset, v_offset=v_offset,
+#                   texture_has_alpha=tex_has_alpha_val
+#                   )
 
     # --- Draw Gableroofs ---
     if hasattr(scene, 'gableroofs'):

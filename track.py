@@ -710,7 +710,7 @@ class Track:
         return last_segment.end_pos, end_forward_xz_tuple
         # --- END OF MODIFICATION ---
     
-    def __del__(self):
-        # 可選：確保在 Track 對象被垃圾回收時清理緩衝區
-        self.clear()
+#     def __del__(self):
+#         # 可選：確保在 Track 對象被垃圾回收時清理緩衝區
+#         self.clear()
     

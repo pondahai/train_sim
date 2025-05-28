@@ -1984,7 +1984,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                  uoff, voff,
                  tex_file, 
                  tex_id, tex_alpha, 
-                 parent_origin_ry_deg) = hill_data
+                 parent_origin_ry_deg,
+                 vao_id, vbo_id, vertex_count) = hill_data
             except ValueError:
                 print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_num})") # 可選警告
                 continue
