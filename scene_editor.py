@@ -438,6 +438,12 @@ class PreviewGLWidget(QGLWidget):
             print("警告 (編輯器預覽): renderer 模塊中未找到 init_hill_shader 函數。")
         ### --- END OF MODIFICATION ---
 
+        if renderer._building_shader_program_id is None: # <--- 檢查 building shader
+            if hasattr(renderer, 'init_building_shader'): # 假設 renderer 中有此函數
+                renderer.init_building_shader()
+            elif hasattr(renderer, 'init_renderer'): # 如果 building shader 在 init_renderer 中初始化
+                print("PreviewGLWidget: Calling renderer.init_renderer() to ensure shaders are ready.")
+                renderer.init_renderer()
 
         self._timer.timeout.connect(self.update_preview)
         self._timer.start(PREVIEW_UPDATE_INTERVAL)
@@ -1503,6 +1509,8 @@ class SceneEditorWindow(QMainWindow):
             pass
         except pygame.error as e:
             print(f"Warning: Could not initialize Pygame subsystems: {e}")
+            
+            
         scene_parser.set_texture_loader(texture_loader) # Pass loader to parser
 
         # Font setup
@@ -1945,7 +1953,13 @@ class SceneEditorWindow(QMainWindow):
                 # 清理軌道
                 if hasattr(old_scene_to_cleanup, 'track') and old_scene_to_cleanup.track:
                     # print("編輯器預覽：清理舊場景的軌道緩衝區...") #減少訊息
-                    old_scene_to_cleanup.track.clear() 
+                    old_scene_to_cleanup.track.clear()
+                    
+                # --- 新增: 清理舊 Building 緩衝區 ---
+                if hasattr(old_scene_to_cleanup, 'buildings') and old_scene_to_cleanup.buildings and hasattr(renderer, 'cleanup_all_building_buffers'):
+                    # print("編輯器預覽：清理舊場景的 Building 緩衝區...") #減少訊息
+                    renderer.cleanup_all_building_buffers(old_scene_to_cleanup.buildings)
+                # --- 結束新增 ---
             
             # --- b. 為新解析的 parsed_scene 創建資源 ---
             if parsed_scene:
@@ -1973,7 +1987,23 @@ class SceneEditorWindow(QMainWindow):
                     # print("編輯器預覽山丘緩衝區創建完成。") #減少訊息
                 elif renderer._hill_shader_program_id is None and hasattr(parsed_scene, 'hills') and parsed_scene.hills:
                      print("警告 (編輯器預覽): 山丘著色器未就緒，跳過創建緩衝區。")
-        
+
+                # --- 新增: 為新解析場景的 Buildings 創建緩衝區 ---
+                if hasattr(parsed_scene, 'buildings') and parsed_scene.buildings and renderer._building_shader_program_id:
+                    # print("編輯器預覽：為新解析場景的 Buildings 創建渲染緩衝區...") #減少訊息
+                    new_buildings_list_editor = []
+                    for i, bldg_entry_editor in enumerate(parsed_scene.buildings):
+                        line_id_editor, _ = bldg_entry_editor
+                        modified_bldg_data_editor, success_editor = renderer.create_building_buffers(bldg_entry_editor)
+#                         print(f"success_editor: {success_editor}")
+                        if success_editor: new_buildings_list_editor.append((line_id_editor, modified_bldg_data_editor))
+                        else: new_buildings_list_editor.append(bldg_entry_editor)
+                    parsed_scene.buildings = new_buildings_list_editor
+                    # print("編輯器預覽 Buildings 緩衝區創建完成。") #減少訊息
+                elif renderer._building_shader_program_id is None and hasattr(parsed_scene, 'buildings') and parsed_scene.buildings:
+                     print("警告 (編輯器預覽): Building 著色器未就緒，跳過為 Buildings 創建緩衝區。")
+                # --- 結束新增 ---
+
         finally:
             self.preview_widget.doneCurrent() # <--- 在所有GL操作之後釋放上下文
         # --- 結束 OpenGL 操作 ---
@@ -2098,9 +2128,20 @@ class SceneEditorWindow(QMainWindow):
                     ### --- END OF MODIFICATION ---
 
                     last_scene_in_editor = self.preview_widget._scene_data 
-                    if last_scene_in_editor and last_scene_in_editor.track:
-                        last_scene_in_editor.track.clear()
-                        print("Cleaned up track buffers from editor's last scene.")
+                    if last_scene_in_editor:
+                        if last_scene_in_editor.track:
+                            last_scene_in_editor.track.clear()
+                            print("Cleaned up track buffers from editor's last scene.")
+                        if hasattr(last_scene_in_editor, 'hills') and last_scene_in_editor.hills and hasattr(renderer, 'cleanup_all_hill_buffers'):
+                            renderer.cleanup_all_hill_buffers(last_scene_in_editor.hills)
+                        # --- 新增: 清理預覽場景的 Building 緩衝區 ---
+                        if hasattr(last_scene_in_editor, 'buildings') and last_scene_in_editor.buildings and hasattr(renderer, 'cleanup_all_building_buffers'):
+                            # print("編輯器關閉前，清理預覽場景的 Building 緩衝區...") #減少訊息
+                            renderer.cleanup_all_building_buffers(last_scene_in_editor.buildings)
+                        # --- 結束新增 ---
+
+
+
                     if texture_loader:
                         texture_loader.clear_texture_cache()
                     if hasattr(renderer, 'skybox_texture_cache'):
@@ -2111,21 +2152,19 @@ class SceneEditorWindow(QMainWindow):
                          renderer.skybox_texture_cache.clear()
                          print("Skybox texture cache cleared.")
 
-                    ### --- START OF MODIFICATION: Cleanup Hill Shader Program from Editor ---
+                    # Hill shader cleanup
                     if hasattr(renderer, '_hill_shader_program_id') and renderer._hill_shader_program_id is not None:
-                        # 著色器程序通常是全局的，主程序退出時清理一次即可。
-                        # 但如果編輯器是獨立運行的，且主程序可能還在，這裡清理是合適的。
-                        # 為了避免重複清理，可以加個標誌，或者讓主程序負責最終清理。
-                        # 假設編輯器關閉時就清理它加載的。
-                        # 確保在 PreviewGLWidget 的上下文中刪除
                         try:
                             glDeleteProgram(renderer._hill_shader_program_id)
                             renderer._hill_shader_program_id = None
-                            print("山丘著色器程序已由編輯器清理。")
-                        except Exception as e_shader_del_editor:
-                            print(f"編輯器清理山丘著色器程序時出錯: {e_shader_del_editor}")
-                    ### --- END OF MODIFICATION ---
-
+                        except Exception as e_shader_del_editor: pass #忽略錯誤
+                    # Building shader cleanup
+                    if hasattr(renderer, '_building_shader_program_id') and renderer._building_shader_program_id is not None:
+                        try:
+                            glDeleteProgram(renderer._building_shader_program_id)
+                            renderer._building_shader_program_id = None
+                        except Exception as e_shader_del_editor: pass #忽略錯誤
+                        
                     minimap_renderer.cleanup_minimap_renderer()
 
                 finally:

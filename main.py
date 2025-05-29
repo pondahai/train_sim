@@ -214,6 +214,22 @@ def main():
             elif renderer._hill_shader_program_id is None and hasattr(scene, 'hills') and scene.hills:
                 print("警告: 山丘著色器未就緒，跳過為初始場景山丘創建緩衝區。")
             ### --- END OF MODIFICATION ---
+            # --- 新增: 為初始場景的 Buildings 創建緩衝區 ---
+            if hasattr(scene, 'buildings') and scene.buildings and renderer._building_shader_program_id:
+                print("正在為初始場景的 Buildings 創建渲染緩衝區...")
+                new_buildings_list_init = []
+                for i, bldg_entry in enumerate(scene.buildings):
+                    line_id, bldg_data_tuple = bldg_entry
+                    modified_bldg_data, success = renderer.create_building_buffers(bldg_entry)
+                    if success:
+                        new_buildings_list_init.append((line_id, modified_bldg_data))
+                    else:
+                        new_buildings_list_init.append(bldg_entry) # 保留原始條目以防創建失敗
+                scene.buildings = new_buildings_list_init
+                print("初始場景 Buildings 緩衝區創建完成。")
+            elif renderer._building_shader_program_id is None and hasattr(scene, 'buildings') and scene.buildings:
+                 print("警告: Building 著色器未就緒，跳過為初始場景 Buildings 創建緩衝區。")
+            # --- 結束新增 ---
 
 
             # Bake minimap AFTER successful scene load and track buffer creation
@@ -297,6 +313,11 @@ def main():
                         # 但通常 load_scene 內部會處理紋理緩存等，軌道緩衝區的創建通常在加載後。
                         # 主要問題是VBO/VAO這種與特定場景實例數據關聯的資源。
                     ### --- END OF MODIFICATION ---
+                        # --- 新增: 清理舊 Building 緩衝區 ---
+                        if hasattr(scene, 'buildings') and scene.buildings and hasattr(renderer, 'cleanup_all_building_buffers'):
+                            renderer.cleanup_all_building_buffers(scene.buildings)
+                        # --- 結束新增 ---
+                        if scene.track: scene.track.clear() # 清理軌道緩衝區
 
                     if scene_parser.load_scene(force_reload=True): # 現在 load_scene 會創建一個全新的 scene
                         scene = scene_parser.get_current_scene() # scene 現在是新加載的對象
@@ -326,6 +347,18 @@ def main():
                         elif renderer._hill_shader_program_id is None and hasattr(scene, 'hills') and scene.hills:
                             print("警告: 山丘著色器未就緒，跳過為重新載入場景山丘創建緩衝區。")
                         ### --- END OF MODIFICATION ---
+                        # --- 新增: 為重載場景的 Buildings 創建緩衝區 ---
+                        if scene and hasattr(scene, 'buildings') and scene.buildings and renderer._building_shader_program_id:
+                            print("正在為重載場景的 Buildings 創建渲染緩衝區...")
+                            new_buildings_list_reload = []
+                            for i, bldg_entry_reload in enumerate(scene.buildings):
+                                line_id, _ = bldg_entry_reload
+                                modified_bldg_data, success = renderer.create_building_buffers(bldg_entry_reload)
+                                if success: new_buildings_list_reload.append((line_id, modified_bldg_data))
+                                else: new_buildings_list_reload.append(bldg_entry_reload)
+                            scene.buildings = new_buildings_list_reload
+                            print("重載場景 Buildings 緩衝區創建完成。")
+                        # --- 結束新增 ---
                                  
                         minimap_renderer.bake_static_map_elements(scene)
                         print("手動重載後小地圖已烘焙。")
@@ -393,6 +426,10 @@ def main():
                                     renderer.cleanup_all_hill_buffers(scene.hills)
                                 else:
                                     print("警告: renderer 模塊中未找到 cleanup_all_hill_buffers。")
+                            # --- 新增: 清理舊 Building 緩衝區 ---
+                            if hasattr(scene, 'buildings') and scene.buildings and hasattr(renderer, 'cleanup_all_building_buffers'):
+                                renderer.cleanup_all_building_buffers(scene.buildings)
+                            # --- 結束新增 ---
                             
                             # --- b. 清理舊軌道緩衝區 (如果 scene.cleanup_resources 不做這個，或者做得不夠徹底) ---
                             if scene.track: # 確保舊軌道存在
@@ -446,6 +483,18 @@ def main():
                             elif renderer._hill_shader_program_id is None and hasattr(scene, 'hills') and scene.hills:
                                 print("警告: 山丘著色器未就緒，跳過為選單載入場景山丘創建緩衝區。")
                             ### --- END OF MODIFICATION ---
+                            # --- 新增: 為選單載入場景的 Buildings 創建緩衝區 ---
+                            if scene and hasattr(scene, 'buildings') and scene.buildings and renderer._building_shader_program_id:
+                                print("正在為選單載入場景的 Buildings 創建渲染緩衝區...")
+                                new_buildings_list_menu_b = []
+                                for i, bldg_entry_menu in enumerate(scene.buildings):
+                                    line_id, _ = bldg_entry_menu
+                                    modified_bldg_data, success = renderer.create_building_buffers(bldg_entry_menu)
+                                    if success: new_buildings_list_menu_b.append((line_id, modified_bldg_data))
+                                    else: new_buildings_list_menu_b.append(bldg_entry_menu)
+                                scene.buildings = new_buildings_list_menu_b
+                                print("選單載入場景 Buildings 緩衝區創建完成。")
+                            # --- 結束新增 ---
                             
                             minimap_renderer.bake_static_map_elements(scene)
                             print("新場景的小地圖已烘焙。")
@@ -514,7 +563,19 @@ def main():
         # --- Periodic Scene File Check ---
         current_time = time.time()
         if current_time - last_scene_check_time > SCENE_CHECK_INTERVAL:
+            # --- 在檢查前，如果 scene 存在，先記錄需要清理的 building 列表 ---
+            old_buildings_to_cleanup_auto = list(scene.buildings) if scene and hasattr(scene, 'buildings') else []
             if scene_parser.load_scene(): # load_scene returns True if reloaded
+                # --- 清理舊的 building 緩衝區 (如果 scene 被成功重載替換了) ---
+                if old_buildings_to_cleanup_auto and hasattr(renderer, 'cleanup_all_building_buffers'):
+                     # 這裡假設 load_scene 成功時，scene 已經是新的了，
+                     # 所以 old_buildings_to_cleanup_auto 引用的是被替換掉的舊場景的 buildings
+                     # 但更安全的方式是，如果 load_scene 內部返回了新的 scene，
+                     # 並且我們知道它與舊的不同，才清理舊的。
+                     # 為了簡化，我們先假設如果 load_scene 返回 True，就清理 old_buildings_to_cleanup_auto
+                     # (這需要保證 scene_parser.load_scene 在返回 True 前，已經更新了全局 current_scene)
+                    renderer.cleanup_all_building_buffers(old_buildings_to_cleanup_auto)
+                    
                 scene = scene_parser.get_current_scene()
                 # --- NEW: Update active background on auto-reload ---
                 active_background_info = scene.initial_background_info if scene else None
@@ -523,6 +584,21 @@ def main():
                 if scene and scene.track:
                     print("自動重載成功，創建軌道緩衝區...")
                     scene.track.create_all_segment_buffers()
+                    
+                # --- 新增: 為自動重載場景的 Buildings 創建緩衝區 ---
+                if scene and hasattr(scene, 'buildings') and scene.buildings and renderer._building_shader_program_id:
+                    print("正在為自動重載場景的 Buildings 創建渲染緩衝區...")
+                    new_buildings_list_auto = []
+                    for i, bldg_entry_auto in enumerate(scene.buildings):
+                        line_id, _ = bldg_entry_auto
+                        modified_bldg_data, success = renderer.create_building_buffers(bldg_entry_auto)
+                        if success: new_buildings_list_auto.append((line_id, modified_bldg_data))
+                        else: new_buildings_list_auto.append(bldg_entry_auto)
+                    scene.buildings = new_buildings_list_auto
+                    print("自動重載場景 Buildings 緩衝區創建完成。")
+                # --- 結束新增 ---
+                    
+                    
                 minimap_renderer.bake_static_map_elements(scene)
                 print("自動重載後小地圖已烘焙。")
                 tram_instance.track = scene.track if scene else None # Update tram's track reference
@@ -581,18 +657,22 @@ def main():
 
     # --- Cleanup ---
     print("正在退出...")
-    if scene and scene.track:
+    if scene:
+        if scene.track:
          scene.track.clear()
          
     ### --- START OF MODIFICATION: Cleanup Hill Buffers on Exit ---
-    if scene and hasattr(scene, 'hills') and scene.hills:
-        if hasattr(renderer, 'cleanup_all_hill_buffers'):
+        if hasattr(scene, 'hills') and scene.hills and hasattr(renderer, 'cleanup_all_hill_buffers'):
             print("程序退出前，清理山丘緩衝區...")
             renderer.cleanup_all_hill_buffers(scene.hills)
         else:
             print("警告: renderer 模塊中未找到 cleanup_all_hill_buffers 函數。")
     ### --- END OF MODIFICATION ---
          
+        # --- 新增: 清理最後場景的 Building 緩衝區 ---
+        if hasattr(scene, 'buildings') and scene.buildings and hasattr(renderer, 'cleanup_all_building_buffers'):
+            renderer.cleanup_all_building_buffers(scene.buildings)
+        # --- 結束新增 ---
          
     minimap_renderer.cleanup_minimap_renderer()
     # Texture cache cleanup is handled by scene_parser.load_scene,

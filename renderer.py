@@ -258,6 +258,7 @@ def create_shader_program_from_sources(vertex_source, fragment_source): # 這個
     return program_id
 
 _hill_shader_program_id = None # 全局變量
+_building_shader_program_id = None # <--- 新增全局變量
 
 def init_hill_shader(): # 可以在 init_renderer 中調用
     global _hill_shader_program_id
@@ -272,7 +273,19 @@ def init_hill_shader(): # 可以在 init_renderer 中調用
         else:
             print(f"山丘著色器程序已從源碼成功初始化: ID={_hill_shader_program_id}")
              
-
+def init_building_shader():
+    global _building_shader_program_id
+    if _building_shader_program_id is None:
+        print("正在從 shaders_inline 初始化 Building 著色器...")
+        _building_shader_program_id = create_shader_program_from_sources(
+            shaders_inline.BUILDING_VERTEX_SHADER_SOURCE,
+            shaders_inline.BUILDING_FRAGMENT_SHADER_SOURCE
+        )
+        if _building_shader_program_id is None:
+            print("致命錯誤: 無法從源碼初始化 Building 著色器程序！")
+        else:
+            print(f"Building 著色器程序已從源碼成功初始化: ID={_building_shader_program_id}")
+            
 # --- init_renderer (Update) ---
 def init_renderer():
     """Initializes the renderer, loads common textures."""
@@ -302,6 +315,9 @@ def init_renderer():
     glLightfv(GL_LIGHT0, GL_POSITION, [100.0, 150.0, 100.0, 1.0]) # Position light
 
     glEnable(GL_NORMALIZE) # Automatically normalize normals
+
+    init_hill_shader() # 初始化山丘著色器
+    init_building_shader() # <--- 新增: 初始化 Building 著色器
 
 # --- draw_ground (unchanged) ---
 def draw_ground(show_ground):
@@ -454,6 +470,234 @@ def _calculate_uv(u_base, v_base, center_u, center_v, u_offset, v_offset, angle_
     u_rot = u_trans * cos_t - v_trans * sin_t; v_rot = u_trans * sin_t + v_trans * cos_t
     final_u = u_rot + center_u + u_offset; final_v = v_rot + center_v + v_offset
     return final_u, final_v
+
+
+def get_yxz_intrinsic_composite_rotation_4x4(rx_deg, ry_deg, rz_deg):
+    """
+    Calculates a 4x4 composite rotation matrix using YXZ intrinsic order.
+    Returns a ROW-MAJOR NumPy array.
+    """
+    rx_rad, ry_rad, rz_rad = math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
+    
+    cos_rx, sin_rx = math.cos(rx_rad), math.sin(rx_rad)
+    cos_ry, sin_ry = math.cos(ry_rad), math.sin(ry_rad)
+    cos_rz, sin_rz = math.cos(rz_rad), math.sin(rz_rad)
+
+    # All matrices defined here are ROW-MAJOR
+    m_y = np.array([
+        [cos_ry,  0, sin_ry, 0],
+        [0,       1,      0, 0],
+        [-sin_ry, 0, cos_ry, 0],
+        [0,       0,      0, 1]
+    ], dtype=np.float32)
+    
+    m_x = np.array([
+        [1,      0,       0, 0],
+        [0, cos_rx, -sin_rx, 0],
+        [0, sin_rx,  cos_rx, 0],
+        [0,      0,       0, 1]
+    ], dtype=np.float32)
+    
+    m_z = np.array([
+        [cos_rz, -sin_rz, 0, 0],
+        [sin_rz,  cos_rz, 0, 0],
+        [0,            0, 1, 0],
+        [0,            0, 0, 1]
+    ], dtype=np.float32)
+    
+    # YXZ intrinsic: R_composite = Ry @ Rx @ Rz
+    # This means a vector V is transformed as (Ry @ Rx @ Rz) @ V
+    composite_rotation = m_y @ m_x @ m_z
+    return composite_rotation # Returns ROW-MAJOR
+
+# --- 新增: 生成立方體網格數據 (模型空間, Atlas UV) ---
+def generate_cube_mesh_data(width, depth, height, object_uv_layout_key="cube"):
+    """
+    Generates vertex data for a cube in model space with Atlas UVs.
+    Anchor is at the bottom-center (0,0,0), Y is up.
+    Returns: (vertex_data_numpy_array, vertex_count)
+    vertex_data format: [vx,vy,vz, nx,ny,nz, atlas_u,atlas_v]
+    """
+    w2, d2, h_val = width / 2.0, depth / 2.0, height
+    
+    # 獲取 Atlas 佈局
+    uv_layout = DEFAULT_UV_LAYOUTS.get(object_uv_layout_key)
+    if not uv_layout:
+        print(f"警告: generate_cube_mesh_data - 未找到 UV 佈局 '{object_uv_layout_key}'。將使用 (0,0) 作為所有 UV。")
+        # 創建一個空的 fallback 佈局，或者為每個面使用 (0,0,0,0)
+        uv_layout = {face: (0,0,0,0) for face in ["front", "back", "left", "right", "top", "bottom"]}
+
+    vertices = []
+
+    # Helper to add quad (two triangles)
+    def add_quad(v1, v2, v3, v4, normal, uv_face_key):
+        uv_r = uv_layout.get(uv_face_key, (0,0,0,0)) # Default to black UV if key missing
+        
+        # Triangle 1: v1, v2, v3
+        vertices.extend([*v1, *normal, *map_local_uv_to_atlas_subrect(0,0,uv_r)])
+        vertices.extend([*v2, *normal, *map_local_uv_to_atlas_subrect(1,0,uv_r)])
+        vertices.extend([*v3, *normal, *map_local_uv_to_atlas_subrect(1,1,uv_r)])
+        # Triangle 2: v1, v3, v4
+        vertices.extend([*v1, *normal, *map_local_uv_to_atlas_subrect(0,0,uv_r)])
+        vertices.extend([*v3, *normal, *map_local_uv_to_atlas_subrect(1,1,uv_r)])
+        vertices.extend([*v4, *normal, *map_local_uv_to_atlas_subrect(0,1,uv_r)])
+
+    # Front face (Z = +d2)
+    add_quad([-w2,0,d2], [w2,0,d2], [w2,h_val,d2], [-w2,h_val,d2], [0,0,1], "front")
+    # Back face (Z = -d2)
+    add_quad([w2,0,-d2], [-w2,0,-d2], [-w2,h_val,-d2], [w2,h_val,-d2], [0,0,-1], "back")
+    # Left face (X = -w2)
+    add_quad([-w2,0,-d2], [-w2,0,d2], [-w2,h_val,d2], [-w2,h_val,-d2], [-1,0,0], "left")
+    # Right face (X = +w2)
+    add_quad([w2,0,d2], [w2,0,-d2], [w2,h_val,-d2], [w2,h_val,d2], [1,0,0], "right")
+    # Top face (Y = +h_val)
+    add_quad([-w2,h_val,d2], [w2,h_val,d2], [w2,h_val,-d2], [-w2,h_val,-d2], [0,1,0], "top")
+    # Bottom face (Y = 0)
+    add_quad([-w2,0,-d2], [w2,0,-d2], [w2,0,d2], [-w2,0,d2], [0,-1,0], "bottom")
+    
+    vertex_data = np.array(vertices, dtype=np.float32)
+    vertex_count = len(vertices) // 8 # 8 floats per vertex
+    return vertex_data, vertex_count
+
+# --- 新增: 創建 Building VBO/VAO ---
+def create_building_buffers(building_entry_with_line_id): # <--- 參數名更改以反映其結構
+    """
+    Creates VBO and VAO for a single building entry.
+    building_entry_with_line_id is (line_identifier, obj_data_tuple_new_structure).
+    """
+    line_id, obj_data_tuple_original = building_entry_with_line_id # <--- 首先解包行號和元組
+    
+    EXPECTED_TUPLE_LENGTH = 23
+    VAO_ID_INDEX = 20
+    VBO_ID_INDEX = 21
+    VERTEX_COUNT_INDEX = 22
+
+    current_data_list = list(obj_data_tuple_original) # 操作副本
+    while len(current_data_list) < EXPECTED_TUPLE_LENGTH:
+        current_data_list.append(None)
+    if current_data_list[VERTEX_COUNT_INDEX] is None:
+        current_data_list[VERTEX_COUNT_INDEX] = 0
+
+    try:
+        if len(obj_data_tuple_original) < 10: # 檢查原始元組長度
+            print(f"警告: create_building_buffers - Building (行: {line_id}) 原始 obj_data_tuple 太短，無法獲取尺寸。Tuple: {obj_data_tuple_original}")
+            current_data_list[VAO_ID_INDEX] = None
+            current_data_list[VBO_ID_INDEX] = None
+            current_data_list[VERTEX_COUNT_INDEX] = 0
+            return tuple(current_data_list), False
+
+        width = obj_data_tuple_original[7]
+        depth = obj_data_tuple_original[8]
+        height = obj_data_tuple_original[9]
+
+    except IndexError:
+        print(f"警告: create_building_buffers - Building (行: {line_id}) obj_data_tuple 索引錯誤。Tuple: {obj_data_tuple_original}")
+        current_data_list[VAO_ID_INDEX] = None
+        current_data_list[VBO_ID_INDEX] = None
+        current_data_list[VERTEX_COUNT_INDEX] = 0
+        return tuple(current_data_list), False
+    except TypeError as e: 
+        print(f"警告: create_building_buffers - Building (行: {line_id}) 尺寸參數類型錯誤: {e}. Tuple: {obj_data_tuple_original}")
+        current_data_list[VAO_ID_INDEX] = None
+        current_data_list[VBO_ID_INDEX] = None
+        current_data_list[VERTEX_COUNT_INDEX] = 0
+        return tuple(current_data_list), False
+
+    if not all(isinstance(dim, (int, float)) and dim > 0 for dim in [width, depth, height]):
+        print(f"警告: create_building_buffers - Building (行: {line_id}) 尺寸參數無效 (w={width}, d={depth}, h={height})。")
+        current_data_list[VAO_ID_INDEX] = None
+        current_data_list[VBO_ID_INDEX] = None
+        current_data_list[VERTEX_COUNT_INDEX] = 0
+        return tuple(current_data_list), False
+        
+    old_vao_id = current_data_list[VAO_ID_INDEX] if len(current_data_list) > VAO_ID_INDEX else None
+    old_vbo_id = current_data_list[VBO_ID_INDEX] if len(current_data_list) > VBO_ID_INDEX else None
+    if old_vao_id is not None:
+        try: glDeleteVertexArrays(1, [old_vao_id])
+        except Exception: pass 
+    if old_vbo_id is not None:
+        try: glDeleteBuffers(1, [old_vbo_id])
+        except Exception: pass 
+    current_data_list[VAO_ID_INDEX] = None
+    current_data_list[VBO_ID_INDEX] = None
+    current_data_list[VERTEX_COUNT_INDEX] = 0
+
+    vertex_data, vertex_count = generate_cube_mesh_data(width, depth, height, object_uv_layout_key="cube") 
+
+    if vertex_count == 0:
+        print(f"警告: Building (行: {line_id}) 调用 generate_cube_mesh_data 未生成頂點數據。")
+        return tuple(current_data_list), False
+
+    vbo_id = None
+    vao_id = None
+    try:
+        vbo_id = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_id)
+        glBufferData(GL_ARRAY_BUFFER, vertex_data.nbytes, vertex_data, GL_STATIC_DRAW)
+
+        vao_id = glGenVertexArrays(1)
+        glBindVertexArray(vao_id)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_id) 
+        stride = 8 * sizeof(GLfloat) 
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(3 * sizeof(GLfloat))) 
+        glEnableVertexAttribArray(1)
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(6 * sizeof(GLfloat))) 
+        glEnableVertexAttribArray(2)
+        
+        glBindVertexArray(0) 
+        glBindBuffer(GL_ARRAY_BUFFER, 0) 
+
+        current_data_list[VAO_ID_INDEX] = vao_id
+        current_data_list[VBO_ID_INDEX] = vbo_id
+        current_data_list[VERTEX_COUNT_INDEX] = vertex_count
+        
+        return tuple(current_data_list), True
+
+    except Exception as e_gl:
+        print(f"錯誤: Building (行: {line_id}) 創建 OpenGL 緩衝區時失敗: {e_gl}")
+        if vao_id is not None and glIsVertexArray(vao_id): glDeleteVertexArrays(1, [vao_id])
+        if vbo_id is not None and glIsBuffer(vbo_id): glDeleteBuffers(1, [vbo_id])
+        current_data_list[VAO_ID_INDEX] = None
+        current_data_list[VBO_ID_INDEX] = None
+        current_data_list[VERTEX_COUNT_INDEX] = 0
+        return tuple(current_data_list), False
+
+# --- 修改: 清理 Building VBO/VAO (參數也需要是 entry_with_line_id) ---
+def cleanup_building_buffers_for_entry(building_entry_with_line_id):
+    line_id, obj_data_tuple = building_entry_with_line_id # <--- 解包
+    
+    EXPECTED_TUPLE_LENGTH = 23
+    VAO_ID_INDEX = 20
+    VBO_ID_INDEX = 21
+    VERTEX_COUNT_INDEX = 22
+
+    if len(obj_data_tuple) < EXPECTED_TUPLE_LENGTH:
+        # print(f"DEBUG: cleanup_building_buffers_for_entry - Tuple for line {line_id} too short, nothing to clean.")
+        return building_entry_with_line_id # 返回原始 entry
+
+    vao_id = obj_data_tuple[VAO_ID_INDEX]
+    vbo_id = obj_data_tuple[VBO_ID_INDEX]
+    
+    if vao_id is not None:
+        try: glDeleteVertexArrays(1, [vao_id])
+        except Exception as e: print(f"清理 Building VAO {vao_id} (行: {line_id}) 錯誤: {e}")
+    if vbo_id is not None:
+        try: glDeleteBuffers(1, [vbo_id])
+        except Exception as e: print(f"清理 Building VBO {vbo_id} (行: {line_id}) 錯誤: {e}")
+    
+    new_list = list(obj_data_tuple)
+    new_list[VAO_ID_INDEX] = None
+    new_list[VBO_ID_INDEX] = None
+    new_list[VERTEX_COUNT_INDEX] = 0
+    return (line_id, tuple(new_list))
+
+def cleanup_all_building_buffers(scene_buildings_list):
+    # print("正在清理所有 Building 的緩衝區...")
+    if scene_buildings_list: # 檢查列表是否為空
+        for i in range(len(scene_buildings_list)):
+            scene_buildings_list[i] = cleanup_building_buffers_for_entry(scene_buildings_list[i])
 
 
 # --- draw_cube (unchanged) ---
@@ -1424,7 +1668,7 @@ def generate_hill_mesh_data(center_x, base_y, center_z,
     vertex_count = len(vertices_list) // 8 # 8 floats per vertex (pos, norm, uv)
     return vertex_data, vertex_count
 
-_hill_shader_program_id = None # Global to store the shader program ID for hills
+
 
 def create_hill_buffers(hill_entry):
     """
@@ -1659,41 +1903,232 @@ def draw_hill(center_x, base_y, center_z,
     
 # --- draw_scene_objects ---
 def draw_scene_objects(scene):
+    global _hill_shader_program_id
+    global _building_shader_program_id
 #     glEnable(GL_BLEND)
     # (Logic unchanged)
     glColor3f(1.0, 1.0, 1.0)
     # Buildings
-    for item in scene.buildings:
-        line_num, obj_data = item # 先解包出 行號 和 原始數據元組
+    
+    # --- 處理 Buildings (VBO 版本) ---
+    if hasattr(scene, 'buildings') and scene.buildings:
+        if _building_shader_program_id:
+            glUseProgram(_building_shader_program_id)
+            # --- 設置一次性的 Uniforms (光照, 視圖, 投影) ---
+            # (這些通常在渲染循環開始時為特定著色器設置一次，這裡假設已設置好)
+            # light_pos_loc = glGetUniformLocation(_building_shader_program_id, "lightPos_worldspace")
+            # glUniform3f(light_pos_loc, 100.0, 150.0, 100.0) ... etc.
+            # view_loc = glGetUniformLocation(_building_shader_program_id, "view")
+            # glUniformMatrix4fv(view_loc, 1, GL_FALSE, glGetFloatv(GL_MODELVIEW_MATRIX))
+            # proj_loc = glGetUniformLocation(_building_shader_program_id, "projection")
+            # glUniformMatrix4fv(proj_loc, 1, GL_FALSE, glGetFloatv(GL_PROJECTION_MATRIX))
+            # ... (其他光照和觀察者位置 uniforms)
+            # --- 新增: 為 Building 著色器設置 View 和 Projection Uniforms ---
+            current_view_matrix_for_building = glGetFloatv(GL_MODELVIEW_MATRIX)
+            view_loc_bldg = glGetUniformLocation(_building_shader_program_id, "view")
+            if view_loc_bldg != -1:
+                glUniformMatrix4fv(view_loc_bldg, 1, GL_FALSE, current_view_matrix_for_building)
+            else:
+                print("警告: Building shader - 'view' uniform location not found.")
 
-        # --- 根據新的元組結構解包 ---
-        # 假設 obj_data 結構為:
-        # (obj_type, x, y, z, rx, abs_ry, rz, w, d, h,  <-- 索引 0-9
-        #  u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, <-- 索引 10-15
-        #  tex_filename,                               <-- 索引 16
-        #  gl_texture_id,                              <-- 索引 17
-        #  texture_has_alpha_flag                      <-- 索引 18
-        # )
-        # 再從原始數據元組解包出繪製所需變數
-        (obj_type, x, y, z, rx, abs_ry, rz, w, d, h,
-#          tex_id,
-         u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file,
-         gl_tex_id_val, tex_has_alpha_val, parent_origin_ry_deg
-         ) = obj_data
-        glPushMatrix();
-        glTranslatef(x, y, z);
-        glRotatef(abs_ry, 0, 1, 0);
-        glRotatef(rx, 1, 0, 0);
-        glRotatef(rz, 0, 0, 1)
-#         print(f'gl_tex_id_val:{gl_tex_id_val}')
-        draw_cube(w, d, h,
-#                   tex_id,
-                  gl_tex_id_val, 
-                  u_offset, v_offset, tex_angle_deg,
-                  uv_mode, uscale, vscale,
-                  tex_has_alpha_val
-                  )
-        glPopMatrix()
+            current_proj_matrix_for_building = glGetFloatv(GL_PROJECTION_MATRIX)
+            proj_loc_bldg = glGetUniformLocation(_building_shader_program_id, "projection")
+            if proj_loc_bldg != -1:
+                glUniformMatrix4fv(proj_loc_bldg, 1, GL_FALSE, current_proj_matrix_for_building)
+            else:
+                print("警告: Building shader - 'projection' uniform location not found.")
+
+            # --- 新增: 為 Building 著色器設置光照相關的 Uniforms (可以參考 hill 的部分) ---
+            # 這些 uniforms 通常對於使用相同光照模型的著色器是共享的
+            light_pos_loc_bldg = glGetUniformLocation(_building_shader_program_id, "lightPos_worldspace")
+            if light_pos_loc_bldg != -1: glUniform3f(light_pos_loc_bldg, 100.0, 150.0, 100.0) # 示例光源位置
+            
+            light_color_loc_bldg = glGetUniformLocation(_building_shader_program_id, "lightColor")
+            if light_color_loc_bldg != -1: glUniform3f(light_color_loc_bldg, 0.8, 0.8, 0.8) # 示例光源顏色
+
+            # 獲取 viewPos_worldspace (通常是相機位置)
+            # 這需要相機實例，或者從glGetFloatv(GL_MODELVIEW_MATRIX)的逆矩陣計算
+            # 為了簡化，如果你的相機位置在 shader 中不需要動態更新，可以先硬編碼或傳一個近似值
+            # 或者，如果 main.py 在每一幀開始時就為所有 shader 設置了 viewPos，這裡可能不需要重複
+            view_matrix_inv_bldg = np.linalg.inv(current_view_matrix_for_building)
+            cam_pos_from_mv_bldg = view_matrix_inv_bldg[3,:3]
+            view_pos_loc_bldg = glGetUniformLocation(_building_shader_program_id, "viewPos_worldspace")
+            if view_pos_loc_bldg != -1: glUniform3fv(view_pos_loc_bldg, 1, cam_pos_from_mv_bldg)
+
+            ambient_loc_bldg = glGetUniformLocation(_building_shader_program_id, "u_ambient_strength")
+            if ambient_loc_bldg != -1: glUniform1f(ambient_loc_bldg, 0.5) # 示例值
+            
+            specular_loc_bldg = glGetUniformLocation(_building_shader_program_id, "u_specular_strength")
+            if specular_loc_bldg != -1: glUniform1f(specular_loc_bldg, 0.3) # 示例值
+            
+            shininess_loc_bldg = glGetUniformLocation(_building_shader_program_id, "u_shininess")
+            if shininess_loc_bldg != -1: glUniform1f(shininess_loc_bldg, 16.0) # 示例值
+            # --- 結束新增光照 Uniforms ---
+
+            # --- 新增: 為 Building 著色器設置光照相關的 Uniforms (可以參考 hill 的部
+#                 obj_data_tuple = (
+#                     "building", # 0
+#                     world_x, world_y, world_z, # 1 2 3
+#                     rx_deg, absolute_ry_deg, rz_deg, # 4 5 6
+#                     w, d, h, # 7 8 9
+# #                     tex_id,
+#                     u_offset, v_offset, tex_angle_deg, # 10 11 12
+#                     uv_mode, uscale, vscale, # 13 14 15
+#                     tex_file, # 原始檔名 16
+#                     gl_texture_id_from_loader, # OpenGL 紋理 ID 17
+#                     texture_has_alpha_flag, # 新增的 Alpha 標誌 18
+#                     math.degrees(origin_angle), # <--- 新增：存儲父原點的Y旋轉角度 (度) 19
+#                     None,  # 20: vao_id (placeholder)
+#                     None,  # 21: vbo_id (placeholder)
+#                     0      # 22: vertex_count (placeholder)                                        
+#                     )
+
+            for item in scene.buildings:
+                line_num, obj_data_tuple = item
+#                 print(f"obj_data_tuple: {obj_data_tuple}")
+                EXPECTED_TUPLE_LENGTH = 23
+                VAO_ID_INDEX = 20
+                VERTEX_COUNT_INDEX = 22
+                GL_TEXTURE_ID_INDEX = 17
+                TEXTURE_HAS_ALPHA_INDEX = 18
+                
+                if len(obj_data_tuple) < EXPECTED_TUPLE_LENGTH: 
+                    print(f"警告: Building (行: {line_num}) obj_data_tuple 結構不完整，跳過渲染。Got {len(obj_data_tuple)}, expected {EXPECTED_TUPLE_LENGTH}")
+                    continue 
+                
+                try:
+                    # 解包用於模型變換和紋理的參數
+                    # obj_type = obj_data_tuple[0] # "building"
+                    world_x, world_y, world_z = obj_data_tuple[1:4]
+                    rx_deg, absolute_ry_deg, rz_deg = obj_data_tuple[4:7]
+                    
+                    gl_texture_id = obj_data_tuple[GL_TEXTURE_ID_INDEX]
+                    texture_has_alpha = obj_data_tuple[TEXTURE_HAS_ALPHA_INDEX]
+                    
+                    vao_id = obj_data_tuple[VAO_ID_INDEX]
+                    vertex_count = obj_data_tuple[VERTEX_COUNT_INDEX]
+                
+#                 try:
+#                     _obj_type, world_x, world_y, world_z, \
+#                     rx_deg, absolute_ry_deg, rz_deg, \
+#                     _w, _d, _h, \
+#                     _tex_file, gl_texture_id, texture_has_alpha, \
+#                     _parent_origin_ry_deg, \
+#                     vao_id, _vbo_id, vertex_count = obj_data_tuple
+                except ValueError:
+                    print(f"警告: Building (行: {line_num}) obj_data_tuple 解包失敗，跳過渲染。")
+                    continue
+
+
+                if vao_id is None or vertex_count == 0:
+                    # print(f"信息: Building (行: {line_num}) VAO ({vao_id}) 或頂點數 ({vertex_count}) 無效，跳過VBO繪製。")
+                    continue
+
+                # --- 計算 Model Matrix ---
+                model_matrix = np.identity(4, dtype=np.float32)
+                # 1. 平移 (Translate)
+                trans_mat = np.array([
+                    [1,0,0,world_x],
+                    [0,1,0,world_y],
+                    [0,0,1,world_z],
+                    [0,0,0,1]
+                ], dtype=np.float32)
+                
+
+                # 2. 獲取純複合旋轉矩陣 R_composite (Row-major)
+                #    使用 building 的 rx_deg, absolute_ry_deg, rz_deg
+                composite_rotation_mat = get_yxz_intrinsic_composite_rotation_4x4(
+                    rx_deg, absolute_ry_deg, rz_deg
+                )
+
+
+
+                # 3. 組合 Model Matrix: M = T @ R
+                #    這對應於 V_world = T * R * V_model
+                #    即，先對模型空間頂點 V_model 應用複合旋轉 R，得到旋轉後的局部偏移，
+                #    然後再應用平移 T，將其移動到世界位置。
+                model_matrix_row_major = trans_mat @ composite_rotation_mat 
+                
+                
+#                 print(f"model_matrix: {model_matrix}")
+                model_loc = glGetUniformLocation(_building_shader_program_id, "model")
+#                 print(f"model_loc: {model_loc}")
+#                 print(f"_building_shader_program_id: {_building_shader_program_id}")
+#                 print(f"Building (行: {line_num}) Model Matrix:\n{model_matrix}")
+                if model_loc != -1: 
+                    # 將行主序的 NumPy 矩陣傳遞給 glUniformMatrix4fv，並設置 transpose = GL_TRUE
+                    glUniformMatrix4fv(model_loc, 1, GL_TRUE, model_matrix_row_major) 
+                                                    # ^^^^^^^^ 注意這裡改成了 GL_TRUE
+                else:
+                    print(f"警告: Building (行: {line_num}) 無法找到 'model' uniform location。")
+                    # continue
+                    
+                    
+                # --- 設置紋理和 Alpha Uniforms ---
+                use_tex_loc = glGetUniformLocation(_building_shader_program_id, "u_use_texture")
+                fallback_color_loc = glGetUniformLocation(_building_shader_program_id, "u_fallback_color")
+                
+                if gl_texture_id is not None and glIsTexture(gl_texture_id):
+                    glUniform1i(use_tex_loc, 1) # true
+                    glActiveTexture(GL_TEXTURE0)
+                    glBindTexture(GL_TEXTURE_2D, gl_texture_id)
+                    tex_sampler_loc = glGetUniformLocation(_building_shader_program_id, "texture_diffuse1")
+                    glUniform1i(tex_sampler_loc, 0) # Texture unit 0
+                else:
+                    glUniform1i(use_tex_loc, 0) # false
+                    glUniform3f(fallback_color_loc, 0.7, 0.7, 0.7) # Default fallback color
+
+                has_alpha_loc = glGetUniformLocation(_building_shader_program_id, "u_texture_has_alpha")
+                glUniform1i(has_alpha_loc, 1 if texture_has_alpha else 0)
+                alpha_thresh_loc = glGetUniformLocation(_building_shader_program_id, "u_alpha_test_threshold")
+                glUniform1f(alpha_thresh_loc, ALPHA_TEST_THRESHOLD)
+
+                # --- 繪製 ---
+                glBindVertexArray(vao_id)
+                glDrawArrays(GL_TRIANGLES, 0, vertex_count)
+            
+            glBindVertexArray(0) # Unbind after loop (or inside if other objects use different VAOs)
+            glUseProgram(0) # Unbind shader program
+            glActiveTexture(GL_TEXTURE0) # Reset active texture unit
+            glBindTexture(GL_TEXTURE_2D, 0) # Unbind texture
+        else:
+            if not _building_shader_program_id:
+                print("警告: Building 著色器未初始化，無法渲染 Buildings。")
+            # 可以選擇在這裡調用舊的立即模式繪製作為 fallback (如果還保留了 draw_cube)
+            # for item in scene.buildings: ... glTranslate/glRotate/draw_cube ...
+    
+#     for item in scene.buildings:
+#         line_num, obj_data = item # 先解包出 行號 和 原始數據元組
+# 
+#         # --- 根據新的元組結構解包 ---
+#         # 假設 obj_data 結構為:
+#         # (obj_type, x, y, z, rx, abs_ry, rz, w, d, h,  <-- 索引 0-9
+#         #  u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, <-- 索引 10-15
+#         #  tex_filename,                               <-- 索引 16
+#         #  gl_texture_id,                              <-- 索引 17
+#         #  texture_has_alpha_flag                      <-- 索引 18
+#         # )
+#         # 再從原始數據元組解包出繪製所需變數
+#         (obj_type, x, y, z, rx, abs_ry, rz, w, d, h,
+# #          tex_id,
+#          u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file,
+#          gl_tex_id_val, tex_has_alpha_val, parent_origin_ry_deg
+#          ) = obj_data
+#         glPushMatrix();
+#         glTranslatef(x, y, z);
+#         glRotatef(abs_ry, 0, 1, 0);
+#         glRotatef(rx, 1, 0, 0);
+#         glRotatef(rz, 0, 0, 1)
+# #         print(f'gl_tex_id_val:{gl_tex_id_val}')
+#         draw_cube(w, d, h,
+# #                   tex_id,
+#                   gl_tex_id_val, 
+#                   u_offset, v_offset, tex_angle_deg,
+#                   uv_mode, uscale, vscale,
+#                   tex_has_alpha_val
+#                   )
+#         glPopMatrix()
+        
     # Cylinders
     for item in scene.cylinders:
         line_num, obj_data = item # 先解包出 行號 和 原始數據元組
@@ -1824,6 +2259,7 @@ def draw_scene_objects(scene):
                 # Model 矩陣 (山丘頂點是世界座標，所以是單位矩陣)
                 model_matrix = np.identity(4, dtype=np.float32) 
                 model_loc = glGetUniformLocation(_hill_shader_program_id, "model")
+#                 print(f"_hill_shader_program_id: {_hill_shader_program_id}")
                 glUniformMatrix4fv(model_loc, 1, GL_FALSE, model_matrix)
 
                 # --- 設置每個山丘特定的 Uniforms ---

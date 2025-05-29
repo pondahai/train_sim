@@ -704,7 +704,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'building' 基本參數無效。");
                     continue
                 tex_file = parts[10] if len(parts) > 10 else "building.png"
-                u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale = 0.0,0.0,0.0,1,1.0,1.0
+                u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale = 0.0,0.0,0.0,2,1.0,1.0 # <--- uv_mode 預設為2 (Atlas)
                 try:
                     u_offset = float(parts[11]) if len(parts) > 11 else 0.0;
                     v_offset = float(parts[12]) if len(parts) > 12 else 0.0;
@@ -732,16 +732,20 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z
                 absolute_ry_deg = math.degrees(-origin_angle) + rel_ry_deg - 90
                 obj_data_tuple = (
-                    "building",
-                    world_x, world_y, world_z,
-                    rx_deg, absolute_ry_deg, rz_deg,
-                    w, d, h,
+                    "building", # 0
+                    world_x, world_y, world_z, # 1 2 3
+                    rx_deg, absolute_ry_deg, rz_deg, # 4 5 6
+                    w, d, h, # 7 8 9
 #                     tex_id,
-                    u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
-                    tex_file, # 原始檔名
-                    gl_texture_id_from_loader, # OpenGL 紋理 ID
-                    texture_has_alpha_flag, # 新增的 Alpha 標誌
-                    math.degrees(origin_angle) # <--- 新增：存儲父原點的Y旋轉角度 (度)
+                    u_offset, v_offset, tex_angle_deg, # 10 11 12
+                    uv_mode, uscale, vscale, # 13 14 15
+                    tex_file, # 原始檔名 16
+                    gl_texture_id_from_loader, # OpenGL 紋理 ID 17
+                    texture_has_alpha_flag, # 新增的 Alpha 標誌 18
+                    math.degrees(origin_angle), # <--- 新增：存儲父原點的Y旋轉角度 (度) 19
+                    None,  # 20: vao_id (placeholder)
+                    None,  # 21: vbo_id (placeholder)
+                    0      # 22: vertex_count (placeholder)                                        
                     )
                 scene_to_populate.buildings.append((line_identifier_for_object, obj_data_tuple))
 
@@ -842,15 +846,37 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' 參數不足。");
                     continue
                 try:
-                    center_x = float(parts[1]); base_y = float(parts[2]); center_z = float(parts[3])
-                    base_radius = float(parts[4]); peak_height_offset = float(parts[5])
+                    rel_cx = float(parts[1])
+                    rel_base_y = float(parts[2]) # parts[2] 是 base_y (相對或絕對偏移)
+                    rel_cz = float(parts[3])
+                    base_radius = float(parts[4]);
+                    peak_height_offset = float(parts[5])
                     if peak_height_offset <= 0 or base_radius <= 0:
                         print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' peak_h_offset 和 radius 必須為正。");
                         continue
                 except ValueError:
                     print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'hill' 基本參數無效。");
                     continue
+
+                # --- 將相對座標轉換為世界座標 (類似 building) ---
+                origin_pos = scene_to_populate.current_relative_origin_pos
+                origin_angle_rad = scene_to_populate.current_relative_origin_angle_rad
                 
+                cos_oa = math.cos(origin_angle_rad)
+                sin_oa = math.sin(origin_angle_rad)
+                
+                # 假設 rel_cz 是 "向前" (沿父級朝向)，rel_cx 是 "向右"
+                world_offset_x_hill = rel_cz * cos_oa + rel_cx * sin_oa 
+                world_offset_z_hill = rel_cz * sin_oa - rel_cx * cos_oa
+                
+                world_center_x = origin_pos[0] + world_offset_x_hill
+                # base_y 的處理：是疊加到父級Y，還是父級Y + rel_base_y？
+                # 我們假設 rel_base_y 是疊加到父級Y的偏移，與 building 的 rel_y 邏輯一致
+                world_base_y = origin_pos[1] + rel_base_y 
+                world_center_z = origin_pos[2] + world_offset_z_hill
+                # --- 結束世界座標轉換 ---
+
+
                 # --- MODIFICATION START: Parse new texture offset parameters ---
                 tex_param_start_index = 6 # tex_file (optional) starts at index 6
                 tex_file = parts[tex_param_start_index] if len(parts) > tex_param_start_index and not parts[tex_param_start_index].replace('.', '', 1).replace('-', '', 1).isdigit() else "grass.png"
@@ -890,7 +916,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
 
                 hill_data_tuple = (
                     "hill",
-                    center_x, base_y, center_z,
+                    world_center_x, world_base_y, world_center_z,
                     base_radius, peak_height_offset,
 #                     tex_id,
                     uscale, vscale,

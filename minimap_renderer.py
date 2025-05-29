@@ -1416,10 +1416,16 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 line_identifier, bldg_data_tuple = item
                 try:
                     # 與FBO中解包方式保持一致
-                    obj_type, wx, wy, wz, rx_d, ry_d, rz_d, ww, wd, wh, \
-                u_off, v_off, t_ang, uv_m, u_s, v_s, \
-                tex_f, gl_id, tex_alpha, \
-                parent_origin_ry_deg = bldg_data_tuple
+#                     obj_type, wx, wy, wz, rx_d, ry_d, rz_d, ww, wd, wh, \
+#                 u_off, v_off, t_ang, uv_m, u_s, v_s, \
+#                 tex_f, gl_id, tex_alpha, \
+#                 parent_origin_ry_deg, *rest = bldg_data_tuple
+
+                    obj_type = bldg_data_tuple[0]
+                    wx, wy, wz = bldg_data_tuple[1:4]
+                    rx_d, ry_d, rz_d = bldg_data_tuple[4:7]
+                    ww, wd, wh = bldg_data_tuple[7:10]
+                    parent_origin_ry_deg = bldg_data_tuple[19] # 假設這是我們需要的最後一個參數
                 except (IndexError, TypeError, ValueError) as e_unpack_preview:
                     print(f"警告 Preview: 解包 building 數據 (行: {line_identifier}) 失敗: {e_unpack_preview}")
                     print(f"DEBUG Preview: Building data tuple was: {bldg_data_tuple}")
