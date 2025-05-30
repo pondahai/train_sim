@@ -2612,26 +2612,46 @@ def test_draw_cylinder_y_up_centered(radius, height, texture_id=None, slices=CYL
 # --- REMOVED: draw_minimap function ---
 
 # --- NEW: Skybox/Skydome loading and drawing ---
+TEXTURE_LOAD_FAILED_MARKER = "LOAD_FAILED"
 
 def load_skybox(base_name):
     """
     Loads a skybox (cubemap) texture from 6 individual files.
     Files must be named <base_name>_px.png, <base_name>_nx.png, etc.
-    Uses texture caching.
+    Uses texture caching and marks failed loads to prevent repeated attempts.
     """
-    global skybox_texture_cache, texture_loader
+    global skybox_texture_cache, texture_loader, TEXTURE_LOAD_FAILED_MARKER # 確保能訪問全域變數
+
     if not texture_loader:
         print("警告: 無法載入 Skybox，texture_loader 未設定。")
+        skybox_texture_cache[base_name] = TEXTURE_LOAD_FAILED_MARKER
         return None
+
+    # 如果快取中已經有明確的成功或失敗記錄，直接處理
     if base_name in skybox_texture_cache:
-        return skybox_texture_cache[base_name]
+        cached_value = skybox_texture_cache[base_name]
+        if cached_value == TEXTURE_LOAD_FAILED_MARKER:
+            # print(f"Skybox '{base_name}' previously failed to load, skipping.") # 可選的靜默提示
+            return None
+        # 假設成功時存的是 texture_id (一個整數)
+        # 需要檢查它是否仍然是一個有效的 OpenGL 紋理名稱
+        # 這裡 glIsTexture 可能需要在正確的上下文中調用，如果 load_skybox 可能在無上下文時被間接查詢快取則需要注意
+        # 但通常 load_skybox 的主要呼叫路徑 (draw_skybox) 是有上下文的
+        try:
+            if isinstance(cached_value, int) and glIsTexture(cached_value):
+                 # print(f"Skybox '{base_name}' found in cache with ID: {cached_value}")
+                 return cached_value
+        except Exception as e:
+            # 如果 glIsTexture 出錯 (例如上下文問題)，則當作快取無效，繼續嘗試載入
+            print(f"檢查 Skybox 快取中 ID {cached_value} 時出錯: {e}，將嘗試重新載入 '{base_name}'。")
+            pass # 繼續執行下面的載入邏輯
+
+    # 首次嘗試載入此 base_name，或者之前的快取條目無效
+    print(f"Skybox '{base_name}': 首次嘗試或重新嘗試載入...")
 
     texture_id = glGenTextures(1)
     glBindTexture(GL_TEXTURE_CUBE_MAP, texture_id)
 
-    # Order and targets for cubemap faces
-    # PyOpenGL uses different constants than standard OpenGL sometimes, check carefully
-    # GL_TEXTURE_CUBE_MAP_POSITIVE_X, Negative_X, Positive_Y, Negative_Y, Positive_Z, Negative_Z
     suffixes = ["px", "nx", "py", "ny", "pz", "nz"]
     targets = [
         GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
@@ -2639,126 +2659,151 @@ def load_skybox(base_name):
         GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
     ]
 
-    all_loaded = True
+    all_loaded_successfully = True
     for i in range(6):
-        filename = f"{base_name}_{suffixes[i]}.png" # Assuming PNG format
+        filename = f"{base_name}_{suffixes[i]}.png"
         filepath = os.path.join("textures", filename)
-        print(f"載入 Skybox 面: {filepath}")
+        
+        # 減少重複的 "載入 Skybox 面" 打印，只在首次嘗試載入這個 base_name 時打印一次每個面
+        # (這個首次嘗試是在這個函數被完整執行一次的意義上)
+        print(f"  嘗試載入 Skybox 面: {filepath}")
+
         if not os.path.exists(filepath):
-            print(f"警告: Skybox 紋理檔案 '{filepath}' 不存在。")
-            all_loaded = False
-            break # Stop loading if one face is missing
+            print(f"  警告: Skybox 紋理檔案 '{filepath}' (屬於 '{base_name}') 不存在。")
+            all_loaded_successfully = False
+            break
 
         try:
             surface = pygame.image.load(filepath)
-            # Cubemaps often don't need alpha, but loading as RGBA is safer
-            # Some tutorials suggest flipping Y for certain faces depending on tool,
-            # but let's try without flipping first.
-            texture_data = pygame.image.tostring(surface, "RGBA", False) # Try without Y-flip first
-
+            texture_data = pygame.image.tostring(surface, "RGBA", False) # RGBA 和 Y軸不翻轉
             glTexImage2D(targets[i], 0, GL_RGBA, surface.get_width(), surface.get_height(),
                          0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
         except Exception as e:
-            print(f"載入 Skybox 紋理 '{filepath}' 時發生錯誤: {e}")
-            all_loaded = False
+            print(f"  載入 Skybox 紋理 '{filepath}' (屬於 '{base_name}') 時發生錯誤: {e}")
+            all_loaded_successfully = False
             break
 
-    if all_loaded:
+    if all_loaded_successfully:
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        # Clamp to edge is essential for skyboxes to avoid seams at edges
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
         glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE) # WRAP_R for the 3rd dimension
-
-        glBindTexture(GL_TEXTURE_CUBE_MAP, 0) # Unbind
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE)
+        glBindTexture(GL_TEXTURE_CUBE_MAP, 0)
         skybox_texture_cache[base_name] = texture_id
-        print(f"Skybox 已載入並快取: '{base_name}' (ID: {texture_id})")
+        print(f"Skybox '{base_name}' 已成功載入並快取 (ID: {texture_id}).")
         return texture_id
     else:
-        # Cleanup if loading failed
         glBindTexture(GL_TEXTURE_CUBE_MAP, 0)
-        glDeleteTextures(1, [texture_id])
-        print(f"Skybox '{base_name}' 載入失敗。")
+        # 只有當 texture_id 是一個有效的紋理名時才刪除
+        # glIsTexture 必須在有效的OpenGL上下文中調用
+        try:
+            if glIsTexture(texture_id):
+                 glDeleteTextures(1, [texture_id])
+        except Exception as e_del: # 捕獲 glIsTexture 或 glDeleteTextures 可能的錯誤
+            print(f"  警告: 嘗試清理部分載入的 Skybox 紋理 (ID: {texture_id}) 時出錯: {e_del}")
+            pass # 即使清理失敗，也要繼續標記為失敗
+
+        print(f"Skybox '{base_name}' 載入失敗。在快取中標記為失敗。")
+        skybox_texture_cache[base_name] = TEXTURE_LOAD_FAILED_MARKER
         return None
 
 
 def draw_skybox(base_name, size=1.0):
     """
     Draws a skybox cube centered around the origin.
-    Requires the corresponding cubemap texture to be loaded via load_skybox.
-    Assumes camera is at the origin for rendering skybox (or use matrix manipulation).
-    Size parameter is mostly cosmetic, real 'distance' is handled by depth settings.
+    Uses texture caching and handles failed loads.
     """
-    global skybox_texture_cache
-    if base_name not in skybox_texture_cache:
-        # Attempt to load it now if not cached? Or rely on preloading?
-        # Let's try loading it dynamically.
-        load_skybox(base_name)
-        if base_name not in skybox_texture_cache: # Check again after trying to load
-             print(f"警告: Skybox '{base_name}' 未載入，無法繪製。")
-             return
+    global skybox_texture_cache, TEXTURE_LOAD_FAILED_MARKER
 
-    skybox_id = skybox_texture_cache[base_name]
+    skybox_id_or_marker = skybox_texture_cache.get(base_name)
+    skybox_id_to_use = None
 
-    glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_POLYGON_BIT | GL_TEXTURE_BIT | GL_LIGHTING_BIT | GL_CURRENT_BIT) # Save more states
-    glEnable(GL_TEXTURE_CUBE_MAP)
-    glBindTexture(GL_TEXTURE_CUBE_MAP, skybox_id)
+    if skybox_id_or_marker is None:
+        # 快取中沒有記錄，是第一次嘗試處理這個 base_name
+        # print(f"Skybox '{base_name}': 快取未命中，執行首次嘗試載入...") # 日誌已移到 load_skybox 內部
+        loaded_id = load_skybox(base_name) # load_skybox 會處理打印、快取成功或失敗標記
+        if loaded_id is None: # load_skybox 返回 None 表示載入失敗
+            # print(f"警告: Skybox '{base_name}' 首次載入失敗，無法繪製。") # load_skybox 內部會打印失敗
+            return # 不繪製
+        skybox_id_to_use = loaded_id
+    elif skybox_id_or_marker == TEXTURE_LOAD_FAILED_MARKER:
+        # 之前已嘗試載入且失敗，直接返回，不重複打印錯誤
+        # print(f"Skybox '{base_name}': 檢測到之前載入失敗，跳過繪製。") # 可選的靜默日誌
+        return
+    else:
+        # 快取中是有效的 texture_id (整數)
+        # 需要再次驗證它是否仍然是一個有效的 OpenGL 紋理（以防上下文丟失後重建等極端情況）
+        try:
+            if isinstance(skybox_id_or_marker, int) and glIsTexture(skybox_id_or_marker):
+                skybox_id_to_use = skybox_id_or_marker
+            else: # 快取中的 ID 無效了
+                print(f"Skybox '{base_name}': 快取中的 ID {skybox_id_or_marker} 無效，嘗試重新載入...")
+                loaded_id = load_skybox(base_name) # 重新載入 (load_skybox 會更新快取)
+                if loaded_id is None:
+                    return
+                skybox_id_to_use = loaded_id
+        except Exception as e_check:
+            print(f"Skybox '{base_name}': 檢查快取 ID {skybox_id_or_marker} 時出錯 ({e_check})，嘗試重新載入...")
+            loaded_id = load_skybox(base_name)
+            if loaded_id is None:
+                return
+            skybox_id_to_use = loaded_id
+            
+    if skybox_id_to_use is None: # 雙重保險，如果經歷上述邏輯後仍然沒有有效ID
+        print(f"嚴重警告: Skybox '{base_name}' 在所有檢查後仍無有效 ID 可用，無法繪製。")
+        return
 
-    glDisable(GL_LIGHTING)      # Skybox is not affected by scene lighting
-    glDisable(GL_DEPTH_TEST)    # Draw behind everything (Method 1)
-    # glDepthMask(GL_FALSE)     # Don't write to depth buffer (Alternative Method 2)
-    glDisable(GL_CULL_FACE)     # Draw inside faces of the cube
+    # --- 實際的繪製邏輯 ---
+    glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_POLYGON_BIT | GL_TEXTURE_BIT | GL_LIGHTING_BIT | GL_CURRENT_BIT)
+    try:
+        glEnable(GL_TEXTURE_CUBE_MAP)
+        glBindTexture(GL_TEXTURE_CUBE_MAP, skybox_id_to_use)
 
-    # Set color to white to avoid tinting the texture
-    glColor3f(1.0, 1.0, 1.0)
+        glDisable(GL_LIGHTING)
+        glDisable(GL_DEPTH_TEST)
+        glDisable(GL_CULL_FACE)
+        glColor3f(1.0, 1.0, 1.0)
 
-    s = size / 2.0 # Half size
+        s = size / 2.0
+        glBegin(GL_QUADS)
+        # Positive X face (+X)
+        glTexCoord3f( 1, -1, -1); glVertex3f( s, -s, -s)
+        glTexCoord3f( 1, -1,  1); glVertex3f( s, -s,  s)
+        glTexCoord3f( 1,  1,  1); glVertex3f( s,  s,  s)
+        glTexCoord3f( 1,  1, -1); glVertex3f( s,  s, -s)
+        # Negative X face (-X)
+        glTexCoord3f(-1, -1,  1); glVertex3f(-s, -s,  s)
+        glTexCoord3f(-1, -1, -1); glVertex3f(-s, -s, -s)
+        glTexCoord3f(-1,  1, -1); glVertex3f(-s,  s, -s)
+        glTexCoord3f(-1,  1,  1); glVertex3f(-s,  s,  s)
+        # Positive Y face (+Y) - Top
+        glTexCoord3f(-1,  1, -1); glVertex3f(-s,  s, -s)
+        glTexCoord3f( 1,  1, -1); glVertex3f( s,  s, -s)
+        glTexCoord3f( 1,  1,  1); glVertex3f( s,  s,  s)
+        glTexCoord3f(-1,  1,  1); glVertex3f(-s,  s,  s)
+        # Negative Y face (-Y) - Bottom
+        glTexCoord3f(-1, -1,  1); glVertex3f(-s, -s,  s)
+        glTexCoord3f( 1, -1,  1); glVertex3f( s, -s,  s)
+        glTexCoord3f( 1, -1, -1); glVertex3f( s, -s, -s)
+        glTexCoord3f(-1, -1, -1); glVertex3f(-s, -s, -s)
+        # Positive Z face (+Z)
+        glTexCoord3f( 1, -1,  1); glVertex3f( s, -s,  s)
+        glTexCoord3f(-1, -1,  1); glVertex3f(-s, -s,  s)
+        glTexCoord3f(-1,  1,  1); glVertex3f(-s,  s,  s)
+        glTexCoord3f( 1,  1,  1); glVertex3f( s,  s,  s)
+        # Negative Z face (-Z)
+        glTexCoord3f(-1, -1, -1); glVertex3f(-s, -s, -s)
+        glTexCoord3f( 1, -1, -1); glVertex3f( s, -s, -s)
+        glTexCoord3f( 1,  1, -1); glVertex3f( s,  s, -s)
+        glTexCoord3f(-1,  1, -1); glVertex3f(-s,  s, -s)
+        glEnd()
 
-    # Draw the cube using texture coordinates suitable for cubemaps
-    # Texture coordinates for cubemaps are 3D vectors pointing from the center
-    # towards the vertex. OpenGL calculates the correct face lookup based on this.
-    glBegin(GL_QUADS)
-    # Positive X face (+X)
-    glTexCoord3f( 1, -1, -1); glVertex3f( s, -s, -s)
-    glTexCoord3f( 1, -1,  1); glVertex3f( s, -s,  s)
-    glTexCoord3f( 1,  1,  1); glVertex3f( s,  s,  s)
-    glTexCoord3f( 1,  1, -1); glVertex3f( s,  s, -s)
-    # Negative X face (-X)
-    glTexCoord3f(-1, -1,  1); glVertex3f(-s, -s,  s)
-    glTexCoord3f(-1, -1, -1); glVertex3f(-s, -s, -s)
-    glTexCoord3f(-1,  1, -1); glVertex3f(-s,  s, -s)
-    glTexCoord3f(-1,  1,  1); glVertex3f(-s,  s,  s)
-    # Positive Y face (+Y) - Top
-    glTexCoord3f(-1,  1, -1); glVertex3f(-s,  s, -s)
-    glTexCoord3f( 1,  1, -1); glVertex3f( s,  s, -s)
-    glTexCoord3f( 1,  1,  1); glVertex3f( s,  s,  s)
-    glTexCoord3f(-1,  1,  1); glVertex3f(-s,  s,  s)
-    # Negative Y face (-Y) - Bottom
-    glTexCoord3f(-1, -1,  1); glVertex3f(-s, -s,  s)
-    glTexCoord3f( 1, -1,  1); glVertex3f( s, -s,  s)
-    glTexCoord3f( 1, -1, -1); glVertex3f( s, -s, -s)
-    glTexCoord3f(-1, -1, -1); glVertex3f(-s, -s, -s)
-    # Positive Z face (+Z)
-    glTexCoord3f( 1, -1,  1); glVertex3f( s, -s,  s)
-    glTexCoord3f(-1, -1,  1); glVertex3f(-s, -s,  s)
-    glTexCoord3f(-1,  1,  1); glVertex3f(-s,  s,  s)
-    glTexCoord3f( 1,  1,  1); glVertex3f( s,  s,  s)
-    # Negative Z face (-Z)
-    glTexCoord3f(-1, -1, -1); glVertex3f(-s, -s, -s)
-    glTexCoord3f( 1, -1, -1); glVertex3f( s, -s, -s)
-    glTexCoord3f( 1,  1, -1); glVertex3f( s,  s, -s)
-    glTexCoord3f(-1,  1, -1); glVertex3f(-s,  s, -s)
-    glEnd()
-
-    glBindTexture(GL_TEXTURE_CUBE_MAP, 0)
-    glDisable(GL_TEXTURE_CUBE_MAP)
-    # Restore states
-    # glEnable(GL_DEPTH_TEST) # Restore if disabled above
-    # glDepthMask(GL_TRUE)    # Restore if set to FALSE above
-    # glEnable(GL_CULL_FACE)  # Restore if needed
-    glPopAttrib()
-
+        glBindTexture(GL_TEXTURE_CUBE_MAP, 0)
+        glDisable(GL_TEXTURE_CUBE_MAP)
+    finally:
+        glPopAttrib()
+        
 def draw_skydome(texture_id, radius=1.0, slices=32, stacks=16):
     """
     Draws a skydome (sphere) centered around the origin.

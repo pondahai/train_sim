@@ -1,9 +1,11 @@
 # scene_parser.py
 import os
+import sys
 import numpy as np
 import numpy as math # Keep consistent
 # import math # Original import removed
 from track import StraightTrack, CurveTrack, Track, TrackSegment, INTERPOLATION_STEPS 
+import renderer
 
 # --- Texture loading dependency ---
 texture_loader = None
