@@ -1,0 +1,21 @@
+map map.png 0 0 1.0
+start 0 0 0 0
+
+skybox mysky # 設置初始天空盒
+
+straight 100
+vbranch straight 10 30 # 從第一個直線段末端，向左偏10度，長30米的分岔
+vbranch curve 20 -45 0 backward # 從第一個直線段末端，向右反向彎曲45度，半徑20米的分岔
+
+curve 50 90 0
+
+skydome another_sky.png # 在彎道結束後，背景切換為天空圓頂
+
+straight 50 10 # 一段上坡10‰，長50米的直軌
+building 10 0 5 0 0 0 10 10 10 building_texture.png 0 0 0 2 # 使用UV Mode 2 (圖集)
+cylinder 15 0 5 0 0 0 2 10 metal.png
+tree 20 0 5 8 tree_transparent.png
+gableroof 0 10 0 0 90 0 10 15 3 # 在Y=10高，長15寬10，屋脊高3，朝向世界+X
+hill 100 20 50 30 15 ground_texture.png 5 5
+
+import common_objects/park_area.txt # 導入公園區域的場景定義
