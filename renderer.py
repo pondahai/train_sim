@@ -2083,6 +2083,28 @@ def draw_scene_objects(scene):
                 alpha_thresh_loc = glGetUniformLocation(_building_shader_program_id, "u_alpha_test_threshold")
                 glUniform1f(alpha_thresh_loc, ALPHA_TEST_THRESHOLD)
 
+
+                # *** 新增/修改：傳遞紋理變換 Uniforms ***
+                # 從 obj_data_tuple 解包 (索引可能需要根據您的元組結構調整)
+                # obj_data_tuple[10:16] 包含: u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale
+                u_offset_val = obj_data_tuple[10]
+                v_offset_val = obj_data_tuple[11]
+                tex_angle_deg_val = obj_data_tuple[12]
+                # uv_mode_val = obj_data_tuple[13] # 這個不再需要傳給著色器
+                uscale_val = obj_data_tuple[14]
+                vscale_val = obj_data_tuple[15]
+
+                u_tex_offset_loc = glGetUniformLocation(_building_shader_program_id, "u_tex_offset")
+                if u_tex_offset_loc != -1: glUniform2f(u_tex_offset_loc, u_offset_val, v_offset_val)
+                
+                u_tex_angle_rad_loc = glGetUniformLocation(_building_shader_program_id, "u_tex_angle_rad")
+                if u_tex_angle_rad_loc != -1: glUniform1f(u_tex_angle_rad_loc, math.radians(tex_angle_deg_val))
+                
+                u_tex_scale_loc = glGetUniformLocation(_building_shader_program_id, "u_tex_scale")
+                if u_tex_scale_loc != -1: glUniform2f(u_tex_scale_loc, uscale_val, vscale_val)
+                # --- 結束新增/修改 ---
+                
+                
                 # --- 繪製 ---
                 glBindVertexArray(vao_id)
                 glDrawArrays(GL_TRIANGLES, 0, vertex_count)

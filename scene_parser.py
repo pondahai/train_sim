@@ -710,8 +710,8 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     v_offset = float(parts[12]) if len(parts) > 12 else 0.0;
                     tex_angle_deg = float(parts[13]) if len(parts) > 13 else 0.0;
                     uv_mode = int(parts[14]) if len(parts) > 14 else 2; # uvmode
-                    uscale = float(parts[15]) if len(parts) > 15 and uv_mode == 0 else 1.0;
-                    vscale = float(parts[16]) if len(parts) > 16 and uv_mode == 0 else 1.0
+                    uscale = float(parts[15]) if len(parts) > 15 else 1.0;
+                    vscale = float(parts[16]) if len(parts) > 16 else 1.0
                 except ValueError: pass
 #                 tex_id = texture_loader.load_texture(tex_file) if load_textures and texture_loader else None
                 # 載入紋理並獲取 alpha 信息
