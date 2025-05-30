@@ -1308,9 +1308,34 @@ def load_scene(force_reload=False, specific_filepath=None):
 
             if current_scene and current_scene.track:
                  current_scene.track.clear()
+                 
+            # --- MODIFICATION: Clear both texture caches ---
             if texture_loader:
+                print("場景重載：清除普通紋理快取...")
                 texture_loader.clear_texture_cache()
-
+            
+            # 確保 renderer 模組被正確引用
+            # 如果 renderer 是全域導入的，可以直接使用
+            # 否則，需要確保 load_scene 函式能訪問到 renderer 模組
+            # 例如，可以在 scene_parser.py 頂部 import renderer
+            # 或者，如果擔心循環導入，可以考慮將天空盒快取清理的職責放到 renderer 模組內部的一個函式中，
+            # 然後 scene_parser 調用該函式。
+            # 這裡假設 renderer 可以被直接訪問：
+            if 'renderer' in sys.modules and hasattr(renderer, 'skybox_texture_cache'):
+                print("場景重載：清除天空盒紋理快取...")
+                # 清理天空盒紋理需要 OpenGL 上下文，調用 load_scene 的地方（main.py）有上下文
+                for tex_id_sky in renderer.skybox_texture_cache.values():
+                    try:
+                        # 這裡直接呼叫 glIsTexture/glDeleteTextures 可能會有上下文問題
+                        # 更好的做法是讓 renderer 提供一個 cleanup_skybox_cache() 函式
+                        # 但如果 load_scene 總是在 main.py 的主迴圈中被呼叫，上下文通常是存在的
+                        if glIsTexture(tex_id_sky): 
+                            glDeleteTextures(1, [tex_id_sky])
+                    except Exception as e_sky_cleanup:
+                        print(f"警告：清理天空盒紋理 {tex_id_sky} 時出錯：{e_sky_cleanup}")
+                renderer.skybox_texture_cache.clear()
+            # --- END OF MODIFICATION ---
+            
             # --- 創建一個新的 Scene 物件來填充 ---
             # 這樣可以確保之前的 current_scene (如果解析失敗) 不會被部分修改
             new_parsed_scene = Scene() 

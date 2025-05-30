@@ -8,6 +8,13 @@ from PyQt5.QtOpenGL import QGLContext # 需要導入
 texture_cache = {} # 新結構: {filename: {"id": texture_id, "has_alpha": bool}}
 
 def load_texture(filename):
+#     current_ctx = QGLContext.currentContext() # 需要導入 from PyQt5.QtOpenGL import QGLContext
+#     if current_ctx:
+#         print(f"DEBUG LOADER: In load_texture for '{filename}', Current QGLContext: {current_ctx}, isValid: {current_ctx.isValid()}")
+#     else:
+#         print(f"DEBUG LOADER: In load_texture for '{filename}', CRITICAL: No QGLContext is current!")
+        
+        
     # ...
 #     current_ctx = QGLContext.currentContext()
 #     if current_ctx:

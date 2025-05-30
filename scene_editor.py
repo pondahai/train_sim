@@ -49,7 +49,7 @@ EDITOR_LABEL_OFFSET_Y = 3
 
 # --- 3D 預覽視窗常數 ---
 PREVIEW_UPDATE_INTERVAL = 80 # ms 
-PREVIEW_MOVE_SPEED = 15.0 # units per second
+PREVIEW_MOVE_SPEED = 3.0 # units per second
 PREVIEW_MOUSE_SENSITIVITY = 0.1
 PREVIEW_ACCEL_FACTOR = 8.0 # Shift 加速倍率
 
@@ -1919,6 +1919,8 @@ class SceneEditorWindow(QMainWindow):
         
         base_directory_for_imports = os.getcwd()
         current_filename_for_display = "Untitled"
+        
+        
         if self._current_scene_filepath and os.path.exists(self._current_scene_filepath):
             base_directory_for_imports = os.path.dirname(self._current_scene_filepath)
             current_filename_for_display = os.path.basename(self._current_scene_filepath)
@@ -1927,86 +1929,78 @@ class SceneEditorWindow(QMainWindow):
             base_directory_for_imports = os.path.dirname(temp_path)
             current_filename_for_display = os.path.basename(temp_path)
 
-        if scene_parser.texture_loader is None:
-            scene_parser.set_texture_loader(texture_loader)
 
-        # --- 1. 解析場景數據 ---
-        parsed_scene = scene_parser.parse_scene_from_lines(
-            current_table_lines, 
-            base_directory_for_imports,
-            current_filename_for_display,
-            initial_scene=None, # 總是為預覽創建新的Scene對象
-            load_textures=True
-        )
-
-        # --- 2. OpenGL 操作：清理舊資源、創建新資源 ---
-        self.preview_widget.makeCurrent() # <--- 在所有GL操作之前獲取上下文
+        # --- START OF MODIFICATION: Context management now covers parsing and resource creation ---
+        self.preview_widget.makeCurrent() # << --- 獲取上下文
         try:
+            # 清理紋理快取 (這部分移到 try 內部，確保在上下文中執行)
+            if texture_loader:
+                print("編輯器預覽更新：正在清除普通紋理快取...")
+                texture_loader.clear_texture_cache()
+            
+            if hasattr(renderer, 'skybox_texture_cache'):
+                print("編輯器預覽更新：正在清除天空盒紋理快取...")
+                for tex_id in renderer.skybox_texture_cache.values():
+                    try:
+                        if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
+                    except Exception as cleanup_error: 
+                        print(f"警告 (編輯器預覽更新): 清理天空盒紋理 {tex_id} 時出錯: {cleanup_error}")
+                renderer.skybox_texture_cache.clear()
+
+            if scene_parser.texture_loader is None:
+                scene_parser.set_texture_loader(texture_loader)
+
+            # --- 1. 解析場景數據 (現在也在上下文中) ---
+            parsed_scene = scene_parser.parse_scene_from_lines(
+                current_table_lines, 
+                base_directory_for_imports,
+                current_filename_for_display,
+                initial_scene=None, 
+                load_textures=True # 紋理載入會發生在這裡
+            )
+
+            # --- 2. OpenGL 操作：清理舊資源、創建新資源 (這部分邏輯保持不變，但現在確認在上下文中) ---
             # --- a. 清理 PreviewGLWidget 中舊場景的資源 ---
-            if self.preview_widget._scene_data: # 如果 PreviewGLWidget 中有舊場景
+            if self.preview_widget._scene_data:
+                # ... (清理軌道、山丘、建築物等 VBO/VAO 的程式碼) ...
                 old_scene_to_cleanup = self.preview_widget._scene_data
-                # 清理山丘
                 if hasattr(old_scene_to_cleanup, 'hills') and old_scene_to_cleanup.hills:
                     if hasattr(renderer, 'cleanup_all_hill_buffers'):
-                        # print("編輯器預覽：清理舊場景的山丘緩衝區...") #減少訊息
                         renderer.cleanup_all_hill_buffers(old_scene_to_cleanup.hills)
-                # 清理軌道
                 if hasattr(old_scene_to_cleanup, 'track') and old_scene_to_cleanup.track:
-                    # print("編輯器預覽：清理舊場景的軌道緩衝區...") #減少訊息
                     old_scene_to_cleanup.track.clear()
-                    
-                # --- 新增: 清理舊 Building 緩衝區 ---
                 if hasattr(old_scene_to_cleanup, 'buildings') and old_scene_to_cleanup.buildings and hasattr(renderer, 'cleanup_all_building_buffers'):
-                    # print("編輯器預覽：清理舊場景的 Building 緩衝區...") #減少訊息
                     renderer.cleanup_all_building_buffers(old_scene_to_cleanup.buildings)
-                # --- 結束新增 ---
             
             # --- b. 為新解析的 parsed_scene 創建資源 ---
             if parsed_scene:
-                # 創建軌道緩衝區
+                # ... (為軌道、山丘、建築物等創建 VBO/VAO 的程式碼) ...
                 if parsed_scene.track:
                     try:
-                        # print("編輯器預覽：為解析出的軌道創建緩衝區...") #減少訊息
                         parsed_scene.track.create_all_segment_buffers()
                     except Exception as e_track_buf:
                         print(f"  Error creating track buffers for preview in _perform_preview_update_logic: {e_track_buf}")
-                
-                # 創建山丘緩衝區
                 if hasattr(parsed_scene, 'hills') and parsed_scene.hills and renderer._hill_shader_program_id:
-                    # print("編輯器預覽：為新場景的山丘創建渲染緩衝區...") #減少訊息
-                    new_hills_list_editor = []
+                    new_hills_list_editor = [] 
                     for i, hill_entry_editor in enumerate(parsed_scene.hills):
                         original_line_id_editor, _ = hill_entry_editor
                         modified_hill_data_editor, success_editor = renderer.create_hill_buffers(hill_entry_editor)
-                        if success_editor:
-                            new_hills_list_editor.append((original_line_id_editor, modified_hill_data_editor))
-                        else:
-                            # print(f"警告 (編輯器預覽): 為山丘 (行: {original_line_id_editor}) 創建緩衝區失敗。") #減少訊息
-                            new_hills_list_editor.append(hill_entry_editor)
-                    parsed_scene.hills = new_hills_list_editor # 直接修改 parsed_scene
-                    # print("編輯器預覽山丘緩衝區創建完成。") #減少訊息
-                elif renderer._hill_shader_program_id is None and hasattr(parsed_scene, 'hills') and parsed_scene.hills:
-                     print("警告 (編輯器預覽): 山丘著色器未就緒，跳過創建緩衝區。")
-
-                # --- 新增: 為新解析場景的 Buildings 創建緩衝區 ---
+                        if success_editor: new_hills_list_editor.append((original_line_id_editor, modified_hill_data_editor))
+                        else: new_hills_list_editor.append(hill_entry_editor)
+                    parsed_scene.hills = new_hills_list_editor
                 if hasattr(parsed_scene, 'buildings') and parsed_scene.buildings and renderer._building_shader_program_id:
-                    # print("編輯器預覽：為新解析場景的 Buildings 創建渲染緩衝區...") #減少訊息
                     new_buildings_list_editor = []
                     for i, bldg_entry_editor in enumerate(parsed_scene.buildings):
                         line_id_editor, _ = bldg_entry_editor
                         modified_bldg_data_editor, success_editor = renderer.create_building_buffers(bldg_entry_editor)
-#                         print(f"success_editor: {success_editor}")
                         if success_editor: new_buildings_list_editor.append((line_id_editor, modified_bldg_data_editor))
                         else: new_buildings_list_editor.append(bldg_entry_editor)
                     parsed_scene.buildings = new_buildings_list_editor
-                    # print("編輯器預覽 Buildings 緩衝區創建完成。") #減少訊息
-                elif renderer._building_shader_program_id is None and hasattr(parsed_scene, 'buildings') and parsed_scene.buildings:
-                     print("警告 (編輯器預覽): Building 著色器未就緒，跳過為 Buildings 創建緩衝區。")
-                # --- 結束新增 ---
 
         finally:
-            self.preview_widget.doneCurrent() # <--- 在所有GL操作之後釋放上下文
-        # --- 結束 OpenGL 操作 ---
+            self.preview_widget.doneCurrent() # << --- 在所有GL相關操作完成後才釋放上下文
+        # --- END OF MODIFICATION: Context management ---
+
 
         # --- 3. 決定背景信息 (非GL操作) ---
         background_info_for_preview = None 

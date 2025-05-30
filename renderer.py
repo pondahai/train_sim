@@ -1738,7 +1738,7 @@ def create_hill_buffers(hill_entry):
     new_hill_data_list[15] = vbo_id
     new_hill_data_list[16] = vertex_count
     
-    print(f"山丘 (行: {line_id}) 緩衝區已創建: VAO={vao_id}, VBO={vbo_id}, 頂點數={vertex_count}")
+#     print(f"山丘 (行: {line_id}) 緩衝區已創建: VAO={vao_id}, VBO={vbo_id}, 頂點數={vertex_count}")
     return tuple(new_hill_data_list), True # Return modified tuple and status
 
 def cleanup_hill_buffers_for_entry(hill_entry):
