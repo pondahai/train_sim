@@ -708,6 +708,7 @@ class PreviewGLWidget(QGLWidget):
 class SceneTableWidget(QTableWidget):
     sceneDataChanged = pyqtSignal()
     f7TuningModeChanged = pyqtSignal(int) # <--- 新增信號，參數為行號 (0-based) 或 -1
+    textureRelatedChangeOccurred = pyqtSignal()
     HEADER_PADDING = 20
     MIN_COLUMN_WIDTH = 40
 
@@ -1359,6 +1360,7 @@ class SceneTableWidget(QTableWidget):
 #                 return # 中键点击已处理
         super().mousePressEvent(event) # 调用基类方法处理其他事件 (如左键选择)
 
+
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton: # 确保是左键双击
             index = self.indexAt(event.pos()) # 获取双击位置的 QModelIndex
@@ -1376,7 +1378,45 @@ class SceneTableWidget(QTableWidget):
                 super().mouseDoubleClickEvent(event)
         else:
             super().mouseDoubleClickEvent(event)
-            
+
+    def _is_texture_related_column(self, row, col):
+        """
+        判斷給定的行和列是否與紋理檔名相關。
+        """
+        if row < 0 or row >= self.rowCount() or col <= 0: # 第0列是指令，不直接包含紋理檔名
+            return False
+
+        command_item = self.item(row, 0)
+        command_str = command_item.text().lower().strip() if command_item else ""
+
+        if not command_str or command_str not in self._command_hints:
+            return False
+
+        hints = self._command_hints[command_str] # ["cmd", "param1", "param2", ...]
+        # COMMAND_HINTS 中的參數索引是從1開始的（相對於hints列表），對應表格列索引也是從1開始
+        # col 是 0-based 的表格列索引
+        param_index_in_hints = col # 表格的第 col 列對應 hints 列表的第 col 個元素
+                                     # (因為 hints[0] 是 "cmd    ", hints[1] 是第一個參數，對應表格第1列)
+
+        if 0 < param_index_in_hints < len(hints): # 確保索引有效且不是指令本身
+            param_name_hint = hints[param_index_in_hints].lower()
+            # 判斷參數名是否暗示紋理檔名
+            # 你可能需要根據 COMMAND_HINTS 的實際內容擴展這些關鍵字
+            texture_keywords = ["tex", "texture", "file", "atlas", "base_name"] # base_name for skybox
+            for keyword in texture_keywords:
+                if keyword in param_name_hint:
+                    # 額外排除一些可能誤判的情況
+                    if "offset" not in param_name_hint and \
+                       "angle" not in param_name_hint and \
+                       "scale" not in param_name_hint and \
+                       "mode" not in param_name_hint and \
+                       "strength" not in param_name_hint and \
+                       "threshold" not in param_name_hint:
+                        # print(f"DEBUG: Column {col} (param: '{param_name_hint}') in row {row} (cmd: '{command_str}') IS texture related.")
+                        return True
+        # print(f"DEBUG: Column {col} in row {row} (cmd: '{command_str}') is NOT texture related.")
+        return False
+
     def _on_current_cell_changed(self, currentRow, currentColumn, previousRow, previousColumn, 
                                  force_update_regardless_of_row_change=False):
         if currentRow >= 0:
@@ -1477,7 +1517,17 @@ class SceneTableWidget(QTableWidget):
         self.needUpdate = True # Mark that an update *should* happen when row changes
 #         print(f"DEBUG: Table item changed at row {item.row()}, col {item.column()}, text: '{item.text()}'")
 #         self.sceneDataChanged.emit() # <--- 確保這裡發射信號
-
+        # >>> 新增：判斷是否是紋理相關的變更 <<<
+        if item: # 確保 item 不是 None
+            row = item.row()
+            col = item.column()
+            if self._is_texture_related_column(row, col):
+                # print(f"DEBUG: Texture related change detected at row {row}, col {col}. Emitting textureRelatedChangeOccurred.") # Debug
+                self.textureRelatedChangeOccurred.emit()
+            # else:
+                # print(f"DEBUG: Non-texture related change at row {row}, col {col}.") # Debug
+        # >>> 結束新增 <<<
+        
 # --- Main Editor Window ---
 class SceneEditorWindow(QMainWindow):
     def __init__(self):
@@ -1486,7 +1536,9 @@ class SceneEditorWindow(QMainWindow):
         self.setGeometry(100, 100, INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT)
         self.settings_filepath = "editor_settings.json" # <--- 新增属性
         self._current_scene_filepath = None
-        
+
+        self._force_texture_reload_on_next_preview_update = True # 初始載入時強制重載
+
         # Pygame/Loader Init
         pygame.init()
         pygame.font.init()
@@ -1699,6 +1751,8 @@ class SceneEditorWindow(QMainWindow):
         # 確保有這條連接，用於觸發高亮和參數提示更新
         self.table_widget.currentCellChanged.connect(self._on_table_selection_changed)
 
+        self.table_widget.textureRelatedChangeOccurred.connect(self._handle_texture_related_change)
+        
         self.minimap_widget.center3DPreviewAt.connect(self.preview_widget.set_camera_xz_position)
         
         # --- 新增：連接 itemChanged 用於標題更新 ---
@@ -1706,6 +1760,17 @@ class SceneEditorWindow(QMainWindow):
         # -----------------------------------------
 
         self.table_widget.f7TuningModeChanged.connect(self.minimap_widget.update_f7_tuning_target)
+
+    # >>> 新增處理函數 <<<
+    def _handle_texture_related_change(self):
+        """當表格報告紋理相關的變更時，設置強制重載紋理的標記。"""
+        # print("DEBUG SceneEditorWindow: Received textureRelatedChangeOccurred signal. Setting force_texture_reload flag.") # Debug
+        self._force_texture_reload_on_next_preview_update = True
+        # 通常，這個信號發出後，很快就會有 sceneDataChanged 信號（如果行也變了）
+        # 或者如果行沒變，但需要立即更新，可能需要手動觸發 update_previews。
+        # 但目前的邏輯是 _on_item_changed 會設 needUpdate，_on_current_cell_changed 會發 sceneDataChanged
+        # 所以這裡可能不需要額外觸發。
+    # >>> 結束新增 <<<
 
     def _on_table_item_changed_for_title(self, item):
         """Called when a table item is changed, updates the window title if modified."""
@@ -1787,6 +1852,9 @@ class SceneEditorWindow(QMainWindow):
         """Loads the scene file and triggers preview updates.
         Uses _current_scene_filepath if set, otherwise defaults to SCENE_FILE.
         """
+        # >>> 修改：確保初始載入時強制重載紋理 <<<
+        self._force_texture_reload_on_next_preview_update = True
+        # >>> 結束修改 <<<
         filepath_to_load = self._current_scene_filepath if self._current_scene_filepath and os.path.exists(self._current_scene_filepath) else SCENE_FILE
         
         if not os.path.exists(filepath_to_load) and filepath_to_load == self._current_scene_filepath:
@@ -1890,6 +1958,9 @@ class SceneEditorWindow(QMainWindow):
             "Text Files (*.txt);;All Files (*)"
         )
         if filePath:
+            # >>> 修改：打開新檔案時，強制下次預覽更新時重載紋理 <<<
+            self._force_texture_reload_on_next_preview_update = True
+            # >>> 結束修改 <<<
             if self.table_widget.load_scene_file(filePath):
                 self._current_scene_filepath = filePath
                 self.table_widget.set_current_filepath(filePath) # Inform table
@@ -1933,19 +2004,22 @@ class SceneEditorWindow(QMainWindow):
         # --- START OF MODIFICATION: Context management now covers parsing and resource creation ---
         self.preview_widget.makeCurrent() # << --- 獲取上下文
         try:
-            # 清理紋理快取 (這部分移到 try 內部，確保在上下文中執行)
-            if texture_loader:
-                print("編輯器預覽更新：正在清除普通紋理快取...")
-                texture_loader.clear_texture_cache()
-            
-            if hasattr(renderer, 'skybox_texture_cache'):
-                print("編輯器預覽更新：正在清除天空盒紋理快取...")
-                for tex_id in renderer.skybox_texture_cache.values():
-                    try:
-                        if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
-                    except Exception as cleanup_error: 
-                        print(f"警告 (編輯器預覽更新): 清理天空盒紋理 {tex_id} 時出錯: {cleanup_error}")
-                renderer.skybox_texture_cache.clear()
+            # >>> 修改：根據標記決定是否清除紋理快取 <<<
+            if self._force_texture_reload_on_next_preview_update:
+                print("編輯器預覽更新：檢測到需要強制重載紋理，正在清除快取...") # Debug
+                if texture_loader:
+                    texture_loader.clear_texture_cache()
+                if hasattr(renderer, 'skybox_texture_cache'):
+                    for tex_id in renderer.skybox_texture_cache.values():
+                        try:
+                            if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
+                        except Exception as cleanup_error:
+                            print(f"警告 (編輯器預覽更新): 清理天空盒紋理 {tex_id} 時出錯: {cleanup_error}")
+                    renderer.skybox_texture_cache.clear()
+                self._force_texture_reload_on_next_preview_update = False # 重置標記
+            # else:
+                # print("編輯器預覽更新：未檢測到強制重載紋理標記，保留現有快取。") # Debug
+            # >>> 結束修改 <<<
 
             if scene_parser.texture_loader is None:
                 scene_parser.set_texture_loader(texture_loader)
@@ -2070,6 +2144,9 @@ class SceneEditorWindow(QMainWindow):
             if reply == QMessageBox.No:
                 return
         
+        # >>> 修改：重新載入檔案時，強制下次預覽更新時重載紋理 <<<
+        self._force_texture_reload_on_next_preview_update = True
+        # >>> 結束修改 <<<
         # Proceed with reload for the _current_scene_filepath
         if self.table_widget.load_scene_file(self._current_scene_filepath):
             self._update_window_title()
