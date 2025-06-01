@@ -2030,7 +2030,7 @@ class SceneEditorWindow(QMainWindow):
 
         # >>> 修改：接收 load_scene_file 返回的設定字串 <<<
         success, extracted_settings = self.table_widget.load_scene_file(filepath_to_load)
-        self._current_scene_specific_settings_str = extracted_settings if success else None
+#         self._current_scene_specific_settings_str = extracted_settings if success else None
         # >>> 結束修改 <<<
 
 
@@ -2040,12 +2040,18 @@ class SceneEditorWindow(QMainWindow):
                  self.statusBar.showMessage(f"已載入 '{os.path.basename(self._current_scene_filepath)}'", 5000)
             else:
                  self.statusBar.showMessage("新場景已準備就緒 (未命名)", 5000)
+            # 關鍵：根據提取的設定或全局預設，初始化/重置一次 widget 的視角
+            if extracted_settings:
+                self._apply_scene_specific_settings(extracted_settings)
+            else:
+                self._apply_default_view_settings_to_widgets()
         else:
             self.statusBar.showMessage(f"載入 '{filepath_to_load or '空路徑'}' 失敗。", 5000)
             self._current_scene_filepath = None
             self.table_widget.clear()
             self.table_widget.setRowCount(0); self.table_widget.setColumnCount(1)
             self.table_widget.setHorizontalHeaderLabels(["Command"])
+            self._apply_default_view_settings_to_widgets() # 載入失敗也用預設
 
         # --- 關鍵：在 update_previews 之前，嘗試應用場景特定設定 ---
         # update_previews 內部會調用 _perform_preview_update_logic
@@ -2166,7 +2172,7 @@ class SceneEditorWindow(QMainWindow):
             # >>> 結束修改 <<<
             # >>> 修改：接收 load_scene_file 返回的設定字串 <<<
             success, extracted_settings = self.table_widget.load_scene_file(filePath)
-            self._current_scene_specific_settings_str = extracted_settings if success else None
+#             self._current_scene_specific_settings_str = extracted_settings if success else None
             # >>> 結束修改 <<<
             
             if success:
@@ -2176,9 +2182,18 @@ class SceneEditorWindow(QMainWindow):
                 self.update_previews() # _perform_preview_update_logic 會用新的 settings_str
                 self.statusBar.showMessage(f"已開啟 '{os.path.basename(filePath)}'", 3000)
                 self._save_settings() # 保存全局設定（更新 last_scene_file）
+                # 關鍵：根據提取的設定或全局預設，初始化/重置一次 widget 的視角
+                if extracted_settings:
+                    self._apply_scene_specific_settings(extracted_settings)
+                else:
+                    self._apply_default_view_settings_to_widgets()
+
+                self.update_previews()
+                self._save_settings() # 保存全局設定（更新 last_scene_file）
             else:
                 QMessageBox.critical(self, "開啟錯誤", f"無法載入檔案 '{filePath}'。")
                 self._update_window_title()
+                self._apply_default_view_settings_to_widgets()
 
 
     def update_previews(self): # 這是新的 update_previews，作為槽函數
@@ -2288,7 +2303,7 @@ class SceneEditorWindow(QMainWindow):
         # --- END OF MODIFICATION: Context management ---
 
         # --- 4. 應用場景特定設定 (如果存在) ---
-        self._apply_scene_specific_settings(self._current_scene_specific_settings_str)
+#         self._apply_scene_specific_settings(self._current_scene_specific_settings_str)
         # --- 結束應用設定 ---
 
 

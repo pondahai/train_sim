@@ -939,7 +939,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     tex_file,
                     gl_texture_id_from_loader, # OpenGL 紋理 ID
                     texture_has_alpha_flag, # 新增的 Alpha 標誌
-                    math.degrees(origin_angle), # <--- 新增：存儲父原點的Y旋轉角度 (度)
+                    math.degrees(origin_angle_rad), # <--- 新增：存儲父原點的Y旋轉角度 (度)
                     None,  # 14: vao_id (placeholder)
                     None,  # 15: vbo_id (placeholder)
                     0      # 16: vertex_count (placeholder)                    
@@ -1061,7 +1061,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                     ridge_x_pos_offset, eave_overhang_x, eave_overhang_z,
                     # 紋理信息 (3)
                     gl_texture_id, texture_has_alpha_flag, texture_atlas_file,
-                    math.degrees(origin_angle) # <--- 新增：存儲父原點的Y旋轉角度 (度)
+                    math.degrees(origin_angle_rad) # <--- 新增：存儲父原點的Y旋轉角度 (度)
                 )
                 scene_to_populate.gableroofs.append((line_identifier_for_object, gableroof_data_tuple))
 
