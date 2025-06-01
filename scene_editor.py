@@ -1177,6 +1177,41 @@ class SceneTableWidget(QTableWidget):
             print("DEBUG: Exited coord tuning mode.")
             self.f7TuningModeChanged.emit(-1) # <--- 發射信號，-1 表示退出模式
 
+    def _can_row_be_tuned(self, row_index):
+        """
+        檢查給定的行是否包含一個有效的、可進行座標微調的指令。
+        """
+        if not (0 <= row_index < self.rowCount()):
+            return False
+
+        # 1. 檢查指令儲存格是否有內容
+        command_item = self.item(row_index, 0)
+        if not command_item or not command_item.text().strip():
+            # print(f"DEBUG: Row {row_index} cannot be tuned: No command text.") # Debug
+            return False
+        command_str = command_item.text().lower().strip()
+
+        # 2. 檢查指令是否在 COMMAND_HINTS 中
+        if command_str not in self._command_hints:
+            # print(f"DEBUG: Row {row_index} cannot be tuned: Command '{command_str}' not in hints.") # Debug
+            return False
+
+        # 3. 檢查指令是否有可微調的座標參數
+        #    我們使用 get_param_column_indices 來判斷，如果它能返回至少一個有效的座標列索引即可。
+        param_indices = self.get_param_column_indices(command_str)
+        # 只要 "x_col", "y_col", 或 "z_col" 中至少有一個存在且有效 (即不是 -1)，就認為可以微調
+        can_tune_x = "x_col" in param_indices and param_indices["x_col"] != -1
+        can_tune_y = "y_col" in param_indices and param_indices["y_col"] != -1
+        can_tune_z = "z_col" in param_indices and param_indices["z_col"] != -1
+
+        if not (can_tune_x or can_tune_y or can_tune_z):
+            # print(f"DEBUG: Row {row_index} (cmd: '{command_str}') cannot be tuned: No x, y, or z parameters found for tuning.") # Debug
+            return False
+
+        # print(f"DEBUG: Row {row_index} (cmd: '{command_str}') CAN be tuned.") # Debug
+        return True
+
+
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
@@ -1187,10 +1222,25 @@ class SceneTableWidget(QTableWidget):
         # --- 處理模式切換 ---
         if key == Qt.Key_F7: # <--- 假設使用 F7 進入微調模式
             if not self._is_coord_tuning_mode:
-                if current_row >= 0: # 必須有一行被選中才能進入
+                # >>> 修改：增加有效性檢查 <<<
+                if current_row >= 0 and self._can_row_be_tuned(current_row): # 檢查是否可微調
                     self.enter_coord_tuning_mode()
                     event.accept()
                     return
+                else:
+                    # 如果不可微調，可以給使用者一個提示
+                    main_window = self.window()
+                    if hasattr(main_window, 'statusBar'):
+                        status_message = f"行 {current_row + 1}：沒有可微調的座標參數。"
+                        if current_row < 0:
+                            status_message = "請先選擇一個包含有效指令的行來進行座標微調。"
+                        elif not (self.item(current_row, 0) and self.item(current_row, 0).text().strip()):
+                            status_message = f"行 {current_row + 1}：指令為空，無法進行座標微調。"
+                        main_window.statusBar.showMessage(status_message, 3000)
+                    print(f"DEBUG: F7 pressed on row {current_row}, but it's not tunable or no valid row selected.") # Debug
+                    event.accept() # 仍然接受事件，防止進一步傳播
+                    return
+                # >>> 結束修改 <<<            
             # 如果已經在微調模式，再按F7可以選擇退出，或者什麼都不做
             else:
                 self.exit_coord_tuning_mode()
