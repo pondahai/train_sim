@@ -51,7 +51,7 @@ EDITOR_LABEL_OFFSET_Y = 3
 PREVIEW_UPDATE_INTERVAL = 80 # ms 
 PREVIEW_MOVE_SPEED = 3.0 # units per second
 PREVIEW_MOUSE_SENSITIVITY = 0.1
-PREVIEW_ACCEL_FACTOR = 8.0 # Shift 加速倍率
+PREVIEW_ACCEL_FACTOR = 12.0 # Shift 加速倍率
 
 # --- Minimap OpenGL Widget ---
 class MinimapGLWidget(QGLWidget):
@@ -785,12 +785,14 @@ class SceneTableWidget(QTableWidget):
             final_width = max(self.MIN_COLUMN_WIDTH, text_width + self.HEADER_PADDING)
             self.setColumnWidth(col, final_width)
 
-    def load_scene_file(self, filepath_to_load):
+    def load_scene_file(self, filepath_to_load: str) -> tuple[bool, str | None]: # 更新返回類型提示
         remember_row = self._last_active_row 
         self.clear()
         self.setRowCount(0)
         self.setColumnCount(0)
         self._filepath = None # Reset filepath initially
+
+        extracted_settings_str_for_editor = None # 用於存儲提取的設定字串
 
         if not filepath_to_load or not os.path.exists(filepath_to_load): # Check if path is valid
             # If no path or path doesn't exist, set to empty state
@@ -799,44 +801,74 @@ class SceneTableWidget(QTableWidget):
             self.setHorizontalHeaderLabels(["Command"])
             self._resize_columns_to_header_labels()
             self._data_modified = False # No data loaded, so not modified from this "empty" state
-            return False # Indicate failure to load specified file
+            return False, None # 返回載入失敗和 None 設定字串
 
         try:
             with open(filepath_to_load, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+                raw_lines_from_file = f.readlines()
 
             self._filepath = filepath_to_load # <--- 更新：成功打開檔案後設定路徑
 
-            if not lines: 
+            # >>> 新增：過濾掉設定行，只用有效指令行填充表格 <<<
+            EDITOR_SETTINGS_PREFIX_FOR_LOAD = "#EDITOR_SCENE_SETTINGS_JSON:"
+            lines_for_table = []
+            for line_content in raw_lines_from_file:
+                stripped_line = line_content.strip()
+                if stripped_line.startswith(EDITOR_SETTINGS_PREFIX_FOR_LOAD):
+                    # 提取設定字串供 SceneEditorWindow 使用
+                    try:
+                        # 假設 JSON 字串在冒號和可選的空格之後
+                        json_data_part = stripped_line[len(EDITOR_SETTINGS_PREFIX_FOR_LOAD):].lstrip()
+                        # 驗證一下是否真的像 JSON (簡單檢查花括號)
+                        if json_data_part.startswith("{") and json_data_part.endswith("}"):
+                            extracted_settings_str_for_editor = json_data_part
+                            print(f"資訊 (表格): 從 '{os.path.basename(filepath_to_load)}' 提取到內嵌編輯器設定。")
+                        else:
+                            print(f"警告 (表格): 找到設定標記但內容不像JSON: {stripped_line}")
+                    except Exception as e_extract_tbl:
+                        print(f"警告 (表格): 提取內嵌設定時出錯: {e_extract_tbl}")
+                    # 不論提取成功與否，這一行都不加入 lines_for_table
+                else:
+                    lines_for_table.append(line_content) 
+            # >>> 結束新增過濾 <<<
+
+            if not lines_for_table: 
                 self.insertRow(0)
                 self.setColumnCount(1)
                 self.setHorizontalHeaderLabels(["Command"])
                 self._resize_columns_to_header_labels()
                 self._data_modified = False # Empty file, not modified from this state
                 # self.sceneDataChanged.emit() # Emit even for empty, so previews clear
-                return True # Empty file is still a "successful" load of that file
+                return True, extracted_settings_str_for_editor
 
             max_cols = 0
-            for line in lines:
-                stripped_line = line.strip()
-                if stripped_line and not stripped_line.startswith('#'):
+            for line_content in lines_for_table:
+                stripped_line = line_content.strip()
+                # if stripped_line and not stripped_line.startswith('#'): <--- 這個判斷可能過於嚴格，普通註解也應載入表格
+                if stripped_line: # 只要不是空行就處理
+                    # 如果行以 '#' 開頭，但不是編輯器設定標記，則它是普通註解，應載入
+                    if stripped_line.startswith('#') and stripped_line.startswith(EDITOR_SETTINGS_PREFIX_FOR_LOAD):
+                        continue # 再次確認跳過（理論上已被上面的邏輯處理）
                     max_cols = max(max_cols, len(stripped_line.split()))
-            max_cols = max(1, max_cols) 
+            max_cols = max(1, max_cols)
 
             self.setColumnCount(max_cols + 8) # Add some buffer columns
-            self.setRowCount(len(lines))
+            self.setRowCount(len(lines_for_table))
 
             self.blockSignals(True) 
             try:
-                for row, line in enumerate(lines):
+                for row, line_content in enumerate(lines_for_table):
                     self.setVerticalHeaderItem(row, QTableWidgetItem(str(row + 1)))
-                    parts = line.strip().split()
-                    for col, part in enumerate(parts):
-                        item = QTableWidgetItem(part)
-                        self.setItem(row, col, item)
-                    for col in range(len(parts), self.columnCount()): # Fill to actual column count
-                        item = QTableWidgetItem("")
-                        self.setItem(row, col, item)
+                    parts = line_content.strip().split()
+                    if not parts and self.columnCount() > 0:
+                        self.setItem(row, 0, QTableWidgetItem(line_content.strip())) # 保留空行或純註解行的原始内容（如果需要）
+                                                                                    # 或者對於空指令行只設空 item: self.setItem(row, 0, QTableWidgetItem(""))
+                    else:
+                        for col, part in enumerate(parts):
+                            item = QTableWidgetItem(part)
+                            self.setItem(row, col, item)
+                    for col in range(len(parts), self.columnCount()):
+                        self.setItem(row, col, QTableWidgetItem(""))
             finally:
                 self.blockSignals(False)
 
@@ -857,7 +889,7 @@ class SceneTableWidget(QTableWidget):
                     self._last_active_row = remember_row 
             else:
                 self._last_active_row = -1 
-            return True
+            return True, extracted_settings_str_for_editor # 返回成功和提取的設定
 
         except Exception as e:
             print(f"Error loading scene file '{filepath_to_load}': {e}")
@@ -866,7 +898,7 @@ class SceneTableWidget(QTableWidget):
             self.setColumnCount(0)
             self._filepath = None # <--- 更新：載入失敗，路徑無效
             self._last_active_row = -1 
-            return False
+            return False, None
 
     def get_current_filepath(self):
         """Returns the path of the currently loaded file."""
@@ -1589,6 +1621,20 @@ class SceneEditorWindow(QMainWindow):
 
         self._force_texture_reload_on_next_preview_update = True # 初始載入時強制重載
 
+        # >>> 新增：用於存儲從全局設定檔載入的“預設”視角參數 <<<
+        self._default_minimap_settings = {
+            'center_x': 0.0,
+            'center_z': 0.0,
+            'range': minimap_renderer.DEFAULT_MINIMAP_RANGE
+        }
+        self._default_preview_camera_settings = {
+            'position': [10.0, 5.0, 10.0],
+            'yaw': -135.0,
+            'pitch': -20.0
+        }
+        # >>> 結束新增 <<<
+        self._current_scene_specific_settings_str = None
+
         # Pygame/Loader Init
         pygame.init()
         pygame.font.init()
@@ -1654,102 +1700,168 @@ class SceneEditorWindow(QMainWindow):
         self.setWindowTitle(f"{base_title} - {filename_part}{modified_indicator}")
         
     def _save_settings(self):
-        """Saves the current editor operational parameters to a JSON file."""
-        settings = {}
+        """
+        Saves global editor settings to editor_settings.json.
+        Scene-specific settings are handled during scene file saving.
+        """
+        global_settings = {}
         try:
-            # 1. Minimap settings
-            settings['minimap'] = {
-                'center_x': self.minimap_widget._view_center_x,
-                'center_z': self.minimap_widget._view_center_z,
-                'range': self.minimap_widget._view_range
-            }
+            # 1. 保存全局視窗和 Dock 佈局 (如果實現了)
+            # global_settings['window_geometry'] = self.saveGeometry().toBase64().data().decode()
+            # global_settings['window_state'] = self.saveState().toBase64().data().decode()
 
-            # 2. 3D Preview settings
-            cam = self.preview_widget._camera
-            settings['preview_camera'] = {
-                'position': list(cam.base_position), # Convert numpy array to list for JSON
-                'yaw': cam.yaw,
-                'pitch': cam.pitch
-            }
+            # 2. 保存“新檔案/無特定設定時的預設”視角和小地圖參數
+            #    這些可以是用戶最後一次調整的全局預設，或者是一個固定的出廠預設
+            #    這裡我們保存當前 _default_xxx_settings 的值
+            global_settings['default_minimap'] = self._default_minimap_settings.copy()
+            global_settings['default_preview_camera'] = self._default_preview_camera_settings.copy()
 
-            # 3. Table settings
-            settings['table'] = {
-                'last_active_row': self.table_widget._last_active_row
-            }
-
-            # --- 新增：保存最後開啟的檔案 ---
-            if self._current_scene_filepath: # 只在有有效路徑時保存
-                settings['last_scene_file'] = self._current_scene_filepath
-            elif 'last_scene_file' in settings: # 如果之前有但現在沒有了，可以選擇移除或保留
-                pass # 或者 del settings['last_scene_file']
-            # -----------------------------
+            # 3. 保存最後開啟的場景檔案路徑
+            if self._current_scene_filepath:
+                global_settings['last_scene_file'] = self._current_scene_filepath
+            elif 'last_scene_file' in global_settings: # 如果之前有但現在沒有了
+                del global_settings['last_scene_file']
 
             with open(self.settings_filepath, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, indent=4)
-            self.statusBar.showMessage("Editor settings saved.", 2000)
-            # print(f"Editor settings saved to {self.settings_filepath}") # Debug
+                json.dump(global_settings, f, indent=4)
+            self.statusBar.showMessage("全局編輯器設定已儲存。", 2000)
             return True
         except Exception as e:
-            print(f"Error saving editor settings to '{self.settings_filepath}': {e}")
-            self.statusBar.showMessage("Failed to save editor settings.", 3000)
+            print(f"錯誤：儲存全局編輯器設定到 '{self.settings_filepath}' 失敗: {e}")
+            self.statusBar.showMessage("儲存全局編輯器設定失敗。", 3000)
             return False
         
     def _load_settings(self):
-        """Loads editor operational parameters from a JSON file if it exists."""
+        """
+        Loads global editor settings from editor_settings.json.
+        Scene-specific settings are loaded after a scene file is opened.
+        """
         if not os.path.exists(self.settings_filepath):
-            self.statusBar.showMessage("No editor settings file found, using defaults.", 2000)
+            self.statusBar.showMessage("未找到全局編輯器設定檔，使用預設值。", 2000)
+            # 確保使用程式碼中的預設值
+            self._apply_default_view_settings_to_widgets()
             return False
 
         try:
             with open(self.settings_filepath, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
+                global_settings = json.load(f)
 
-            # Apply Minimap settings
-            if 'minimap' in settings:
-                mm_settings = settings['minimap']
-                self.minimap_widget._view_center_x = mm_settings.get('center_x', 0.0)
-                self.minimap_widget._view_center_z = mm_settings.get('center_z', 0.0)
-                self.minimap_widget._view_range = mm_settings.get('range', minimap_renderer.DEFAULT_MINIMAP_RANGE)
-                self.minimap_widget.update() # Trigger repaint
+            # 1. 載入並應用全局視窗和 Dock 佈局 (如果實現了)
+            # if 'window_geometry' in global_settings: self.restoreGeometry(QByteArray.fromBase64(global_settings['window_geometry'].encode()))
+            # if 'window_state' in global_settings: self.restoreState(QByteArray.fromBase64(global_settings['window_state'].encode()))
 
-            # Apply 3D Preview settings
-            if 'preview_camera' in settings:
-                cam_settings = settings['preview_camera']
-                cam = self.preview_widget._camera
-                cam.base_position = np.array(cam_settings.get('position', [10.0, 5.0, 10.0]), dtype=float)
-                cam.yaw = cam_settings.get('yaw', -135.0)
-                cam.pitch = cam_settings.get('pitch', -20.0)
-                self.preview_widget.update() # Trigger repaint
+            # 2. 載入“新檔案/無特定設定時的預設”視角和小地圖參數
+            if 'default_minimap' in global_settings:
+                self._default_minimap_settings.update(global_settings['default_minimap'])
+            if 'default_preview_camera' in global_settings:
+                self._default_preview_camera_settings.update(global_settings['default_preview_camera'])
+            
+            # 3. 載入最後開啟的場景檔案路徑
+            self._current_scene_filepath = global_settings.get('last_scene_file')
+            # print(f"全局設定：last_scene_file 設為 '{self._current_scene_filepath}'")
 
-            # Apply Table settings
-            if 'table' in settings and self.table_widget.rowCount() > 0:
-                tbl_settings = settings['table']
-                last_row = tbl_settings.get('last_active_row', -1)
-                if 0 <= last_row < self.table_widget.rowCount():
-                    self.table_widget.setCurrentCell(last_row, 0)
-                    self.table_widget._last_active_row = last_row # Explicitly set it
-                    item_to_scroll = self.table_widget.item(last_row, 0)
-                    if item_to_scroll:
-                        self.table_widget.scrollToItem(item_to_scroll, QAbstractItemView.PositionAtCenter)
-                else:
-                    self.table_widget._last_active_row = -1 # Reset if invalid
+            # 4. 將載入的（或程式碼中的）預設視角應用到 widget
+            #    這樣在載入初始場景前，widget 就有了一個基礎視角
+            self._apply_default_view_settings_to_widgets()
 
-            # --- 新增：載入並設定最後開啟的檔案路徑 ---
-            if 'last_scene_file' in settings:
-                self._current_scene_filepath = settings.get('last_scene_file')
-                print(f"Editor settings: last_scene_file set to '{self._current_scene_filepath}'") # Debug
-            else:
-                self._current_scene_filepath = None # 確保如果設定中沒有，則為 None
-            # ---------------------------------------
-
-            self.statusBar.showMessage("Editor settings loaded.", 2000)
-            # print(f"Editor settings loaded from {self.settings_filepath}") # Debug
+            self.statusBar.showMessage("全局編輯器設定已載入。", 2000)
             return True
         except Exception as e:
-            print(f"Error loading editor settings from '{self.settings_filepath}': {e}")
-            self.statusBar.showMessage("Failed to load editor settings.", 3000)
+            print(f"錯誤：載入全局編輯器設定從 '{self.settings_filepath}' 失敗: {e}")
+            self.statusBar.showMessage("載入全局編輯器設定失敗。", 3000)
+            self._apply_default_view_settings_to_widgets() # 出錯也使用預設
             return False
+
+    def _apply_scene_specific_settings(self, settings_str: str | None):
+        """
+        嘗試解析從場景檔案中提取的設定字串，並應用到小地圖和3D預覽。
+        如果解析失敗或設定不完整，則對應部分會保留其當前值（可能是全局預設）。
+        """
+        if not settings_str:
+            # print("DEBUG: 沒有內嵌的場景特定設定可供應用。")
+            # 在這種情況下，widget 應該已經被設置為全局預設了
+            self._apply_default_view_settings_to_widgets() # 確保使用預設
+            return
+
+        try:
+            # 這裡假設直接存儲 JSON 字串，如果用了 Base64，需要先解碼
+            # settings_dict = json.loads(base64.b64decode(settings_str).decode('utf-8'))
+            settings_dict = json.loads(settings_str)
+            print(f"資訊: 成功解析場景特定設定: {settings_dict}")
+
+            # 應用小地圖設定 (如果存在，則覆蓋全局預設)
+            if 'minimap' in settings_dict:
+                mm_settings = settings_dict['minimap']
+                self.minimap_widget._view_center_x = mm_settings.get('center_x', self._default_minimap_settings['center_x'])
+                self.minimap_widget._view_center_z = mm_settings.get('center_z', self._default_minimap_settings['center_z'])
+                self.minimap_widget._view_range = mm_settings.get('range', self._default_minimap_settings['range'])
+            else: # 場景特定設定中沒有小地圖部分，使用全局預設
+                self.minimap_widget._view_center_x = self._default_minimap_settings['center_x']
+                self.minimap_widget._view_center_z = self._default_minimap_settings['center_z']
+                self.minimap_widget._view_range = self._default_minimap_settings['range']
+
+            # 應用3D預覽攝影機設定 (如果存在，則覆蓋全局預設)
+            if 'preview_camera' in settings_dict:
+                cam_settings = settings_dict['preview_camera']
+                cam = self.preview_widget._camera
+                cam.base_position = np.array(cam_settings.get('position', self._default_preview_camera_settings['position']), dtype=float)
+                cam.yaw = cam_settings.get('yaw', self._default_preview_camera_settings['yaw'])
+                cam.pitch = cam_settings.get('pitch', self._default_preview_camera_settings['pitch'])
+            else: # 場景特定設定中沒有攝影機部分，使用全局預設
+                cam = self.preview_widget._camera
+                cam.base_position = np.array(self._default_preview_camera_settings['position'], dtype=float)
+                cam.yaw = self._default_preview_camera_settings['yaw']
+                cam.pitch = self._default_preview_camera_settings['pitch']
+            
+            self.minimap_widget.update()
+            self.preview_widget.update()
+            self.statusBar.showMessage("已應用場景特定編輯器視角設定。", 2000)
+
+        except Exception as e:
+            print(f"錯誤：解析或應用場景特定設定時失敗: {e}")
+            QMessageBox.warning(self, "設定錯誤", f"場景檔案中的編輯器設定已損壞或不完整。\n錯誤: {e}\n將使用預設視角。")
+            # 出錯時，確保使用全局預設值
+            self._apply_default_view_settings_to_widgets()
+
+    def _apply_default_view_settings_to_widgets(self):
+        """將 self._default_xxx_settings 中的預設值應用到小地圖和預覽窗口。"""
+        # print("DEBUG: 正在應用全局預設視角到 Widgets。")
+        self.minimap_widget._view_center_x = self._default_minimap_settings['center_x']
+        self.minimap_widget._view_center_z = self._default_minimap_settings['center_z']
+        self.minimap_widget._view_range = self._default_minimap_settings['range']
+
+        cam = self.preview_widget._camera
+        cam.base_position = np.array(self._default_preview_camera_settings['position'], dtype=float)
+        cam.yaw = self._default_preview_camera_settings['yaw']
+        cam.pitch = self._default_preview_camera_settings['pitch']
         
+        self.minimap_widget.update()
+        self.preview_widget.update()
+
+    def _get_current_scene_specific_settings_as_json_str(self):
+        """收集當前小地圖和3D預覽的視角參數，打包成JSON字串。"""
+        scene_settings = {
+            'minimap': {
+                'center_x': self.minimap_widget._view_center_x,
+                'center_z': self.minimap_widget._view_center_z,
+                'range': self.minimap_widget._view_range
+            },
+            'preview_camera': {
+                'position': list(self.preview_widget._camera.base_position),
+                'yaw': self.preview_widget._camera.yaw,
+                'pitch': self.preview_widget._camera.pitch
+            }
+        }
+        try:
+            # 為了嵌入註解，可以考慮 Base64 編碼，但我們先直接用 JSON 字串
+            # json_str = json.dumps(scene_settings, sort_keys=True) # 使用 sort_keys 讓輸出更穩定
+            # return base64.b64encode(json_str.encode('utf-8')).decode('ascii')
+            return json.dumps(scene_settings) # 直接返回 JSON 字串
+        except Exception as e:
+            print(f"錯誤：序列化場景特定設定為 JSON 時失敗: {e}")
+            return None
+    # >>> 結束新輔助方法 <<<
+
     def _check_all_gl_ready(self):
         if self._minimap_gl_ready and self._preview_gl_ready:
             print("All OpenGL Widgets Initialized. Loading initial scene...")
@@ -1899,66 +2011,101 @@ class SceneEditorWindow(QMainWindow):
         self.statusBar.showMessage("Ready", 3000) # Initial message
 
     def load_initial_scene(self):
-        """Loads the scene file and triggers preview updates.
-        Uses _current_scene_filepath if set, otherwise defaults to SCENE_FILE.
-        """
-        # >>> 修改：確保初始載入時強制重載紋理 <<<
         self._force_texture_reload_on_next_preview_update = True
-        # >>> 結束修改 <<<
-        filepath_to_load = self._current_scene_filepath if self._current_scene_filepath and os.path.exists(self._current_scene_filepath) else SCENE_FILE
         
-        if not os.path.exists(filepath_to_load) and filepath_to_load == self._current_scene_filepath:
-            # If the last_scene_file from settings doesn't exist, try SCENE_FILE
-            print(f"Initial file '{filepath_to_load}' not found, trying default '{SCENE_FILE}'.")
-            filepath_to_load = SCENE_FILE
-
-        if self.table_widget.load_scene_file(filepath_to_load):
-            # load_scene_file in table_widget now sets its internal _filepath
-            self._current_scene_filepath = self.table_widget.get_current_filepath() # Get the actual loaded path
-            if self._current_scene_filepath:
-                self.statusBar.showMessage(f"Loaded '{os.path.basename(self._current_scene_filepath)}'", 5000)
-            else: # Should not happen if load_scene_file returned True
-                self.statusBar.showMessage(f"Loaded '{filepath_to_load}', but path tracking issue.", 5000)
+        # 優先使用從全局設定中讀取的 self._current_scene_filepath
+        filepath_to_load = None
+        if self._current_scene_filepath and os.path.exists(self._current_scene_filepath):
+            filepath_to_load = self._current_scene_filepath
         else:
-            # If the primary or default SCENE_FILE fails
-            self.statusBar.showMessage(f"Failed to load '{filepath_to_load}'. Editor may be empty.", 5000)
-            self._current_scene_filepath = None # Ensure it's None if no file is loaded
-            # Ensure table is cleared and shows "Untitled"
+            # 如果全局設定中的路徑無效，或根本沒有，則嘗試預設的 SCENE_FILE
+            if self._current_scene_filepath: # 之前有路徑但現在無效了
+                print(f"警告: 上次開啟的場景檔案 '{self._current_scene_filepath}' 未找到。")
+            filepath_to_load = SCENE_FILE 
+            if not os.path.exists(filepath_to_load):
+                print(f"警告: 預設場景檔案 '{SCENE_FILE}' 也未找到。編輯器將以空場景啟動。")
+                # 即使預設檔案不存在，也應設置 self._current_scene_filepath 為 None
+                # 並讓 table_widget 處理空狀態
+                self._current_scene_filepath = None 
+
+        # >>> 修改：接收 load_scene_file 返回的設定字串 <<<
+        success, extracted_settings = self.table_widget.load_scene_file(filepath_to_load)
+        self._current_scene_specific_settings_str = extracted_settings if success else None
+        # >>> 結束修改 <<<
+
+
+        if success:
+            self._current_scene_filepath = self.table_widget.get_current_filepath()
+            if self._current_scene_filepath:
+                 self.statusBar.showMessage(f"已載入 '{os.path.basename(self._current_scene_filepath)}'", 5000)
+            else:
+                 self.statusBar.showMessage("新場景已準備就緒 (未命名)", 5000)
+        else:
+            self.statusBar.showMessage(f"載入 '{filepath_to_load or '空路徑'}' 失敗。", 5000)
+            self._current_scene_filepath = None
             self.table_widget.clear()
-            self.table_widget.setRowCount(0)
-            self.table_widget.setColumnCount(1) # Minimal one column for "Command"
+            self.table_widget.setRowCount(0); self.table_widget.setColumnCount(1)
             self.table_widget.setHorizontalHeaderLabels(["Command"])
 
-        self.update_previews()
+        # --- 關鍵：在 update_previews 之前，嘗試應用場景特定設定 ---
+        # update_previews 內部會調用 _perform_preview_update_logic
+        # _perform_preview_update_logic 會從 scene_parser 獲取 Scene 物件
+        # 我們需要在 Scene 物件被傳遞給 widget 之前，處理其 embedded_editor_settings_str
+        
+        # 由於 update_previews 是延遲執行的，我們不能在這裡直接拿到 Scene 物件。
+        # _perform_preview_update_logic 才是真正拿到 Scene 物件的地方。
+        # 所以，場景特定設定的應用邏輯必須在 _perform_preview_update_logic 內部，
+        # 在解析完場景之後，在將 Scene 物件傳遞給預覽窗口之前。
+        self.update_previews() 
         self._update_window_title()
+
         
     def _save_to_filepath(self, filepath_to_save):
-        """Saves the current table content to the specified filepath."""
-        if not filepath_to_save: # Should not happen if called by save_current or save_as
-            QMessageBox.warning(self, "Save Error", "No filepath specified for saving.")
+        if not filepath_to_save:
+            QMessageBox.warning(self, "儲存錯誤", "未指定儲存檔案路徑。")
             return False
 
-        lines = self.table_widget.get_scene_lines()
+        scene_lines = self.table_widget.get_scene_lines()
+        
+        # >>> 新增：獲取並準備嵌入的場景特定設定 <<<
+        scene_specific_settings_json_str = self._get_current_scene_specific_settings_as_json_str()
+        embedded_settings_line = None
+        if scene_specific_settings_json_str:
+            # 這裡我們直接用 JSON 字串，如果需要 Base64 再編碼
+            # embedded_settings_line = f"#EDITOR_SCENE_SETTINGS_JSON: {base64.b64encode(scene_specific_settings_json_str.encode('utf-8')).decode('ascii')}"
+            embedded_settings_line = f"#EDITOR_SCENE_SETTINGS_JSON: {scene_specific_settings_json_str}"
+        # >>> 結束新增 <<<
+
         try:
-            content_to_write = "\n".join(lines)
-            if content_to_write and not content_to_write.endswith('\n'):
+            # 準備要寫入的內容
+            lines_to_write = []
+            if embedded_settings_line:
+                lines_to_write.append(embedded_settings_line)
+            
+            lines_to_write.extend(scene_lines) # 場景指令
+
+            content_to_write = "\n".join(lines_to_write)
+            if content_to_write and not content_to_write.endswith('\n'): # 確保末尾有換行
                 content_to_write += '\n'
-            elif not content_to_write: # Handle empty file save
-                content_to_write = '\n' # Save at least a newline for an empty file
+            elif not content_to_write: # 處理空檔案（只包含設定或完全空）
+                content_to_write = '\n' 
 
             with open(filepath_to_save, 'w', encoding='utf-8') as f:
                 f.write(content_to_write)
             
             self.table_widget.mark_saved()
-            self._current_scene_filepath = filepath_to_save # Update current path
-            self.table_widget.set_current_filepath(filepath_to_save) # Inform table widget too
+            self._current_scene_filepath = filepath_to_save
+            self.table_widget.set_current_filepath(filepath_to_save)
             self._update_window_title()
-            self.statusBar.showMessage(f"Saved '{os.path.basename(filepath_to_save)}'", 3000)
-            self._save_settings() # Save editor settings (including new last_scene_file)
+            self.statusBar.showMessage(f"已儲存 '{os.path.basename(filepath_to_save)}'", 3000)
+            
+            # >>> 修改：保存全局設定（其中可能包含更新的 last_scene_file） <<<
+            self._save_settings() 
+            # >>> 結束修改 <<<
             return True
         except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Could not save file '{filepath_to_save}':\n{e}")
-            self.statusBar.showMessage(f"Save failed for '{os.path.basename(filepath_to_save)}'", 5000)
+            QMessageBox.critical(self, "儲存錯誤", f"無法儲存檔案 '{filepath_to_save}':\n{e}")
+            self.statusBar.showMessage(f"儲存 '{os.path.basename(filepath_to_save)}' 失敗。", 5000)
             return False
 
     def save_current_scene_file(self):
@@ -1991,8 +2138,14 @@ class SceneEditorWindow(QMainWindow):
     def open_scene_file_dialog(self):
         """Opens a file dialog to choose a scene file to load."""
         if self.table_widget.is_modified():
-            reply = QMessageBox.question(self, 'Open File',
-                                         "Discard current changes and open a new file?",
+            # >>> 新增：在放棄更改前，詢問是否保存當前場景的特定設定 <<<
+            # 這裡的邏輯是，如果放棄更改，那麼當前 widget 中的視角設定也應該被放棄，
+            # 或者說，如果用戶選擇不保存場景內容，通常也不會期望單獨保存其視角。
+            # 因此，在 Discard 時，我們不需要特意去保存當前場景的特定設定。
+            # 它會在下次打開這個（未保存更改的）場景時，讀取檔案中已有的設定。
+            # >>> 結束新增思考 <<<
+            reply = QMessageBox.question(self, '開啟檔案',
+                                         "放棄目前變更並開啟新檔案？",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.No:
                 return
@@ -2011,17 +2164,21 @@ class SceneEditorWindow(QMainWindow):
             # >>> 修改：打開新檔案時，強制下次預覽更新時重載紋理 <<<
             self._force_texture_reload_on_next_preview_update = True
             # >>> 結束修改 <<<
-            if self.table_widget.load_scene_file(filePath):
+            # >>> 修改：接收 load_scene_file 返回的設定字串 <<<
+            success, extracted_settings = self.table_widget.load_scene_file(filePath)
+            self._current_scene_specific_settings_str = extracted_settings if success else None
+            # >>> 結束修改 <<<
+            
+            if success:
                 self._current_scene_filepath = filePath
-                self.table_widget.set_current_filepath(filePath) # Inform table
+                self.table_widget.set_current_filepath(filePath)
                 self._update_window_title()
-                self.update_previews()
-                self.statusBar.showMessage(f"Opened '{os.path.basename(filePath)}'", 3000)
-                self._save_settings() # Save new last_scene_file to settings
+                self.update_previews() # _perform_preview_update_logic 會用新的 settings_str
+                self.statusBar.showMessage(f"已開啟 '{os.path.basename(filePath)}'", 3000)
+                self._save_settings() # 保存全局設定（更新 last_scene_file）
             else:
-                QMessageBox.critical(self, "Open Error", f"Could not load file '{filePath}'.")
-                # Keep current state or clear? For now, keep.
-                self._update_window_title() # Reflect that the file didn't change
+                QMessageBox.critical(self, "開啟錯誤", f"無法載入檔案 '{filePath}'。")
+                self._update_window_title()
 
 
     def update_previews(self): # 這是新的 update_previews，作為槽函數
@@ -2074,7 +2231,7 @@ class SceneEditorWindow(QMainWindow):
             if scene_parser.texture_loader is None:
                 scene_parser.set_texture_loader(texture_loader)
 
-            # --- 1. 解析場景數據 (現在也在上下文中) ---
+            # --- 1. 解析場景數據，這會填充 parsed_scene.embedded_editor_settings_str ---
             parsed_scene = scene_parser.parse_scene_from_lines(
                 current_table_lines, 
                 base_directory_for_imports,
@@ -2082,9 +2239,14 @@ class SceneEditorWindow(QMainWindow):
                 initial_scene=None, 
                 load_textures=True # 紋理載入會發生在這裡
             )
+            # >>> 新增：如果 parsed_scene 成功創建，將我們之前提取的設定字串賦值給它 <<<
+            # 這樣，如果 scene_parser 內部或 Scene 物件將來需要訪問這個原始的內嵌字串，它仍然可用。
+            # 但對於視角設定，我們主要使用 self._current_scene_specific_settings_str。
+            if parsed_scene:
+                parsed_scene.embedded_editor_settings_str = self._current_scene_specific_settings_str
+            # >>> 結束新增 <<<
 
-            # --- 2. OpenGL 操作：清理舊資源、創建新資源 (這部分邏輯保持不變，但現在確認在上下文中) ---
-            # --- a. 清理 PreviewGLWidget 中舊場景的資源 ---
+            # --- 2. 清理舊的預覽資源 ---
             if self.preview_widget._scene_data:
                 # ... (清理軌道、山丘、建築物等 VBO/VAO 的程式碼) ...
                 old_scene_to_cleanup = self.preview_widget._scene_data
@@ -2096,7 +2258,7 @@ class SceneEditorWindow(QMainWindow):
                 if hasattr(old_scene_to_cleanup, 'buildings') and old_scene_to_cleanup.buildings and hasattr(renderer, 'cleanup_all_building_buffers'):
                     renderer.cleanup_all_building_buffers(old_scene_to_cleanup.buildings)
             
-            # --- b. 為新解析的 parsed_scene 創建資源 ---
+            # --- 3. 為新解析的 parsed_scene 創建資源 ---
             if parsed_scene:
                 # ... (為軌道、山丘、建築物等創建 VBO/VAO 的程式碼) ...
                 if parsed_scene.track:
@@ -2125,8 +2287,12 @@ class SceneEditorWindow(QMainWindow):
             self.preview_widget.doneCurrent() # << --- 在所有GL相關操作完成後才釋放上下文
         # --- END OF MODIFICATION: Context management ---
 
+        # --- 4. 應用場景特定設定 (如果存在) ---
+        self._apply_scene_specific_settings(self._current_scene_specific_settings_str)
+        # --- 結束應用設定 ---
 
-        # --- 3. 決定背景信息 (非GL操作) ---
+
+        # --- 5. 決定背景信息 (非GL操作) ---
         background_info_for_preview = None 
         current_row_in_table = self.table_widget.currentRow()
         if parsed_scene:
@@ -2162,7 +2328,7 @@ class SceneEditorWindow(QMainWindow):
                 if last_bg_info_found_upwards is not None:
                     background_info_for_preview = last_bg_info_found_upwards
 
-        # --- 4. 更新小地圖 (非GL操作) ---
+        # --- 6. 更新 widget ---
         try:
             self.minimap_widget.update_scene(parsed_scene) # update_scene 內部只更新數據，不調用GL
         except Exception as e:
@@ -2206,9 +2372,9 @@ class SceneEditorWindow(QMainWindow):
             QMessageBox.critical(self, "Reload Error", f"Could not reload file '{self._current_scene_filepath}'.")
 
     def closeEvent(self, event):
-        settings_saved_on_exit = self._save_settings() 
-        if not settings_saved_on_exit:
-             pass
+#         settings_saved_on_exit = self._save_settings() 
+#         if not settings_saved_on_exit:
+#              pass
             
         if self.table_widget.is_modified():
             reply = QMessageBox.question(self, 'Exit Editor',
@@ -2227,6 +2393,27 @@ class SceneEditorWindow(QMainWindow):
             else: 
                 event.ignore() 
                 return
+            # 如果是 Discard，則不保存場景內容，也不保存其特定視角設定。
+        else:
+            # 如果場景內容沒有修改，但可能視角調整了，我們還是希望保存視角。
+            # save_current_scene_file 在內容未修改時，可能不會重寫檔案，
+            # 但我們需要一種方式來確保視角設定被寫回。
+            # 一個簡單的方法是，即使內容未改，也調用 _save_to_filepath，
+            # 或者有一個專門保存視角的方法。
+            # 為了簡化，我們假設如果用戶關閉，總會嘗試保存一次當前場景
+            # （_save_to_filepath 會包含視角嵌入）。
+            # 如果 self._current_scene_filepath 有效：
+            if self._current_scene_filepath:
+                 print(f"提示: 關閉編輯器前，儲存 '{os.path.basename(self._current_scene_filepath)}' 的場景特定設定 (如果視角有變)。")
+                 self._save_to_filepath(self._current_scene_filepath) # 強制保存一次以更新嵌入的設定
+                 # 注意：這裡可能需要一個標記來判斷視角是否有變化，避免不必要的寫盤。
+                 # 但為了確保設定總能保存，先這樣處理。
+                 
+        # 2. 然後儲存全局 editor_settings.json
+        settings_saved_on_exit = self._save_settings() # 這個現在只保存全局設定
+        if not settings_saved_on_exit:
+            # 可以選擇是否因為全局設定保存失敗而阻止退出，通常不會。
+            pass
 
         # ... (其餘 cleanup 邏輯保持不變) ...
         if event.isAccepted(): # 確保事件沒有被忽略

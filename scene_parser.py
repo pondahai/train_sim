@@ -107,7 +107,9 @@ class Scene:
         self.gableroofs = []
         
         self.flexroofs = [] # 新增 flexroofs 列表
-        
+
+        self.embedded_editor_settings_str = None
+
     def clear(self):
         self.track.clear()
         self.buildings = []
@@ -133,6 +135,7 @@ class Scene:
         self.current_relative_origin_angle_rad = self.current_parse_angle_rad
         self.last_background_info = None
         # ---------------------
+        self.embedded_editor_settings_str = None
         self.gableroofs = []
         self.flexroofs = [] # 清空 flexroofs
         
@@ -296,30 +299,40 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
     # (這些狀態的正確管理對於 import 嵌套和相對定位至關重要)
     # --- END 狀態管理思考 ---
 
+    # --- 新增：定義編輯器設定的標記 ---
+    EDITOR_SETTINGS_JSON_PREFIX = "#EDITOR_SCENE_SETTINGS_JSON:"
+    # --- 結束新增 ---
+
 
     for line_num_in_file, line_content in enumerate(lines_list, 1): # line_num_in_file 是相對於當前檔案的行號
         line = line_content.strip()
-        if not line or line.startswith('#'):
+        
+        # --- 新增：檢查是否是編輯器設定行 ---
+        if line.startswith(EDITOR_SETTINGS_JSON_PREFIX):
+            if not is_parsing_imported_file: # 只處理主檔案的內嵌設定
+                try:
+                    # 提取 JSON 字串部分 (去掉前綴)
+                    json_str_base64 = line[len(EDITOR_SETTINGS_JSON_PREFIX):].strip()
+                    # 這裡假設將來可能會用 base64 編碼，但目前先直接存儲
+                    # 如果是 base64:
+                    # import base64
+                    # json_str = base64.b64decode(json_str_base64).decode('utf-8')
+                    # scene_to_populate.embedded_editor_settings_str = json_str
+                    scene_to_populate.embedded_editor_settings_str = json_str_base64 # 直接存儲
+                    print(f"資訊: 從場景檔案 '{current_filename_for_display}' 提取到內嵌編輯器設定。")
+                except Exception as e_embed:
+                    print(f"警告: 解析內嵌編輯器設定時出錯 (檔案: {current_filename_for_display} 行 {line_num_in_file}): {e_embed}")
+            continue # 處理完設定行後，跳過該行的其餘解析
+        # --- 結束新增 ---
+        
+        if not line or (line.startswith('#') and not line.startswith(EDITOR_SETTINGS_JSON_PREFIX)):
             continue
 
         parts = line.split()
         if not parts: continue
         command = parts[0].lower()
 
-        # --- 決定儲存的行號/索引 ---
-        line_identifier_for_object = ""
-        if is_parsing_imported_file:
-            line_identifier_for_object = f"{current_filename_for_display}:{line_num_in_file}"
-        else:
-            # 對於根檔案，我們需要一個能與編輯器表格行號對應的值。
-            # 如果 scene_parser 只處理單個檔案（或遞迴地將所有 import 內容視為一個流），
-            # 那麼 line_num_in_file (對於根檔案) 或一個累加的行號是合適的。
-            # 既然我們放棄了全域連續行號追蹤器，對於根檔案，就用它在該檔案內的行號。
-            # 這意味著 highlight_line_nums 傳入 minimap 時，如果它來自表格，
-            # 而表格是合併視圖，這裡可能需要一個從表格合併行號到 (檔名,檔案內行號) 的映射。
-            # 但根據你的折衷方案，高亮只處理根場景，所以根場景用簡單整數行號是OK的。
-            line_identifier_for_object = line_num_in_file # 根檔案的物件，使用其在檔案內的行號
-        # --------------------------
+        line_identifier_for_object = f"{current_filename_for_display}:{line_num_in_file}" if is_parsing_imported_file else line_num_in_file
         
         try:
             if command == "import":
