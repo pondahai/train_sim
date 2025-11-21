@@ -274,6 +274,12 @@ def main():
         dt = clock.tick(TARGET_FPS) / 1000.0
         dt = min(dt, 0.1) # Prevent large dt spikes
 
+        # --- FPS Calculation ---
+        fps = clock.get_fps()
+        if pygame.time.get_ticks() % 500 < 50: # Update caption every ~0.5s
+            caption = f"簡易 3D 電車模擬器 - {os.path.basename(current_loaded_scene_file)} - FPS: {fps:.1f}"
+            pygame.display.set_caption(caption)
+
         # --- Event Handling (Minor Modifications) ---
         for event in pygame.event.get():
             if event.type == pygame.QUIT:

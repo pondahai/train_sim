@@ -12,6 +12,7 @@ import os
 from numba import jit, njit # Keep numba imports
 
 import shaders_inline 
+from frustum_culling import Frustum 
 
 # --- Drawing Parameters (General) ---
 # (保持不變)
@@ -259,6 +260,7 @@ def create_shader_program_from_sources(vertex_source, fragment_source): # 這個
 
 _hill_shader_program_id = None # 全局變量
 _building_shader_program_id = None # <--- 新增全局變量
+frustum_culler = Frustum() # 初始化視錐體剔除器
 
 def init_hill_shader(): # 可以在 init_renderer 中調用
     global _hill_shader_program_id
@@ -1908,6 +1910,10 @@ def draw_scene_objects(scene):
 #     glEnable(GL_BLEND)
     # (Logic unchanged)
     glColor3f(1.0, 1.0, 1.0)
+    
+    # --- Update Frustum ---
+    frustum_culler.update()
+
     # Buildings
     
     # --- 處理 Buildings (VBO 版本) ---
@@ -2007,6 +2013,21 @@ def draw_scene_objects(scene):
                     
                     vao_id = obj_data_tuple[VAO_ID_INDEX]
                     vertex_count = obj_data_tuple[VERTEX_COUNT_INDEX]
+                    
+                    # --- Frustum Culling for Buildings ---
+                    # Calculate bounding radius (approximate)
+                    # w, d, h are at indices 7, 8, 9
+                    b_w, b_d, b_h = obj_data_tuple[7], obj_data_tuple[8], obj_data_tuple[9]
+                    # Radius: distance from center to corner. Center is roughly (x, y+h/2, z) if pivot is bottom-center?
+                    # Actually pivot is usually bottom-center.
+                    # Max dimension from pivot: sqrt((w/2)^2 + (d/2)^2 + h^2)
+                    b_radius = math.sqrt((b_w/2)**2 + (b_d/2)**2 + b_h**2)
+                    
+                    # Check visibility (using pivot point + radius is conservative enough)
+                    # Better: Center at (x, y + h/2, z)
+                    if not frustum_culler.is_sphere_visible(world_x, world_y + b_h/2, world_z, b_radius):
+                        continue
+                    # -------------------------------------
                 
 #                 try:
 #                     _obj_type, world_x, world_y, world_z, \
@@ -2160,6 +2181,17 @@ def draw_scene_objects(scene):
          u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file,
          gl_tex_id_val, tex_has_alpha_val, parent_origin_ry_deg
          ) = obj_data
+        
+        # --- Frustum Culling for Cylinders ---
+        # radius is 'radius', height is 'h'
+        # Pivot is usually center or bottom? draw_cylinder usually centers?
+        # Let's assume pivot is center for simplicity or check draw_cylinder.
+        # draw_cylinder in this file seems to use -h/2 to h/2.
+        # So pivot (x,y,z) is center.
+        cyl_radius_bound = math.sqrt(radius**2 + (h/2)**2)
+        if not frustum_culler.is_sphere_visible(x, y, z, cyl_radius_bound):
+            continue
+        # -------------------------------------
         glPushMatrix();
         glTranslatef(x, y, z);
         glRotatef(abs_ry, 0, 1, 0);
@@ -2189,6 +2221,15 @@ def draw_scene_objects(scene):
         except ValueError:
             print(f"警告: 解包 tree 數據時出錯 (來源行: {line_num})")
             continue # 跳過這個損壞的數據
+        
+        # --- Frustum Culling for Trees ---
+        # Pivot is bottom. Height is 'height'.
+        # Bounding sphere center: (x, y + height/2, z)
+        # Radius: height/2 (plus a bit for width) -> let's use height * 0.6
+        if not frustum_culler.is_sphere_visible(x, y + height/2, z, height * 0.7):
+            continue
+        # ---------------------------------
+
         draw_tree(x, y, z, height, texture_id=tex_id)
 
     # Spheres
@@ -2263,6 +2304,19 @@ def draw_scene_objects(scene):
                     if len(hill_data_tuple) < 17: continue
                     obj_type_str = hill_data_tuple[0]
                     if obj_type_str != "hill": continue
+
+                    # --- Frustum Culling for Hills ---
+                    # hill_data_tuple: 1:cx, 2:base_y, 3:cz, 4:radius, 5:peak_h
+                    h_cx, h_base_y, h_cz = hill_data_tuple[1], hill_data_tuple[2], hill_data_tuple[3]
+                    h_radius = hill_data_tuple[4]
+                    h_peak = hill_data_tuple[5]
+                    # Bounding sphere: Center (cx, base_y + peak/2, cz), Radius: max(radius, peak/2)
+                    # Actually radius is the base radius.
+                    # Let's use a safe bounding sphere.
+                    h_bound_radius = math.sqrt(h_radius**2 + h_peak**2) # Very conservative
+                    if not frustum_culler.is_sphere_visible(h_cx, h_base_y, h_cz, h_bound_radius):
+                        continue
+                    # ---------------------------------
 
                     # 解包繪製時需要的參數
                     gl_texture_id     = hill_data_tuple[11]
@@ -2362,6 +2416,15 @@ def draw_scene_objects(scene):
                 texture_has_alpha_val = roof_data_tuple[14]
                 texture_atlas_file_original = roof_data_tuple[15]
 
+                # --- Frustum Culling for Gableroofs ---
+                # base_w, base_l, ridge_h_off
+                # Pivot (world_x, world_y, world_z) is usually center of base or similar?
+                # Assuming pivot is roughly center of the footprint at eave height.
+                gr_radius = math.sqrt((base_w/2)**2 + (base_l/2)**2 + ridge_h_off**2)
+                if not frustum_culler.is_sphere_visible(world_x, world_y + ridge_h_off/2, world_z, gr_radius):
+                    continue
+                # --------------------------------------
+
             except (IndexError, ValueError) as e:
                 print(f"警告: 解包 gableroof 數據時出錯 (行標識: {line_identifier})。錯誤: {e}")
                 print(f"DEBUG: Gableroof data tuple was: {roof_data_tuple}")
@@ -2418,6 +2481,13 @@ def draw_scene_objects(scene):
                 top_off_x_val, top_off_z_val, \
                 gl_texture_id_val, texture_has_alpha_val, texture_atlas_file_val, \
                 _parent_origin_ry_deg_val = flexroof_data
+
+                # --- Frustum Culling for Flexroofs ---
+                # base_w, base_l, height
+                fr_radius = math.sqrt((base_w_val/2)**2 + (base_l_val/2)**2 + height_val**2)
+                if not frustum_culler.is_sphere_visible(world_x, world_y + height_val/2, world_z, fr_radius):
+                    continue
+                # -------------------------------------
 
                 if obj_type_str != "flexroof": # 安全檢查
                     print(f"警告: 在 flexroofs 列表中發現非 flexroof 物件: {obj_type_str}")
