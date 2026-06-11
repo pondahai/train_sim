@@ -1079,26 +1079,24 @@ def draw_simulator_minimap(scene: Scene, tram: Tram, screen_width, screen_height
             map_x,_ = _world_to_map_coords_adapted(current_gx, player_z, player_x, player_z, map_center_x_screen, map_center_y_screen, overlay_scale)
             if map_left<=map_x<=map_right:
                 label_text=f"{current_gx:.0f}";
-                try:
-                    text_surface=grid_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
-                    dx=map_x-text_surface.get_width()/2;
-                    dy=map_bottom-MINIMAP_GRID_LABEL_OFFSET-text_surface.get_height();
-                    renderer._draw_text_texture(text_surface,dx,dy);
-                except Exception as e:
-                    pass
+                cached_label = renderer._get_cached_text_texture(grid_label_font, label_text, MINIMAP_GRID_LABEL_COLOR)
+                if cached_label:
+                    label_tex_id, label_w, label_h = cached_label
+                    dx=map_x-label_w/2;
+                    dy=map_bottom-MINIMAP_GRID_LABEL_OFFSET-label_h;
+                    renderer._draw_text_quad(label_tex_id, dx, dy, label_w, label_h)
             current_gx += MINIMAP_GRID_SCALE
         current_gz=start_gz
         while current_gz <= world_t:
             _,map_y = _world_to_map_coords_adapted(player_x, current_gz, player_x, player_z, map_center_x_screen, map_center_y_screen, overlay_scale)
             if map_bottom<=map_y<=map_top:
                 label_text=f"{current_gz:.0f}";
-                try:
-                    text_surface=grid_label_font.render(label_text,True,MINIMAP_GRID_LABEL_COLOR);
-                    dx=map_left-MINIMAP_GRID_LABEL_OFFSET-text_surface.get_width();
-                    dy=map_y-text_surface.get_height()/2;
-                    renderer._draw_text_texture(text_surface,dx,dy);
-                except Exception as e:
-                    pass
+                cached_label = renderer._get_cached_text_texture(grid_label_font, label_text, MINIMAP_GRID_LABEL_COLOR)
+                if cached_label:
+                    label_tex_id, label_w, label_h = cached_label
+                    dx=map_left-MINIMAP_GRID_LABEL_OFFSET-label_w;
+                    dy=map_y-label_h/2;
+                    renderer._draw_text_quad(label_tex_id, dx, dy, label_w, label_h)
             current_gz += MINIMAP_GRID_SCALE
 
     glPopAttrib(); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix()

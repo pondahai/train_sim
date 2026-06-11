@@ -3,7 +3,11 @@ import pygame
 from OpenGL.GL import *
 import os
 import time # 用於時間戳
-from PyQt5.QtOpenGL import QGLContext # 需要導入
+# QGLContext 只有下方註解掉的除錯碼會用到，缺少 PyQt5 時不應阻止程式啟動
+try:
+    from PyQt5.QtOpenGL import QGLContext
+except ImportError:
+    QGLContext = None
 
 texture_cache = {} # 新結構: {filename: {"id": texture_id, "has_alpha": bool}}
 

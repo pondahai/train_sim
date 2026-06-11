@@ -28,6 +28,8 @@ NEEDLE_COLOR = (0.0, 0.0, 0.0) # Keep
 TREE_FALLBACK_COLOR = (0.1, 0.6, 0.15) # 一個樹木的綠色
 ALPHA_TEST_THRESHOLD = 0.5 # 常用的值，您可以調整 (0.0 到 1.0)
 CYLINDER_SLICES = 32 # Keep (maybe reduce default slightly?)
+# glGetError 會強制 CPU/GPU 同步，只在除錯時開啟
+DEBUG_TRACK_GL_CHECKS = False
 
 # --- Minimap Parameters REMOVED ---
 
@@ -262,6 +264,17 @@ _hill_shader_program_id = None # 全局變量
 _building_shader_program_id = None # <--- 新增全局變量
 frustum_culler = Frustum() # 初始化視錐體剔除器
 
+# uniform location 在 shader link 後即固定，快取避免每幀每物件重複查詢
+_uniform_location_cache = {}
+
+def _get_uniform_loc(program_id, name):
+    key = (program_id, name)
+    loc = _uniform_location_cache.get(key)
+    if loc is None:
+        loc = glGetUniformLocation(program_id, name)
+        _uniform_location_cache[key] = loc
+    return loc
+
 def init_hill_shader(): # 可以在 init_renderer 中調用
     global _hill_shader_program_id
     if _hill_shader_program_id is None:
@@ -356,13 +369,13 @@ def draw_track(track_obj):
         if segment.ballast_vao and segment.ballast_vertices:
             glColor3fv(BALLAST_COLOR)
             
-            error_before_bind = glGetError()
+            error_before_bind = glGetError() if DEBUG_TRACK_GL_CHECKS else GL_NO_ERROR
             if error_before_bind != GL_NO_ERROR:
                 print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (ballast) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
                 
             glBindVertexArray(segment.ballast_vao)
             
-            error_after_bind = glGetError() # PyOpenGL 通常在操作後檢查，但我們也可以手動加
+            error_after_bind = glGetError() if DEBUG_TRACK_GL_CHECKS else GL_NO_ERROR # PyOpenGL 通常在操作後檢查，但我們也可以手動加
             if error_after_bind != GL_NO_ERROR:
                 print(f"OpenGL Error {error_after_bind} AFTER glBindVertexArray (ballast) for segment line {segment.source_line_number}, VAO ID bound: {segment.ballast_vao}")
                 
@@ -379,7 +392,7 @@ def draw_track(track_obj):
         # Main Left Rail
         if segment.rail_left_vao and segment.rail_left_vertices:
 
-            error_before_bind = glGetError()
+            error_before_bind = glGetError() if DEBUG_TRACK_GL_CHECKS else GL_NO_ERROR
             if error_before_bind != GL_NO_ERROR:
                 print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (rail_left_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
 
@@ -392,7 +405,7 @@ def draw_track(track_obj):
         # Main Right Rail
         if segment.rail_right_vao and segment.rail_right_vertices:
 
-            error_before_bind = glGetError()
+            error_before_bind = glGetError() if DEBUG_TRACK_GL_CHECKS else GL_NO_ERROR
             if error_before_bind != GL_NO_ERROR:
                 print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (rail_right_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
 
@@ -412,7 +425,7 @@ def draw_track(track_obj):
                 if branch_def.get('ballast_vao') and branch_def.get('ballast_vertices'):
                     glColor3fv(BALLAST_COLOR) # Use same ballast color, or could be different
                     
-                    error_before_bind = glGetError()
+                    error_before_bind = glGetError() if DEBUG_TRACK_GL_CHECKS else GL_NO_ERROR
                     if error_before_bind != GL_NO_ERROR:
                         print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (branch_def ballast_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
                     
@@ -427,7 +440,7 @@ def draw_track(track_obj):
                 if branch_def.get('rail_left_vao') and branch_def.get('rail_left_vertices'):
                     glColor3fv(RAIL_COLOR) # Use same rail color
                     
-                    error_before_bind = glGetError()
+                    error_before_bind = glGetError() if DEBUG_TRACK_GL_CHECKS else GL_NO_ERROR
                     if error_before_bind != GL_NO_ERROR:
                         print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (branch_def rail_left_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
                         
@@ -442,7 +455,7 @@ def draw_track(track_obj):
                 if branch_def.get('rail_right_vao') and branch_def.get('rail_right_vertices'):
                     glColor3fv(RAIL_COLOR) # Use same rail color
                     
-                    error_before_bind = glGetError()
+                    error_before_bind = glGetError() if DEBUG_TRACK_GL_CHECKS else GL_NO_ERROR
                     if error_before_bind != GL_NO_ERROR:
                         print(f"OpenGL Error {error_before_bind} BEFORE glBindVertexArray (branch_def rail_right_vao) for segment line {segment.source_line_number}, VAO ID to bind: {segment.ballast_vao}")
                         
@@ -1922,23 +1935,23 @@ def draw_scene_objects(scene):
             glUseProgram(_building_shader_program_id)
             # --- 設置一次性的 Uniforms (光照, 視圖, 投影) ---
             # (這些通常在渲染循環開始時為特定著色器設置一次，這裡假設已設置好)
-            # light_pos_loc = glGetUniformLocation(_building_shader_program_id, "lightPos_worldspace")
+            # light_pos_loc = _get_uniform_loc(_building_shader_program_id, "lightPos_worldspace")
             # glUniform3f(light_pos_loc, 100.0, 150.0, 100.0) ... etc.
-            # view_loc = glGetUniformLocation(_building_shader_program_id, "view")
+            # view_loc = _get_uniform_loc(_building_shader_program_id, "view")
             # glUniformMatrix4fv(view_loc, 1, GL_FALSE, glGetFloatv(GL_MODELVIEW_MATRIX))
-            # proj_loc = glGetUniformLocation(_building_shader_program_id, "projection")
+            # proj_loc = _get_uniform_loc(_building_shader_program_id, "projection")
             # glUniformMatrix4fv(proj_loc, 1, GL_FALSE, glGetFloatv(GL_PROJECTION_MATRIX))
             # ... (其他光照和觀察者位置 uniforms)
             # --- 新增: 為 Building 著色器設置 View 和 Projection Uniforms ---
             current_view_matrix_for_building = glGetFloatv(GL_MODELVIEW_MATRIX)
-            view_loc_bldg = glGetUniformLocation(_building_shader_program_id, "view")
+            view_loc_bldg = _get_uniform_loc(_building_shader_program_id, "view")
             if view_loc_bldg != -1:
                 glUniformMatrix4fv(view_loc_bldg, 1, GL_FALSE, current_view_matrix_for_building)
             else:
                 print("警告: Building shader - 'view' uniform location not found.")
 
             current_proj_matrix_for_building = glGetFloatv(GL_PROJECTION_MATRIX)
-            proj_loc_bldg = glGetUniformLocation(_building_shader_program_id, "projection")
+            proj_loc_bldg = _get_uniform_loc(_building_shader_program_id, "projection")
             if proj_loc_bldg != -1:
                 glUniformMatrix4fv(proj_loc_bldg, 1, GL_FALSE, current_proj_matrix_for_building)
             else:
@@ -1946,10 +1959,10 @@ def draw_scene_objects(scene):
 
             # --- 新增: 為 Building 著色器設置光照相關的 Uniforms (可以參考 hill 的部分) ---
             # 這些 uniforms 通常對於使用相同光照模型的著色器是共享的
-            light_pos_loc_bldg = glGetUniformLocation(_building_shader_program_id, "lightPos_worldspace")
+            light_pos_loc_bldg = _get_uniform_loc(_building_shader_program_id, "lightPos_worldspace")
             if light_pos_loc_bldg != -1: glUniform3f(light_pos_loc_bldg, 100.0, 150.0, 100.0) # 示例光源位置
             
-            light_color_loc_bldg = glGetUniformLocation(_building_shader_program_id, "lightColor")
+            light_color_loc_bldg = _get_uniform_loc(_building_shader_program_id, "lightColor")
             if light_color_loc_bldg != -1: glUniform3f(light_color_loc_bldg, 0.8, 0.8, 0.8) # 示例光源顏色
 
             # 獲取 viewPos_worldspace (通常是相機位置)
@@ -1958,16 +1971,16 @@ def draw_scene_objects(scene):
             # 或者，如果 main.py 在每一幀開始時就為所有 shader 設置了 viewPos，這裡可能不需要重複
             view_matrix_inv_bldg = np.linalg.inv(current_view_matrix_for_building)
             cam_pos_from_mv_bldg = view_matrix_inv_bldg[3,:3]
-            view_pos_loc_bldg = glGetUniformLocation(_building_shader_program_id, "viewPos_worldspace")
+            view_pos_loc_bldg = _get_uniform_loc(_building_shader_program_id, "viewPos_worldspace")
             if view_pos_loc_bldg != -1: glUniform3fv(view_pos_loc_bldg, 1, cam_pos_from_mv_bldg)
 
-            ambient_loc_bldg = glGetUniformLocation(_building_shader_program_id, "u_ambient_strength")
+            ambient_loc_bldg = _get_uniform_loc(_building_shader_program_id, "u_ambient_strength")
             if ambient_loc_bldg != -1: glUniform1f(ambient_loc_bldg, 0.5) # 示例值
             
-            specular_loc_bldg = glGetUniformLocation(_building_shader_program_id, "u_specular_strength")
+            specular_loc_bldg = _get_uniform_loc(_building_shader_program_id, "u_specular_strength")
             if specular_loc_bldg != -1: glUniform1f(specular_loc_bldg, 0.3) # 示例值
             
-            shininess_loc_bldg = glGetUniformLocation(_building_shader_program_id, "u_shininess")
+            shininess_loc_bldg = _get_uniform_loc(_building_shader_program_id, "u_shininess")
             if shininess_loc_bldg != -1: glUniform1f(shininess_loc_bldg, 16.0) # 示例值
             # --- 結束新增光照 Uniforms ---
 
@@ -2072,7 +2085,7 @@ def draw_scene_objects(scene):
                 
                 
 #                 print(f"model_matrix: {model_matrix}")
-                model_loc = glGetUniformLocation(_building_shader_program_id, "model")
+                model_loc = _get_uniform_loc(_building_shader_program_id, "model")
 #                 print(f"model_loc: {model_loc}")
 #                 print(f"_building_shader_program_id: {_building_shader_program_id}")
 #                 print(f"Building (行: {line_num}) Model Matrix:\n{model_matrix}")
@@ -2086,22 +2099,22 @@ def draw_scene_objects(scene):
                     
                     
                 # --- 設置紋理和 Alpha Uniforms ---
-                use_tex_loc = glGetUniformLocation(_building_shader_program_id, "u_use_texture")
-                fallback_color_loc = glGetUniformLocation(_building_shader_program_id, "u_fallback_color")
+                use_tex_loc = _get_uniform_loc(_building_shader_program_id, "u_use_texture")
+                fallback_color_loc = _get_uniform_loc(_building_shader_program_id, "u_fallback_color")
                 
                 if gl_texture_id is not None and glIsTexture(gl_texture_id):
                     glUniform1i(use_tex_loc, 1) # true
                     glActiveTexture(GL_TEXTURE0)
                     glBindTexture(GL_TEXTURE_2D, gl_texture_id)
-                    tex_sampler_loc = glGetUniformLocation(_building_shader_program_id, "texture_diffuse1")
+                    tex_sampler_loc = _get_uniform_loc(_building_shader_program_id, "texture_diffuse1")
                     glUniform1i(tex_sampler_loc, 0) # Texture unit 0
                 else:
                     glUniform1i(use_tex_loc, 0) # false
                     glUniform3f(fallback_color_loc, 0.7, 0.7, 0.7) # Default fallback color
 
-                has_alpha_loc = glGetUniformLocation(_building_shader_program_id, "u_texture_has_alpha")
+                has_alpha_loc = _get_uniform_loc(_building_shader_program_id, "u_texture_has_alpha")
                 glUniform1i(has_alpha_loc, 1 if texture_has_alpha else 0)
-                alpha_thresh_loc = glGetUniformLocation(_building_shader_program_id, "u_alpha_test_threshold")
+                alpha_thresh_loc = _get_uniform_loc(_building_shader_program_id, "u_alpha_test_threshold")
                 glUniform1f(alpha_thresh_loc, ALPHA_TEST_THRESHOLD)
 
 
@@ -2115,13 +2128,13 @@ def draw_scene_objects(scene):
                 uscale_val = obj_data_tuple[14]
                 vscale_val = obj_data_tuple[15]
 
-                u_tex_offset_loc = glGetUniformLocation(_building_shader_program_id, "u_tex_offset")
+                u_tex_offset_loc = _get_uniform_loc(_building_shader_program_id, "u_tex_offset")
                 if u_tex_offset_loc != -1: glUniform2f(u_tex_offset_loc, u_offset_val, v_offset_val)
                 
-                u_tex_angle_rad_loc = glGetUniformLocation(_building_shader_program_id, "u_tex_angle_rad")
+                u_tex_angle_rad_loc = _get_uniform_loc(_building_shader_program_id, "u_tex_angle_rad")
                 if u_tex_angle_rad_loc != -1: glUniform1f(u_tex_angle_rad_loc, math.radians(tex_angle_deg_val))
                 
-                u_tex_scale_loc = glGetUniformLocation(_building_shader_program_id, "u_tex_scale")
+                u_tex_scale_loc = _get_uniform_loc(_building_shader_program_id, "u_tex_scale")
                 if u_tex_scale_loc != -1: glUniform2f(u_tex_scale_loc, uscale_val, vscale_val)
                 # --- 結束新增/修改 ---
                 
@@ -2268,32 +2281,32 @@ def draw_scene_objects(scene):
             # --- 設置一次性的 Uniforms (對於所有山丘可能相同的) ---
             # 這些也可以在渲染循環開始時為 _hill_shader_program_id 設置一次
             # 光源信息 (示例，您應該從場景或全局設置中獲取)
-            light_pos_loc = glGetUniformLocation(_hill_shader_program_id, "lightPos_worldspace")
+            light_pos_loc = _get_uniform_loc(_hill_shader_program_id, "lightPos_worldspace")
             glUniform3f(light_pos_loc, 100.0, 150.0, 100.0)
-            light_color_loc = glGetUniformLocation(_hill_shader_program_id, "lightColor")
+            light_color_loc = _get_uniform_loc(_hill_shader_program_id, "lightColor")
             glUniform3f(light_color_loc, 0.8, 0.8, 0.8)
             
             # 光照強度和材質參數 (示例，可以設為固定值或從材質系統獲取)
-            ambient_loc = glGetUniformLocation(_hill_shader_program_id, "u_ambient_strength")
+            ambient_loc = _get_uniform_loc(_hill_shader_program_id, "u_ambient_strength")
             glUniform1f(ambient_loc, 0.2)
-            specular_loc = glGetUniformLocation(_hill_shader_program_id, "u_specular_strength")
+            specular_loc = _get_uniform_loc(_hill_shader_program_id, "u_specular_strength")
             glUniform1f(specular_loc, 0.3)
-            shininess_loc = glGetUniformLocation(_hill_shader_program_id, "u_shininess")
+            shininess_loc = _get_uniform_loc(_hill_shader_program_id, "u_shininess")
             glUniform1f(shininess_loc, 16.0)
 
             # View 和 Projection 矩陣 (這些通常在主渲染循環中為每個著色器設置)
             current_mv_matrix = glGetFloatv(GL_MODELVIEW_MATRIX) # View matrix
-            view_loc = glGetUniformLocation(_hill_shader_program_id, "view")
+            view_loc = _get_uniform_loc(_hill_shader_program_id, "view")
             glUniformMatrix4fv(view_loc, 1, GL_FALSE, current_mv_matrix)
             
             current_proj_matrix = glGetFloatv(GL_PROJECTION_MATRIX)
-            proj_loc = glGetUniformLocation(_hill_shader_program_id, "projection")
+            proj_loc = _get_uniform_loc(_hill_shader_program_id, "projection")
             glUniformMatrix4fv(proj_loc, 1, GL_FALSE, current_proj_matrix)
 
             # View position (攝影機世界座標)
             view_matrix_inv = np.linalg.inv(current_mv_matrix)
             cam_pos_from_mv = view_matrix_inv[3,:3] 
-            view_pos_loc = glGetUniformLocation(_hill_shader_program_id, "viewPos_worldspace")
+            view_pos_loc = _get_uniform_loc(_hill_shader_program_id, "viewPos_worldspace")
             glUniform3fv(view_pos_loc, 1, cam_pos_from_mv)
             # --- 結束一次性 Uniforms 設置 ---
 
@@ -2334,19 +2347,19 @@ def draw_scene_objects(scene):
 
                 # Model 矩陣 (山丘頂點是世界座標，所以是單位矩陣)
                 model_matrix = np.identity(4, dtype=np.float32) 
-                model_loc = glGetUniformLocation(_hill_shader_program_id, "model")
+                model_loc = _get_uniform_loc(_hill_shader_program_id, "model")
 #                 print(f"_hill_shader_program_id: {_hill_shader_program_id}")
                 glUniformMatrix4fv(model_loc, 1, GL_FALSE, model_matrix)
 
                 # --- 設置每個山丘特定的 Uniforms ---
-                use_texture_loc = glGetUniformLocation(_hill_shader_program_id, "u_use_diffuse_texture")
-                fallback_color_loc = glGetUniformLocation(_hill_shader_program_id, "u_fallback_diffuse_color")
+                use_texture_loc = _get_uniform_loc(_hill_shader_program_id, "u_use_diffuse_texture")
+                fallback_color_loc = _get_uniform_loc(_hill_shader_program_id, "u_fallback_diffuse_color")
                 
                 if gl_texture_id is not None and glIsTexture(gl_texture_id):
                     glUniform1i(use_texture_loc, 1) # true: 使用紋理
                     glActiveTexture(GL_TEXTURE0)
                     glBindTexture(GL_TEXTURE_2D, gl_texture_id)
-                    tex_sampler_loc = glGetUniformLocation(_hill_shader_program_id, "texture_diffuse1")
+                    tex_sampler_loc = _get_uniform_loc(_hill_shader_program_id, "texture_diffuse1")
                     glUniform1i(tex_sampler_loc, 0) # 紋理單元 0
                 else:
                     glUniform1i(use_texture_loc, 0) # false: 不使用紋理
@@ -2357,9 +2370,9 @@ def draw_scene_objects(scene):
                     # glActiveTexture(GL_TEXTURE0)
                     # glBindTexture(GL_TEXTURE_2D, 0) # 或者綁定一個1x1的白色紋理
 
-                has_alpha_uniform_loc = glGetUniformLocation(_hill_shader_program_id, "u_texture_has_alpha")
+                has_alpha_uniform_loc = _get_uniform_loc(_hill_shader_program_id, "u_texture_has_alpha")
                 glUniform1i(has_alpha_uniform_loc, 1 if texture_has_alpha else 0)
-                alpha_thresh_uniform_loc = glGetUniformLocation(_hill_shader_program_id, "u_alpha_test_threshold")
+                alpha_thresh_uniform_loc = _get_uniform_loc(_hill_shader_program_id, "u_alpha_test_threshold")
                 glUniform1f(alpha_thresh_uniform_loc, ALPHA_TEST_THRESHOLD) # 使用全局的閾值
 
                 # 綁定VAO並繪製
@@ -2599,6 +2612,64 @@ def draw_tram_cab(tram, camera):
     glEnable(GL_LIGHTING); glEnable(GL_TEXTURE_2D); glPopMatrix()
 
 
+# --- 文字紋理快取 ---
+# 每幀用 font.render + glTexImage2D 重建文字紋理非常昂貴；
+# 以 (字體, 文字, 顏色) 為 key 快取已上傳的紋理，FIFO 淘汰避免無限增長。
+_text_texture_cache = {}  # key -> (tex_id, width, height)
+_TEXT_TEXTURE_CACHE_MAX = 256
+
+def _get_cached_text_texture(font, text, color):
+    """回傳 (tex_id, width, height)，失敗回傳 None。紋理由快取管理，呼叫端不可刪除。"""
+    key = (id(font), text, tuple(color))
+    entry = _text_texture_cache.get(key)
+    if entry is not None:
+        return entry
+    try:
+        text_surface = font.render(text, True, color)
+        text_width, text_height = text_surface.get_size()
+        if text_width <= 0 or text_height <= 0: return None
+        texture_data = pygame.image.tostring(text_surface, "RGBA", True)
+        tex_id = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, tex_id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, text_width, text_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
+        glBindTexture(GL_TEXTURE_2D, 0)
+    except Exception as e:
+        print(f"Error creating cached text texture: {e}")
+        return None
+    if len(_text_texture_cache) >= _TEXT_TEXTURE_CACHE_MAX:
+        oldest_key = next(iter(_text_texture_cache))  # dict 保序，最早插入者先淘汰
+        old_tex_id, _, _ = _text_texture_cache.pop(oldest_key)
+        try:
+            if glIsTexture(old_tex_id): glDeleteTextures(1, [old_tex_id])
+        except Exception:
+            pass
+    entry = (tex_id, text_width, text_height)
+    _text_texture_cache[key] = entry
+    return entry
+
+def _draw_text_quad(tex_id, x, y, width, height):
+    """以已快取的紋理畫一個文字方塊（呼叫端需已設定好正交投影與 blend 狀態）。"""
+    glEnable(GL_TEXTURE_2D)
+    glBindTexture(GL_TEXTURE_2D, tex_id)
+    glBegin(GL_QUADS)
+    glTexCoord2f(0, 0); glVertex2f(x, y)
+    glTexCoord2f(1, 0); glVertex2f(x + width, y)
+    glTexCoord2f(1, 1); glVertex2f(x + width, y + height)
+    glTexCoord2f(0, 1); glVertex2f(x, y + height)
+    glEnd()
+    glBindTexture(GL_TEXTURE_2D, 0)
+
+def clear_text_texture_cache():
+    for tex_id, _, _ in _text_texture_cache.values():
+        try:
+            if glIsTexture(tex_id): glDeleteTextures(1, [tex_id])
+        except Exception:
+            pass
+    _text_texture_cache.clear()
+
+
 # --- _draw_text_texture (unchanged) ---
 def _draw_text_texture(text_surface, x, y):
     # (Logic unchanged)
@@ -2636,14 +2707,15 @@ def draw_info(tram, screen_width, screen_height):
     dist_km = dist_m / 1000.0; dist_text = f"Kilo: {dist_km:>7.3f} km"
     speed_text = f"Speed: {speed_kmh:>5.1f} km/h"
     info_text = f"{coord_text}\n{dist_text}\n{speed_text}"
-    try: text_surface = hud_display_font.render(info_text, True, COORD_TEXT_COLOR); text_width, text_height = text_surface.get_size()
-    except Exception as e: print(f"渲染 HUD 文字時出錯: {e}"); return
+    cached_text = _get_cached_text_texture(hud_display_font, info_text, COORD_TEXT_COLOR)
+    if cached_text is None: return
+    text_tex_id, text_width, text_height = cached_text
     glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, screen_width, 0, screen_height)
     glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity()
     glPushAttrib(GL_ENABLE_BIT | GL_TEXTURE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT | GL_DEPTH_BUFFER_BIT)
     glDisable(GL_DEPTH_TEST); glDisable(GL_LIGHTING); glEnable(GL_TEXTURE_2D); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     draw_x = COORD_PADDING_X; draw_y = screen_height - COORD_PADDING_Y - text_height
-    _draw_text_texture(text_surface, draw_x, draw_y)
+    _draw_text_quad(text_tex_id, draw_x, draw_y, text_width, text_height)
     glPopAttrib()
     glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix()
 

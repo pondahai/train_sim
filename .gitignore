@@ -1,0 +1,6 @@
+# Python 編譯快取
+__pycache__/
+*.pyc
+
+# cProfile 輸出 (main.py 內的效能分析程式碼)
+profile_results.prof
