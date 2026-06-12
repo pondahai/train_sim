@@ -1601,11 +1601,12 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 line_identifier, cyl = item # 解包行號和數據元組
                 # 注意來自scene_parser那邊的剖析結果的變數排列
                 try:
+                    # [:19]：編輯器預覽建立 VBO 後元組會擴充到 22 元素，只取前 19 個
                     c_type, wx, wy, wz, rx, ry, rz, cr, ch, \
                     u_offset, v_offset, tex_angle_deg, \
                     uv_mode, uscale, vscale, \
                     tex_file, tex_id, tex_alpha, \
-                    parent_origin_ry_deg = cyl;
+                    parent_origin_ry_deg = cyl[:19]
                 except: continue # 簡化錯誤處理
                 
                 # Cylinders 的包圍圓半徑就是其 cr
@@ -1771,7 +1772,8 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
         for item in scene.trees:
             line_num, tree = item # 解包行號和數據元組
             if line_num not in highlight_line_nums: # 只處理非高亮的
-                obj_type, tx, ty, tz, th, _tex_id, _tex_file, parent_origin_ry_deg = tree;
+                # [:8]：編輯器預覽建立 VBO 後元組會擴充到 11 元素，只取前 8 個
+                obj_type, tx, ty, tz, th, _tex_id, _tex_file, parent_origin_ry_deg = tree[:8]
                 map_x, map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
                 # Basic point culling
                 if 0 <= map_x <= widget_width and 0 <= map_y <= widget_height:
@@ -1800,7 +1802,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 line_identifier, tree_data = item
                 is_highlighted = line_identifier in highlight_line_nums
                 if is_highlighted: # 只處理高亮的
-                    obj_type, tx, ty, tz, th, _tex_id, _tex_file, parent_origin_ry_deg = tree_data
+                    obj_type, tx, ty, tz, th, _tex_id, _tex_file, parent_origin_ry_deg = tree_data[:8]
                     center_map_x, center_map_y = _world_to_map_coords_adapted(tx, tz, view_center_x, view_center_z, widget_center_x_screen, widget_center_y_screen, scale)
 
                     is_also_f7_target = (f7_tuning_target_line_num != -1 and line_identifier == f7_tuning_target_line_num) # <--- 判斷是否為F7目標
@@ -1866,10 +1868,11 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
                 line_identifier, sphere_data = item
                 # 解包獲取必要資訊 (世界座標 wx, wy, wz 和半徑 cr)
                 try:
+                    # [:17]：建立 VBO 後元組會擴充到 20 元素，只取前 17 個
                     s_type, wx, wy, wz, srx, sabs_ry, srz, cr, \
                     tex_id, u_offset, v_offset, tex_angle_deg, \
                     uv_mode, uscale, vscale, tex_file, \
-                    parent_origin_ry_deg = sphere_data
+                    parent_origin_ry_deg = sphere_data[:17]
                 except ValueError:
                      print(f"警告: 解包 sphere 數據 (動態小地圖) 時出錯 (來源行: {line_identifier})")
                      continue
@@ -1962,16 +1965,15 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
             line_identifier, hill_data = item
 #             print(hill_data)
             try:
-                # 解包數據 (需要中心, 高度, 半徑)
-                (obj_type, cx, base_y, cz, base_radius, peak_height_offset, 
+                # 解包數據 (需要中心, 高度, 半徑)；[:14] 容忍 VBO 擴充後的長度
+                (obj_type, cx, base_y, cz, base_radius, peak_height_offset,
                  uscale, vscale,
                  uoff, voff,
-                 tex_file, 
-                 tex_id, tex_alpha, 
-                 parent_origin_ry_deg,
-                 vao_id, vbo_id, vertex_count) = hill_data
+                 tex_file,
+                 tex_id, tex_alpha,
+                 parent_origin_ry_deg) = hill_data[:14]
             except ValueError:
-                print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_num})") # 可選警告
+                print(f"警告: 解包 hill 數據 (編輯器預覽) 時出錯 (來源行: {line_identifier})") # 可選警告
                 continue
 
             # --- 計算 Widget 座標 ---
