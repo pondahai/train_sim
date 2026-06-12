@@ -1,21 +1,1179 @@
-map map.png 0 0 1.0
-start 0 0 0 0
+#EDITOR_SCENE_SETTINGS_JSON: {"minimap": {"center_x": -24.0170964036522, "center_z": 1188.1240401883706, "range": 242.0000000000004}, "preview_camera": {"position": [34.53866681128633, 19.60648676955864, 753.8782279798031], "yaw": 352.00000000000153, "pitch": -9.400000000000052}}
+map map.png 1580 4328 .640
+#map map.png 0
+building 100 0 25 0 0 0 10 100 50 月台地板.png 0 0 0 0 1 5
+building -736.0 -100 2792 0 0 0 60 10 10
+skydome skydome.png
+#公共區域
+# 根據地圖添加建築物
+#building -150 -80 0 0 0 0 25 30 55 station_building.jpg
+#building -600 120 0 0 0 0 40 35 70 commercial_building.jpg
+#building -1100 -200 0 0 0 0 30 25 60 residential_building.jpg
+#building -1800 50 0 0 0 0 50 40 75 shopping_mall.jpg
+#building -2500 -150 0 0 0 0 45 50 80 office_tower.jpg
+#building -3200 100 0 0 0 0 30 30 65 small_hotel.jpg
+#building 0 0 50 0 45 0 50 50 50
+#cylinder -215 0 1700 0 0 0 20 250
+# 根據地圖添加圓柱形建築物（如水塔、圓形建築等）
+#cylinder -1400 -250 0 0 0 0 18 45 water_tower.jpg
+#cylinder -2300 150 0 0 0 0 25 50 round_office.jpg
+#方基
+building -110 -1 910 0 0 0 300 300 1 花博方基.jpg
+building -110 -1 590 0 0 0 300 300 1 大同方基.jpg
+#體育館
+building -55 0 860 0 3 0 20 100 20
+building -121 0 939.6 0 3 0 90 20 20
+building -120 0 785 0 3 0 90 20 20
+cylinder -84 0 810 0 0 0 37 20
+cylinder -79.5 0 910.5 0 0 0 37 20
+# 添加公園及綠地的樹木
+# 樹木主要沿路線旁邊分布，以提供景觀
+# 參考地圖上的綠地位置進行放置
+#圓山兒童樂園
+hill -159.9 0 1247.7 100 32
+hill -170 0 1280 100 30
+hill -200 0 1280 100 30
+hill -350 0 1350 100 30
+hill -600 0 2049 140 80
+hill -650 0 1947 140 60
+hill -755 0 1851 100 30
+hill -600 0 2200 160 104 山.png .3 1
+hill -657 0 2284 150 100
+hill -700 0 2400 180 140
+#圓山飯店
+building -646 11.0 1871 0 -22 0 100 40 50 圓山飯店一層樓.png 0 0 0 0 4 30
+flexroof -646 61 1871 0 -22 0 120 60 100 40 5 0 0 dijanan01.png
+building -646 66 1871 0 -22 0 100 40 6 圓山飯店一層樓.png 0 0 0 0 4 3
+flexroof -646 72 1871 0 -22 0 110 50 100 40 5 0 0 dijanan01.png
+flexroof -646 77 1871 0 -22 0 100 40 100 0 15 0 0 dijanan.png
+building -636.0 11 1842.2 0 -22 0 33 20 4 圓山飯店一層樓.png
+flexroof -636 14 1842.6 0 -22 0 35 22 33 20 2 0 0 dijanan01.png
+#堤防
+building -225 0 1382 0 -50 0 90 1 9
+building -177 0 1440 0 -50 0 30 1 9
+building -166 0 1453 0 -50 0 5 1 9
+building -163.5 0 1457 0 -65 0 5 1 9
+building -163.5 0 1461 0 -110 0 5 1 9
+building -185.5 0 1508.5 0 -115 0 100 1 9
+building -160 0 1571 0 -20 0 100 1 6
+#護國禪寺
+import temple.txt -90.0 0 1178.0 70
 
-skybox mysky # 設置初始天空盒
+building -66 1 1195 0 -7 0 5 35 6
+building -80 1 1208 0 20 0 20 17 12
+building -60 1 1140 0 -8 0 5 41 6
+building -70 1 1124 0 12 0 20 5 6
+building -68 0 1148 0 -8 0 10 15 10
+building -70 0 1132 0 12 0 20 15 10
+building -107 0 1185 0 20 0 15 30 15
+building -115 0 1160 0 20 0 15 15 15
+building -95 0 1212 0 20 0 15 25 15
+tree -52 0 1127 10
+tree -53 0 1134 10
+tree -54 0 1143 10
+tree -55 0 1150 10
+tree -58 0 1182 10
+tree -60 0 1189 10
+tree -60 0 1197 10
+tree -61 0 1208 10
+tree -61 0 1217 10
+#地藏庵
+import 地藏庵.txt -83 1 1238
+
+#劍潭山
+hill -800 0 2550 220 150
+#cylinder -510 10 2025 0 0 0 60 30 山.png 0 0 0 0 .1 .5
+#cylinder -520 40 2025 0 0 0 40 80 山.png 0 0 0 0 .1 .5
+#cylinder -540 0 1900 0 0 0 80 10 山.png 0 0 0 0 .1 .5
+#cylinder -550 10 1900 0 0 0 60 30 山.png 0 0 0 0 .1 .5
+#cylinder -560 40 1900 0 0 0 40 80 山.png 0 0 0 0 .1 .5
+#cylinder -560 0 1980 0 0 0 40 120 山.png 0 0 0 0 .1 .5
+tree 70 0 500 8 sakura.png
+tree 68 0 510 7 sakura.png
+tree 66 0 520 3
+tree 66 0 530 4
+tree 55 0 580 6
+tree 55 0 590 8
+tree 55 0 600 5
+tree 55 0 610 3
+tree 50 0 500 10 sakura.png
+tree 45 0 510 12 sakura.png
+tree 46 0 520 13
+tree 46 0 530 10
+tree 45 0 540 8
+tree 44 0 550 11
+tree 43 0 560 9
+tree 42 0 570 10
+tree -0 0 740 10
+tree -5 0 740 12
+tree -16 0 740 13
+tree -26 0 740 10
+tree -35 0 740 8
+tree -44 0 740 11
+tree -53 0 740 9
+tree -62 0 740 10
+tree -50 0 770 10
+tree -65 0 770 12
+tree -76 0 770 13
+tree -86 0 770 10
+tree -95 0 770 8
+tree -44 0 670 11
+tree -43 0 680 9
+tree -42 0 690 10
+#cylinder 0 0 0 0 0 0 20 50
+
+
+
+######################################
+#軌道開始
+start -2 -6.7 0 69
+#start -2 -6.7 0 0
+#cylinder 0 0 50 0 0 0 5 50
+######################################
+straight 200 0
+#building -20 0 80 0 0 0 10 10 10
+#cylinder 0 0 70 0 0 0 10 30
+#building -165 -6.7 -250 0 0 0 100 10 10
+
+
+#民權西路站
+#月台
+building 6.9 0 80 0 0 0 10 240 1 月台地板.png 0 0 0 0 1 20
+#軌道月台
+#building 7.5 0 143 0 0 0 12 50 1
+#軌道地板
+building 0 -1 49 0 0 0 10 230 1 concreate_wall.jpg 0 0 0 0 2 20
+#右牆
+building -2.8 0 85 0 0 0 1 230 5.5 民權西路站牆300m.png 0 .25 0 0 2 1
+#左牆
+building 20 0 100 0 0 0 1 210 5.5 民權西路站牆300m.png 0 .25 0 1 2 1
+building 20 0 255 0 0 0 1 100 5.5 concreate_wall.jpg 0 0 0 0 20 10
+#出站中牆
+building 6.5 0 215. 0 -3 0 9 30 6 concreate_wall.jpg 0 0 0 0 20 10
+#電梯井
+#右大牆
+building 3.5 0 196 0 0 0 1 8 6
+#左大牆
+building 11.5 0 197 0 0 0 1 6 6
+#右小牆
+building 4.5 0 192.5 0 -20 0 3 1 6
+#左小牆
+building 10 0 194 0 -20 0 3 1 6
+#右牆
+building 5 0 195 0 -20 0 1 3 6
+#左牆
+building 8 0 195 0 -20 0 1 3 6
+#底牆
+building 6 1 194 0 -20 0 3 1 4 電梯門.png 0.2 0 0 1
+#天花板
+building 8 5 90 0 0 0 24 230 1 月台天花板.png 0 0 0 0 4 33
+#天花板看板
+building 13 4.5 100 0 0 0 .3 200 .5 民權西路站看板單.png 0 .1 0 0 33 3
+building 1.5 4.5 100 0 0 0 .3 200 .5 民權西路站看板單.png 0 .1 0 0 33 3
+#上行軌道地板
+building 15 -1 49 0 0 0 10 230 1
+# 樓梯
+#building 7 0 170 0 0 0 5 10 10 手扶梯.png
+# 手扶梯4
+building 7 1 172 35 0 0 4.5 15 .3 樓梯.png 0 0.2 0 0 4 5
+building 9 1 170 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 9 0 170 35 0 0 .5 25 1 手扶梯.png .2 0 45 0 10 5
+building 7 1 170 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 7 0 170 35 0 0 .5 25 1 手扶梯.png .1 0 45 0 20 4
+building 5 1 170 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 5 0 170 35 0 0 .5 25 1 手扶梯.png .2 0 45 0 10 5
+#building 7 0 170 0 0 0 5 15 10 手扶梯.png
+# 手扶梯3
+building 7 1 142 35 0 0 4.5 15 .3 樓梯.png 0 0.2 0 0 4 5
+building 9 1 140 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 9 0 140 35 0 0 .5 25 1 手扶梯.png .2 0 45 0 10 5
+building 7 1 140 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 7 0 140 35 0 0 .5 25 1 手扶梯.png .1 .1 45 0 20 4
+building 5 1 140 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 5 0 140 35 0 0 .5 25 1 手扶梯.png .2 0 45 0 10 5
+#building 7 0 110 0 0 0 5 15 10 手扶梯.png
+# 手扶梯2
+building 7 1 112 35 0 0 4.5 15 .3 樓梯.png 0 0.2 0 0 4 5
+building 9 1 110 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 9 0 110 35 0 0 .5 25 1 手扶梯.png .2 0 45 0 10 5
+building 7 1 110 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 7 0 110 35 0 0 .5 25 1 手扶梯.png .1 .1 45 0 20 4
+building 5 1 110 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 5 0 110 35 0 0 .5 25 1 手扶梯.png .2 0 45 0 10 5
+#電梯
+#building 7 4 80 0 0 0 5 5 2 手扶梯.png .5 0 0 0 8 8
+building 7 1 80.2 0 0 0 3.2 4.5 4 電梯門.png .2 0 0 0 4 3
+building 9 0 80 0 180 0 1 5 5 手扶梯.png 0 .6 0 0 1 1
+building 5 0 80 0 0 0 1 5 5 手扶梯.png 0 .6 0 0 1 1
+#告示牌
+building 7 2 3 0 0 0 .1 2 2 民權西路站告示牌.png
+building 7 1 2.1 0 0 0 .1 .1 1
+building 7 1 3.9 0 0 0 .1 .1 1
+# 手扶梯1
+building 7 1 40 35 0 0 4.5 15 .3 樓梯.png 0 0.2 0 0 4 5
+building 9 1 38 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 9 0 38 35 0 0 .5 25 1 手扶梯.png .2 0 45 0 10 5
+building 7 1 38 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 7 0 38 35 0 0 .5 25 1 手扶梯.png .1 .1 45 0 20 4
+building 5 1 38 0 0 0 .5 3 1 手扶梯.png 0 0 0 0 4 4
+building 5 0 38 35 0 0 .5 25 1 手扶梯.png .2 0 45 0 10 5
+#出站
+building -1 -1 194 0 -3 0 10 60 1 concreate_wall.jpg 0 0 0 0 10 40
+building -3.5 0 212 0 -3 0 1 25 5 concreate_wall.jpg 0 0 0 0 10 10
+# 2 0 229 0 -2 0 1 60 5
+building 1 5 210 0 -3 0 10 20 1 concreate_wall.jpg 0 0 0 0 10 10
+###################################
+curve 600 2.4 15
+skydome sky_dome.png
+curve 250 7.6 25
+#轉彎中牆
+building 2.4 0 0 0 -1 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building 2.1 0 10 0 -1 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building 1.8 0 20 0 -4 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building 1 0 30 0 -8 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -.5 1 40 0 -9 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -2.3 1.3 50 0 -11 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -4.5 1.7 60 0 -13 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -7.0 2.0 70 0 -17 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -10. 2.5 80 -1 -19 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -13.6 3.0 90 -1 -18 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -17.1 3.5 100 -1 -23 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -21 3.0 108 -1 -25 0 1 10 6 concreate_wall.jpg 0 0 0 1
+#轉彎地板
+building -0 -1 0 1.2 1 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -1 -.8 10 2.5 -1.1 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -1.2 -.6 20 2.4 -2.2 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -2 -0.3 30 2.4 -7.3 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -3.0 .1 40 2 -12 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -5.0 0.5 50 2 -15 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -8.0 .8 60 2 -13 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -9.5 1.2 70 2 -15 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -13 1.6 80 2 -20 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -16.5 1.9 90 2 -22 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -20.5 2.3 100 2 -24 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -25 2.7 110 2 -28 0 6 10 1 concreate_wall.jpg 0 0 0 1
+#轉彎天花板
+building -1 5 0 2.4 -1 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -1 5.1 10 2.5 -2 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -1.2 5.3 20 2.5 -4 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -2 5.5 30 2.5 -9 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -4 5.9 40 2 -12 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -5 6.3 50 2 -11 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -7.5 6.7 60 2 -17 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -9.5 7.1 70 2 -18 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -13 7.7 80 2 -20 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -16.5 8.3 90 2 -20 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -20.5 8.8 100 2 -24 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -25 9.0 110 2 -28 0 6 10 1 concreate_wall.jpg 0 0 0 1
+#轉彎右牆
+building -2.6 0 0 0 -1 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -2.8 0 10 0 -3 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -3.5 0 20 0 -6 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -4.7 1 30 0 -9 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -6.3 1 40 0 -11 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -8.2 1.5 50 0 -12 0 1 10 5 concreate_wall.jpg 0 0 0 0 20 10
+building -10.2 1.5 60 0 -13 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -12.5 2 70 0 -16 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -15.7 2.5 80 -1 -20 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -19.5 3 90 -1 -22 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -23 3.5 99 -1 -24 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -27.5 4 108 -1 -28 0 1 10 6 concreate_wall.jpg 0 0 0 1
+#轉彎左牆
+building -3.5 2.5 85 -1 -22 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -7.6 3.0 95 -1 -22 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -12. 3.5 105 -1 -26 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+building -17.3 4.0 115 -1 -28 0 1 10 6 concreate_wall.jpg 0 0 0 0 20 10
+#轉彎左地
+building -6 1.5 85 2 -20 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -10.5 1.8 95 2 -20 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -15 2.1 105 2 -24 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -21 2.5 115 2 -30 0 6 10 1 concreate_wall.jpg 0 0 0 0 20 10
+#轉彎左天
+building -6 8 84 2 -20 0 7 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -10 8.5 94 2 -20 0 7 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -15 8.8 104 2 -24 0 7 10 1 concreate_wall.jpg 0 0 0 0 20 10
+building -20 9.0 114 2 -30 0 7 10 1 concreate_wall.jpg 0 0 0 0 20 10
+###########
+curve 250 21 35
+########################################
+straight 200 35
+#大同公司
+building -60 -6 155 0 33 0 25 90 30
+#爬升地板
+#中膈
+building 3 1.2 92.7 2.05 0 0 .5 205 3 concreate_wall.jpg 0 0 0 0 20 .5
+#上行
+building 6.5 2.3 94.7 2.05 -0 0 6 200 1 concreate_wall.jpg 0 0 0 0 1 20
+#下行
+building -0.5 2.3 94 2.05 -0 0 6 200 1 concreate_wall.jpg 0 0 0 0 1 20
+#出土段左牆
+building 7.9 0 95.4 2 0 0 1 200 6 concreate_wall.jpg 0 0 0 0 20 .5
+#出土段右牆
+building -3.5 0 94 2 0 0 1 200 6 concreate_wall.jpg 0 0 0 0 20 .5
+#出土段上蓋
+#building 3 6 0 -2 0 0 17 10 1
+#building -3.4 5 -2 -2 0 0 1 10 2
+#building 11 4 .5 -2 0 0 1 10 2
+building 0 5 -5 -2 0 0 30 1 2
+#出口罩子
+building -2 7.5 20 2 0 -20 3 50 .3 結構001.png
+building 3 8 20 2 0 0 7.5 50 .3 結構001.png
+building 7.8 7.5 20 2 0 20 3 50 .3 結構001.png
+building 10 6 21 2 0 45 3 50 .3 結構001.png
+building 10.5 4 21 2 0 -50 3 50 .3
+building -4 6 19 2 0 -45 3 50 .3 結構001.png
+building -4.5 4 19 2 0 50 3 50 .3
+#########################################
+curve 190 -2.9 25
+#下行護欄
+building 2 -1.3 0 3 0 0 .3 12 2 結構001.png 0 0 0 0 4 2
+building -2 -1.3 0 3 0 0 .3 12 2 結構001.png 0 0 0 0 4 2
+#下行地板
+building 0 -1.2 0 3 0 0 4 12 1 concreate_wall.jpg 0 0 90 0 1 1
+#比例尺 60公尺
+#building 17 0 10 0 10 0 60 1 1
+#上行護欄
+building 7 -1.3 0 3 0 0 .3 12 2 結構001.png 0 0 0 0 5 2
+building 3 -1.3 0 3 0 0 .3 12 2 結構001.png 0 0 0 0 5 2
+#上行地板
+building 5 -1.2 0 3 0 0 4 12 1 concreate_wall.jpg 0 0 90 0 1 1
+##########################################
+#直行高架
+straight 100 5
+#直行高架上行護欄
+building 7.0 -1 45 .3 0 0 .3 100 2 結構001.png 0 0 0 0 5 2
+building 3.05 -1 45 .3 0 0 .3 100 2 結構001.png 0 0 0 0 5 2
+#直行高架上行地板
+building 5.1 -.8 45 .3 0 0 4 100 1 concreate_wall.jpg 0 0 90 0 1 15
+#直行高架下行護欄
+building 2.0 -1 45 .3 0 0 .3 100 2 結構001.png 0 0 0 0 5 2
+building -1.95 -1 45 .3 0 0 .3 100 2 結構001.png 0 0 0 0 5 2
+#直行高架下行地板
+building 0 -.8 45 .3 0 0 4 100 1 concreate_wall.jpg 0 0 0 0 1 15
+#方基0
+building 60.5 -5.0 -135 0 7 0 55 18 16
+building 60.5 -5.0 -155 0 7 0 55 18 16
+building 60.5 -5.0 -80 0 7 0 55 18 50
+building 60.5 -5.0 -101 0 7 0 55 18 20
+building 65.5 -5.0 -30 0 7 0 75 18 20
+building 65.5 -5.0 -52 0 7 0 75 18 20
+#方基1
+building 54.5 -6.0 10 0 7 0 75 40 1
+building 60.5 -5.0 -1 0 7 0 75 18 20
+building 60.5 -5.0 21 0 7 0 75 18 20
+#lane
+building 55.5 -6.0 -12 0 7 0 75 4 1
+#方基2
+building 48.5 -6.0 54 0 7 0 75 40 1
+building 54.5 -5.0 43 0 7 0 75 18 20
+building 54.5 -5.0 65 0 7 0 75 18 35
+#lane
+building 50.5 -6.0 32 0 7 0 75 4 1
+######################################
+#出土直線
+straight 100 5
+#下行地板
+BUILDING 0 -.7 45 .3 0 0 4 100 1 concreate_wall.jpg 0 0 0 0 1 20
+#直行高架下行護欄
+building 2.0 -1 45 .3 0 0 .3 100 2 結構001.png 0 0 0 0 5 2
+building -1.95 -1 45 .3 0 0 .3 100 2 結構001.png 0 0 0 0 5 2
+#上行地板
+BUILDING 5 -.7 45 .3 0 0 4 100 1 concreate_wall.jpg 0 0 0 0 1 20
+#直行高架上行護欄
+building 7.0 -1 45 .3 0 0 .3 100 2 結構001.png 0 0 0 0 5 2
+building 3.05 -1 45 .3 0 0 .3 100 2 結構001.png 0 0 0 0 5 2
+#大同公司
+building -40 -6 -20 0 0 0 25 60 20
+building -50 -6 25 0 0 0 40 30 20
+building -85 -6 85 0 7 0 40 30 50
+#出土東街
+building -13.5 -6.5 0 0 0 0 5 300 1
+#出土西街
+building 19 -6.5 0 0 0 0 5 300 1
+#出土地面
+building 2.5 -6.6 0 0 0 0 28 207 1
+#方基3
+building 54.5 -6.5 0 0 7 0 75 40 1
+building 60.5 -5.0 -11 0 7 0 75 18 20
+building 60.5 -5.0 11 0 7 0 75 18 20
+#lane
+building 56.5 -6.5 -20 0 7 0 75 6 1
+#方基4
+building 60.5 -6.5 35 0 7 0 75 30 1
+building 61.5 -5.0 25.5 0 7 0 75 13 12
+building 60.5 -5.0 41.5 0 7 0 75 14 32
+#lane
+building 58.5 -6.5 13.5 0 7 0 75 5 1
+#方基5
+building 55.5 -6.5 75 0 7 0 75 40 1
+building 60.5 -5.0 83 0 7 0 75 22 16
+building 63.5 -5.0 63 0 7 0 75 15 8
+#lane
+building 56.5 -6.5 52.5 0 7 0 75 7 1
+#####################################
+straight 60 5
+#building 0 0 -0 0 0 0 10 10 10
+#民族西路
+#下行
+BUILDING 0 -.8 21 .28 0 0 4 53 1 concreate_wall.jpg 0 0 0 0 1 20
+#直行高架下行護欄
+building 2.0 -0.9 20 .3 0 0 .3 60 2 結構001.png 0 0 0 0 5 2
+building -2.2 -0.9 20 .3 0 0 .3 60 2 結構001.png 0 0 0 0 5 2
+#上行
+BUILDING 5 -.8 21 .28 0 0 4 53 1 concreate_wall.jpg 0 0 0 0 1 20
+#直行高架上行護欄
+building 7.0 -1 25 .3 0 0 .3 60 2 結構001.png 0 0 0 0 5 2
+building 3.05 -1 25 .3 0 0 .3 60 2 結構001.png 0 0 0 0 5 2
+#民族西路路面
+building 0 -7 11 0 6.3 0 300 20 1
+#西街
+building 18.7 -7 198.4 0 0 0 5 300 1
+#東街
+building -20 -7 68.4 0 0 0 12 100 1
+#橋下
+building 1.5 -7 68.4 0 0 0 27 100 1
+#橋柱
+cylinder 0 -7 22 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 5 -7 22 0 0 0 1.5 6 concreate_wall.jpg
+#building 5 -1 22 0 0 0 5 3 0.5 5 concreate_wall.jpg 0 0 0 0 3
+building 2.7 -1 22 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+building 7.3 -1 22 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+cylinder 0 -7 45 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 5 -7 45 0 0 0 1.5 6 concreate_wall.jpg
+building 5 -1 45 0 0 0 5 3 0.5 concreate_wall.jpg 0 0 0 0 3 2
+building 2.7 -1 45 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+cylinder -.5 -7 68 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 5 -7 68 0 0 0 1.5 6 concreate_wall.jpg
+building 5.2 -1 68 0 0 0 5 3 0.5 concreate_wall.jpg 0 0 0 0 3 2
+building 2.9 -1 68 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+cylinder -1.5 -7 91 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 6 -7 91 0 0 0 1.5 6 concreate_wall.jpg
+building 6.1 -1 91 0 0 0 5 3 0.5 concreate_wall.jpg 0 0 0 0 3 2
+building 3.7 -1 91 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+cylinder -3 -7 114 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 5.5 -7 114 0 0 0 1.5 6 concreate_wall.jpg
+building 5.8 -1 114 0 0 0 5 3 0.5 concreate_wall.jpg 0 0 0 0 3 2
+building 3.5 -1 114 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+cylinder -4.5 -7 137 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 6 -7 137 0 0 0 1.5 6 concreate_wall.jpg
+building 6.3 -1 137 0 0 0 5 3 0.5 concreate_wall.jpg 0 0 0 0 3 2
+building 4 -1 137 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+cylinder -4.8 -7 160 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 7.5 -7 160 0 0 0 1.5 6 concreate_wall.jpg
+building 7.5 -1 160 0 0 0 5 3 0.5 concreate_wall.jpg 0 0 0 0 3 2
+building 5.2 -1 160 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+cylinder -5 -7 183 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 8 -7 183 0 0 0 1.5 6 concreate_wall.jpg
+building 8 -1 183 0 0 0 5 3 0.5 concreate_wall.jpg 0 0 0 0 3 2
+building 5.7 -1 183 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+cylinder -5.5 -7 206 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 8.5 -7 206 0 0 0 1.5 6 concreate_wall.jpg
+building 8.5 -1 206 0 0 0 5 3 0.5 concreate_wall.jpg 0 0 0 0 3 2
+building 6.5 -1 206 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+cylinder -6 -7 232 0 0 0 1.5 6 concreate_wall.jpg
+cylinder 8 -7 232 0 0 0 1.5 6 concreate_wall.jpg
+building 8 -1 232 0 0 0 5 3 0.5 concreate_wall.jpg 0 0 0 0 3 2
+building 6 -1 232 0 0 0 .5 3 1 concreate_wall.jpg 0 0 0 0 3 2
+#方基6
+building 56.5 -7 39 0 7 0 75 50 1
+building 58.5 -7.0 52 0 3 0 75 28 8
+building 60.5 -7.0 25 0 3 0 75 15 16
+#lane
+building 50.5 -7 72.5 0 7 0 75 3 1
+#方基7
+building 55.5 -7 90 0 7 0 75 32 1
+building 30.5 -7.0 90 0 7 0 15 28 16
+building 73.5 -7.0 82 0 7 0 75 15 16
+#lane
+building 50.5 -7 108 0 7 0 75 5 1
+####################################
+curve 100 2
+#下行
+BUILDING -.2 -1. -5.3 0 -1.5 0 4 14 1 concreate_wall.jpg 0 0 0 0 1 5
+#直行高架下行護欄
+building 1.8 -1 -5.1 0 -1 0 .3 10 2 結構001.png 0 0 0 0 5 2
+building -2.3 -1 -5.1 0 -1 0 .3 10 2 結構001.png 0 0 0 0 5 2
+building 1.3 -1 15 0 -2 0 .3 30 2 結構001.png 0 0 0 0 5 2
+building -3 -1 15 0 -2 0 .3 30 2 結構001.png 0 0 0 0 5 2
+#上行
+BUILDING 5.0 -1. -5 0 1 0 4 14 1 concreate_wall.jpg 0 0 0 0 1 5
+#直行高架上行護欄
+building 7.1 -1 2.5 .3 0 0 .3 15 2 結構001.png 0 0 0 0 5 2
+building 3.05 -1 2.5 .3 0 0 .3 15 2 結構001.png 0 0 0 0 5 2
+#方基8
+building 58.5 -7.5 68 0 7 0 75 32 1
+building 30.5 -7.0 65 0 3 0 15 28 16
+building 66.5 -7.0 59 0 7 0 75 15 16
+#lane
+building 25.5 -7.5 88 0 7 0 35 8 1
+####################################
+straight 35
+#下行
+BUILDING -.4 -1 16 0 0 0 4 35 1 concreate_wall.jpg 0 0 0 0 1 5
+#上行
+BUILDING 6.2 -1. 15.5 0 2 0 4 35 1 concreate_wall.jpg 0 0 0 0 1 5
+#方基9
+building 65.5 -7.5 105 0 7 0 75 32 1
+building 30.5 -7.0 105 0 3 0 15 28 20
+building 63.5 -7.0 105 0 7 0 75 15 16
+#lane
+building 42.5 -7.5 122 0 7 0 75 5 1
+########################################
+curve 190 5
+#下行
+BUILDING -.4 -1 3 0 0 0 4 10 1 concreate_wall.jpg 0 0 0 0 1 5
+#上行
+BUILDING 7 -1 2 0 3 0 4 8 1 concreate_wall.jpg 0 0 0 0 1 5
+########################################
+straight 2
+#下行
+BUILDING -.4 -1 -5 0 1 0 4 9 1 concreate_wall.jpg 0 0 0 0 1 5
+#上行
+BUILDING 7.5 -1 -6.5 0 8 0 4 10 1 concreate_wall.jpg 0 0 0 0 1 5
+########################################
+curve 190 -6
+#下行
+BUILDING -.1 -1 5 0 2 0 4 15 1 concreate_wall.jpg 0 0 0 0 1 5
+#上行
+BUILDING 8.8 -1 1 0 7 0 4 10 1 concreate_wall.jpg 0 0 0 0 1 5
+########################################
+straight 130
+#站前橫橋
+building 7 -1 84 0 0 0 10 2 .5
+building 11 -1 95 0 0 0 2 20 .5
+building 3 -1 95 0 0 0 2 20 .5
+building 7 -1 108 0 0 0 10 6 .5
+#下行階梯
+building 3 -1 114.8 0 0 0 2 .5 1.8
+building 3 -1 114.3 0 0 0 2 .5 1.5
+building 3 -1 113.8 0 0 0 2 .5 1.2
+building 3 -1 113.3 0 0 0 2 .5 .9
+building 3 -1 113 0 0 0 2 4 .6
+#上行階梯
+building 11 -1 114.8 0 0 0 2 .5 1.8
+building 11 -1 114.3 0 0 0 2 .5 1.5
+building 11 -1 113.8 0 0 0 2 .5 1.2
+building 11 -1 113.3 0 0 0 2 .5 .9
+building 11 -1 113 0 0 0 2 4 .6
+#緊急階梯
+building 10 -6.5 80.5 0 0 0 .2 5 7
+building 4 -6.5 80.5 0 0 0 .2 5 7
+building 7 -6.5 78 0 0 0 6 .2 7
+
+
+#圓山站
+import 圓山站.txt
+
+
+#####
+#方基10
+building 62.5 -7.5 74 0 7 0 75 44 1
+building 35.5 -7.0 73 0 3 0 15 35 16
+building 72.5 -7.0 60 0 7 0 75 15 12
+building 72.5 -7.0 76 0 7 0 75 15 16
+#lane
+building 55.5 -7.5 100 0 7 0 90 8 1
+#方基11
+building 62.5 -7.5 124 0 7 0 90 44 1
+building 44 -7.0 123 0 3 0 15 40 16
+building 72.5 -7.0 111.5 0 7 0 75 15 16
+building 75 -7.0 130 0 7 0 75 15 16
+#lane
+building 65.5 -7.5 150 0 7 0 90 8 1
+##########################################
+straight 130
+######
+curve 150 -5
+building 0 -1 1.5 0 1 0 4 10 1
+######
+straight 10
+building 0 -1 -2 0 -1.5 0 4 10 1
+#####
+curve 150 5
+building 0 -1 -1 0 0 0 4 12.5 1
+#####
+straight 80
+building 0 -1 36 0 0 0 4 88 1
+#方基
+building 0 -6.3 30 0 0 0 300 250 1 護國禪寺方基.png 0 0 0 0 4 3
+#####
+curve 160 11
+building -.2 -1 5 0 -2 0 4 10 1
+building -.8 -1 15 0 -6 0 4 10 1
+building -2 -1 25 0 -10 0 4 10 1
+#明倫社宅
+building 37 -6.3 2 0 -5 0 20 20 50
+building 35 -6.3 25 0 -5 0 20 20 50
+cylinder 47 -6.3 33 0 0 0 23 50
+building 40 -2 -17.0 0 -17 0 20 20 46
+cylinder 44 -6.3 -45 0 0 0 5 50
+building 46 -6.3 -35 0 -20 0 20 18 50
+building 65 -6.3 -33 0 -20 0 50 18 50
+#####
+straight 20
+building 0 -1 9 0 0 0 4 20 1
+#####
+curve 150 4
+building -.2 -1 4 0 -2 0 4 10 1
+#####
+straight 125
+building -.2 -1 61 0 0 0 4 125 1
+#####
+curve 150 2
+building -.2 -1 2 0 0 0 4 7 1
+#####
+straight 135
+building 0 -1 67 0 0 0 4 135 1
+#方基
+building 0 -6.3 0 0 0 0 300 300 1
+######################################
+#高速公路
+straight 200 0
+building 0 -1 99 0 0 0 4 200 1
+#方基
+building 0 -16.3 45 0 -10 0 300 70 10
+#
+building 155 10 39 0 6 0 320 33 5
+building -160 10 64 0 3 0 320 33 5
+#十八標
+#南
+building -160 30 48 0 6 0 320 13 5
+building 155 30 15 0 6 0 320 13 5
+#北
+building -158 30 92 0 5 0 320 13 5
+building 160 30 61 0 6 0 320 13 5
+#橋墩
+building -12 0 60 0 10 0 5 15 10
+building -15 0 45 0 10 0 5 15 10
+building 20 0 60 0 10 0 5 15 10
+building 17 0 45 0 10 0 5 15 10
+cylinder 40 0 27 0 0 0 5 30
+cylinder -40 0 35 0 0 0 5 30
+cylinder 24 0 75 0 0 0 5 10
+cylinder -40 0 80 0 0 0 5 10
+#基隆河
+building 0 -18 130 0 -10 0 500 100 1
+####
+curve 100 1
+building 0 -1 4 0 0 0 4 10 1
+#####
+straight 100 0
+building 0 -1 57 0 0 0 4 100 1
+#####
+straight 100 0
+building 0 -1 57 0 0 0 4 100 1
+#方基
+building 0 -16.3 60 0 -10 0 300 360 10
+#####
+curve 380 -12
+building .2 -1 12 0 2 0 4 10 1
+building .7 -1 22 0 4 0 4 10 1
+building 1.3 -1 32 0 4 0 4 10 1
+building 2.2 -1 42 0 6 0 4 10 1
+building 3.4 -1 52 0 9 0 4 10 1
+building 5.2 -1 62 0 9 0 4 10 1
+building 7 -1 72 0 10 0 4 10 1
+building 9 -1 82 0 11 0 4 10 1
+#####
+straight 100 0
+building 0 -1 57 0 0 0 4 100 1
+#####
+straight 100 0
+building 0 -1 57 0 0 0 4 100 1
+#方基
+building 0 -6.3 60 0 0 0 300 300 1
+#####
+curve 300 5
+building -.2 -1 12 0 -3 0 4 10 1
+building -.9 -1 22 0 -4 0 4 10 1
+building -1.6 -1 32 0 -5 0 4 10 1
+curve 1400 -4
+building 0 -1 15 0 0 0 4 10 1
+building 0.2 -1 25 0 1 0 4 10 1
+building .4 -1 35 0 1 0 4 10 1
+building .8 -1 45 0 2 0 4 10 1
+building 1.4 -1 55 0 2 0 4 10 1
+building 1.8 -1 65 0 2 0 4 10 1
+building 2.2 -1 75 0 2.5 0 4 10 1
+building 2.8 -1 85 0 3 0 4 10 1
+building 3.5 -1 95 0 4 0 4 10 1
+#建築
+building 45 -6 -5 0 5 0 20 30 50
+building 45 -6 30 0 5 0 15 25 50
+building 45 -6 53 0 5 0 15 15 50
+building 45 -6 65 0 5 0 20 10 15
+building 46 -6 77 0 5 0 20 10 15
+building 50 -6 100 0 5 0 20 30 50
+building 62 -6 128 0 8 0 20 22 50
+building 62 -6 150 0 8 0 38 12 50
+building 70 -6 165 0 8 0 18 12 50
+building 50 -6 175 0 8 0 15 12 12
+#圓山山坡
+#building -110 -30 150 0 10 20 150 500 50 圓山劍潭山坡.png
+
+
+
+curve 1000 -2.6
+straight 200 0
+
+
+#####
+import 劍潭站.txt
+
+
+#皮蛋豆腐
+building 100 -6 157 0 20 0 40 50 3 pddf02.png
+building 96 -3 157 0 20 0 50 50 50 pddf02.png 0 0 0 0 8 8
+building 120 6 190 0 20 0 25 25 25 pddf03.png 0 0 0 0 8 8
+building 85 14 116 0 20 0 35 35 20 pddf04.png
+building 84 11.5 116 -10 20 0 35 35 20 pddf03.png 0 0 0 0 8 8
+building 70 -6 110 -10 20 0 10 10 20 pddf03.png 0 0 0 0 8 8
+cylinder 90 -6 95 -15 20 0 1 20 20
+cylinder 85 -6 100 15 110 0 1 20 20
+cylinder 75 -6 104 -15 110 0 1 20 20
+sphere 66 24 168 0 0 0 18 pddf01.png
+cylinder 63 -6 172 15 20 0 1 15 pddf03.png
+cylinder 60 -6 163 -15 20 0 1 15 pddf03.png
+
+
+#
+curve 600 3
+straight 20
+curve 120 10
+straight 30
+curve 110 10.5
+straight 140
+curve 320 -11
+curve 300 -9
+curve 330 -15
+curve 350 -16
+curve 900 2.6
+straight 80
+vbranch curve 164 -18
+straight 60
+curve 300 -6
+straight 25
+vbranch curve 199 19 0 backward
+curve 100 1.5
+straight 180
+
+#士林站
+import 士林站.txt
+
+#TOD
+building 30 -7 90 0 0 0 19 30 80
+building 30 -7 50 0 0 0 19 50 38
+building 8 6 15 0 0 0 20 40 1
+building 19 6 30 0 0 0 3 10 1
+building 8 13 15 0 0 0 20 40 1
+cylinder 4 -7 1 0 0 0 1 20
+cylinder 10 -7 1 0 0 0 1 20
+cylinder 4 -7 20 0 0 0 1 20
+cylinder 10 -7 20 0 0 0 1 20
+cylinder 4 -7 30 0 0 0 1 20
+cylinder 10 -7 30 0 0 0 1 20
+#####
+curve 300 -1.7
+straight 90
+curve 1200 -3
+curve 600 2.8
+straight 80
+curve 1900 -3
+curve 500 -3.7
+#士林橋爬坡
+building 65 -7 58 0 -8 0 12 114 1
+building 65 -10 62 3 -8 0 12 120 7
+straight 90
+straight 20
+#士林橋
+building 37 -2 58 0 -12 0 16 114 2
+building 50 -7 2 0 0 0 50 5 6
+building 0 -7 4 0 5 0 50 5 6
+building 50 -7 112 0 0 0 50 5 6
+building 0 -7 114 0 5 0 50 5 6
 
 straight 100
-vbranch straight 10 30 # 從第一個直線段末端，向左偏10度，長30米的分岔
-vbranch curve 20 -45 0 backward # 從第一個直線段末端，向右反向彎曲45度，半徑20米的分岔
+straight 60
+#士林橋下坡
+building 22 -8 9 -6 -12 0 16 30 7
+building 18 -11 37 -6 -5 0 16 30 7
+building 19 -14 65 -6 13 0 16 33 7
+building 27 -17 93 -6 20 0 16 33 7
+building 47 -12.5 144 0 22 0 16 90 1
 
-curve 50 90 0
 
-skydome another_sky.png # 在彎道結束後，背景切換為天空圓頂
+curve 1300 3.1
+curve 300 5
+curve 340 8.8
+straight 15
+straight 205
 
-straight 50 10 # 一段上坡10‰，長50米的直軌
-building 10 0 5 0 0 0 10 10 10 building_texture.png 0 0 0 2 # 使用UV Mode 2 (圖集)
-cylinder 15 0 5 0 0 0 2 10 metal.png
-tree 20 0 5 8 tree_transparent.png
-gableroof 0 10 0 0 90 0 10 15 3 # 在Y=10高，長15寬10，屋脊高3，朝向世界+X
-hill 100 20 50 30 15 ground_texture.png 5 5
 
-import common_objects/park_area.txt # 導入公園區域的場景定義
+#芝山站
+import 芝山站.txt
+
+#方基
+building 50 -7 -27 0 -3 0 30 52 0.2
+building 35 -7 -26 0 5 0 5 46 0.2
+cylinder 35.5 -7 -49 0 0 0 5 0.2
+cylinder 96 -7 -5 0 0 0 7 0.2
+building 79 -7 -27 0 39 0 12 55 0.2
+building 79 -7 -3.5 0 -3 0 30 8 0.2
+#鑽石大樓
+building 56 -7 -19 0 -3 0 44 20 32
+building 82 -7 -19 0 37 0 5 20 32
+building 82 -7 -10 0 -3 0 10 5 32
+cylinder 88 -7 -10 0 0 0 3 32
+building 63 -7 -31 0 -3 0 12 4 32
+building 63 -7 -35 0 -3 0 16 5 32
+#
+building 46 -7 -48 0 -3 0 28 10 28
+#方基
+building 64 -7 80 0 0 0 55 80 .2
+#雙子星
+building 61 -7 49 0 45 0 14 9 50
+building 81 -7 49 0 -45 0 14 9 50
+building 61 -7 69 0 -45 0 14 9 50
+building 81 -7 69 0 45 0 14 9 50
+building 71 -7 59 0 0 0 18 18 50
+building 61 -7 86 0 45 0 14 9 50
+building 81 -7 86 0 -45 0 14 9 50
+building 61 -7 107 0 -45 0 14 9 50
+building 81 -7 107 0 45 0 14 9 50
+building 71 -7 97 0 0 0 18 18 50
+#
+building 43 -7 50 0 0 0 16 14 32
+building 45 -7 40 0 0 0 20 7 32
+#
+building 43 -7 80 0 0 0 14 38 20
+building 43 -7 110 0 0 0 14 16 24
+
+curve 600 -10
+curve -400 -10
+curve 300 -1.8
+curve 300 -1.8
+straight 90
+straight 60
+straight 100
+straight 60
+curve 1100 4
+curve 500 -4
+
+straight 2
+straight 210
+
+
+#明德站
+#下行
+BUILDING 0 -1 57 0 0 0 4 120 1 concreate_wall.jpg 0 0 0 0 30 20
+BUILDING 0 -1 177 0 0 0 4 120 1 concreate_wall.jpg 0 0 0 0 30 20
+#上行
+building 12.5 -.95 17 0 2 0 4 20 1 concreate_wall.jpg 0 0 0 0 30 20
+building 12.8 -.95 47 0 0 0 4 40 1 concreate_wall.jpg 0 0 0 0 30 20
+building 13 -.95 142 0 .0 0 4 150 1 concreate_wall.jpg 0 0 0 0 30 20
+#月台
+building 6.4 -7 99 0 0 0 9 95 7.8
+building 6.4 -1 43 0 0 0 9 17 1.8
+building 6.4 .8 104.5 0 0 0 9 140 .2 月台地板.png 0 0 0 0 15 25
+#天花板看板
+building 9 6 105 0 0 0 .3 140 .5 圓山站看板單.png 0 .2 0 0 20 .6
+building 4 6 105 0 0 0 .3 140 .5 圓山站看板單.png 0 .2 0 0 20 .6
+#北牆
+building 7 1 116 0 0 0 4 .3 7.5
+#電梯
+#building 7 4 105 0 0 0 5 5 2 手扶梯.png .5 0 0 0 8 8
+building 7 1 105.2 0 0 0 3.2 4.5 4 電梯門.png
+building 9 0 105 0 0 0 1 5 5 手扶梯.png .5 -.2 0 0 8 8
+building 5 0 105 0 0 0 1 5 5 手扶梯.png .5 -.2 0 0 8 8
+#告示牌
+building 6.5 2 48 0 0 0 .1 2 2 圓山站告示牌.jpg
+building 6.5 1 47.1 0 0 0 .1 .1 1
+building 6.5 1 48.9 0 0 0 .1 .1 1
+building 6.5 2 158 0 0 0 .1 2 2 圓山站告示牌.jpg
+building 6.5 1 157.1 0 0 0 .1 .1 1
+building 6.5 1 158.9 0 0 0 .1 .1 1
+#車站屋頂
+building 3.5 8.6 105 0 0 -24 6 140 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+building -.5 7 105 0 0 -12 4 140 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+building 9.5 8.6 105 0 0 24 6 140 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+building 13.2 6.9 105 0 0 12 4 140 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+cylinder 6.5 10 175 90 0 0 .8 140 圓山站屋頂中脊.png 0 0 90 0 1 .2
+building 3 11 80 0 0 -24 7 25 .3 圓山站屋頂頂面.png 0 0 90
+building 10 11 80 0 0 24 7 25 .3 圓山站屋頂頂面.png 0 0 90
+cylinder 7 10 92.6 90 0 0 .8 25 圓山站屋頂中脊.png 0 0 90 0
+building 3 11 130 0 0 -24 7 25 .3 圓山站屋頂頂面.png 0 0 90
+building 10 11 130 0 0 24 7 25 .3 圓山站屋頂頂面.png 0 0 90
+cylinder 7 10 142.5 90 0 0 .8 25 圓山站屋頂中脊.png
+
+#屋頂柱樑
+cylinder 4 0 38 0 0 0 .4 7
+cylinder 9 0 38 0 0 0 .4 7
+building 6.4 6.5 38 0 0 0 9 .8 .8
+building -.2 6.5 40.5 0 0 -12 4 .4 .4
+building 3.7 8.1 40.5 0 0 -24 7 .4 .4
+building 2.5 6.8 40.5 0 0 0 4 .4 .4
+building 4.5 6.8 40.5 0 0 0 .4 .4 2
+building 15.5 6 40.5 0 0 12 5 .4 .4
+building 10.5 8 40.5 0 0 24 7 .4 .4
+building 12 6.5 40.5 0 0 0 4 .4 .4
+building 10 6.5 40.5 0 0 0 .4 .4 2
+cylinder 4 0 45.5 0 0 0 .4 7
+cylinder 9 0 45.5 0 0 0 .4 7
+building 6.4 6.5 45.5 0 0 0 9 .8 .8
+cylinder 4 0 53 0 0 0 .4 7
+cylinder 9 0 53 0 0 0 .4 7
+building 6.4 6.5 53 0 0 0 9 .8 .8
+cylinder 4 0 60.5 0 0 0 .4 7
+cylinder 9 0 60.5 0 0 0 .4 7
+building 6.4 6.5 60.5 0 0 0 9 .8 .8
+cylinder 4 0 68 0 0 0 .4 7
+cylinder 9 0 68 0 0 0 .4 7
+building 6.4 6.5 68 0 0 0 9 .8 .8
+cylinder 4 0 75.5 0 0 0 .4 7
+cylinder 9 0 75.5 0 0 0 .4 7
+building 6.4 6.5 75.5 0 0 0 9 .8 .8
+cylinder 4 0 83 0 0 0 .4 7
+cylinder 9 0 83 0 0 0 .4 7
+building 6.4 6.5 83 0 0 0 9 .8 .8
+cylinder 4 0 90.5 0 0 0 .4 7
+cylinder 9 0 90.5 0 0 0 .4 7
+building 6.4 6.5 90.5 0 0 0 9 .8 .8
+cylinder 4 0 98 0 0 0 .4 7
+cylinder 9 0 98 0 0 0 .4 7
+building 6.4 6.5 98 0 0 0 9 .8 .8
+cylinder 4 0 105.5 0 0 0 .4 7
+cylinder 9 0 105.5 0 0 0 .4 7
+building 6.4 6.5 105.5 0 0 0 9 .8 .8
+cylinder 4 0 113 0 0 0 .4 7
+cylinder 9 0 113 0 0 0 .4 7
+building 6.4 6.5 113 0 0 0 9 .8 .8
+cylinder 4 0 120.5 0 0 0 .4 7
+cylinder 9 0 120.5 0 0 0 .4 7
+building 6.4 6.5 120.5 0 0 0 9 .8 .8
+cylinder 4 0 128 0 0 0 .4 7
+cylinder 9 0 128 0 0 0 .4 7
+building 6.4 6.5 128 0 0 0 9 .8 .8
+cylinder 4 0 135.5 0 0 0 .4 7
+cylinder 9 0 135.5 0 0 0 .4 7
+building 6.4 6.5 135.5 0 0 0 9 .8 .8
+cylinder 4 0 143 0 0 0 .4 7
+cylinder 9 0 143 0 0 0 .4 7
+building 6.4 6.5 143 0 0 0 9 .8 .8
+cylinder 4 0 150.5 0 0 0 .4 7
+cylinder 9 0 150.5 0 0 0 .4 7
+building 6.4 6.5 150.5 0 0 0 9 .8 .8
+cylinder 4 0 158 0 0 0 .4 7
+cylinder 9 0 158 0 0 0 .4 7
+building 6.4 6.5 158 0 0 0 9 .8 .8
+cylinder 4 0 165.5 0 0 0 .4 7
+cylinder 9 0 165.5 0 0 0 .4 7
+building 6.4 6.5 165.5 0 0 0 9 .8 .8
+cylinder 4 0 173 0 0 0 .4 7
+cylinder 9 0 173 0 0 0 .4 7
+building 6.4 6.5 173 0 0 0 9 .8 .8
+#月台柱
+#下行
+cylinder 0 -7 37 0 0 0 1.5 6
+cylinder 0 -7 54 0 0 0 1.5 6
+cylinder 0 -7 71 0 0 0 1.5 6
+cylinder 0 -7 88 0 0 0 1.5 6
+cylinder 0 -7 105 0 0 0 1.5 6
+cylinder 0 -7 122 0 0 0 1.5 6
+cylinder 0 -7 139 0 0 0 1.5 6
+cylinder 0 -7 156 0 0 0 1.5 6
+cylinder 0 -7 173 0 0 0 1.5 6
+#出站
+building 7.5 -7 180 0 0 0 10 10 7
+building 7.5 0 180 0 0 0 7 7 5
+
+
+straight 10
+curve 1000 -4
+curve 500 6
+straight 100
+curve 1000 2
+curve 850 -3.8
+straight 22
+
+#石牌站
+import 石牌站.txt
+
+straight 200
+#石牌口袋軌
+vbranch curve 170 -14
+curve 1000 -0.5
+straight 320
+#石牌口袋軌
+vbranch curve 140 11 0 backward
+
+straight 40
+curve 1100 -3
+curve 330 -20
+curve 410 -16
+curve 300 -7
+straight 100
+straight 80
+curve 500 4
+straight 30
+curve 600 -3.8
+straight 10
+straight 180
+#唭哩岸站
+
+
+
+
+######################################
+#上行軌
+start 16 -6.7 0 69
+straight 113 0
+curve 1755 3.03
+curve 255 28 28
+straight 222 38
+curve 190 -2.9 25
+straight 101 3
+straight 101 3
+straight 60 3
+curve 100 -1
+straight 60
+curve 250 -2.7
+curve 600 3
+straight 40
+curve 250 1.5
+straight 100
+straight 144
+building 0 -1 98 0 0 0 4 60 1
+curve 400 12.5
+building -.2 -1 8 0 -1 0 4 20 1
+building -1 -1 28 0 -4 0 4 20 1
+building -3 -1 48 0 -8 0 4 20 1
+building -6 -1 68 0 -10 0 4 20 1
+building -8.8 -1 83 0 -11 0 4 10 1
+curve 150 3
+building 0 -1 5 0 0 0 4 7 1
+straight 150
+building 0 -1 75 0 0 0 4 150 1
+curve 150 .5
+straight 100
+building 0 -1 49 0 0 0 4 102 1
+curve 200 2.6
+building 0 -1 5 0 0 0 4 10 1
+curve 200 -1
+straight 120
+building 0 -1 59 0 0 0 4 120 1
+straight 100
+building 0 -1 49 0 0 0 4 100 1
+curve 100 1
+building 0 -1 .5 0 0 0 4 4 1
+straight 100
+building 0 -1 50 0 0 0 4 100 1
+straight 20
+building 0 -1 10 0 0 0 4 20 1
+curve 900 -1
+building .2 -1 7 0 .5 0 4 15 1
+straight 60
+building 0 -1 28 0 0 0 4 60 1
+curve 600 -1
+building 0 -1 5 0 1 0 4 15 1
+straight 10
+building 0 -1 7 0 1 0 4 10 1
+curve 500 -11
+building .3 -1 12 0 1 0 4 20 1
+building 1.2 -1 32 0 4 0 4 20 1
+building 2.8 -1 52 0 6 0 4 20 1
+building 5.3 -1 72 0 8 0 4 20 1
+building 7.6 -1 87 0 10 0 4 10 1
+straight 100
+building 0 -1 51 0 0 0 4 100 1
+straight 100
+building 0 -1 51 0 0 0 4 100 1
+curve 800 -2
+building .2 -1 11 0 1 0 4 20 1
+building .5 -1 31 0 1.5 0 4 20 1
+building 1.2 -1 51 0 2.5 0 4 20 1
+straight 20
+curve 1000 1
+building -.1 -1 8 0 -1 0 4 20 1
+building -.4 -1 28 0 -1 0 4 20 1
+#劍潭站
+straight 22
+straight 255
+building 0 -1 122 0 0 0 4 240 1
+curve 200 15
+straight 30
+curve 450 10
+straight 95
+curve 300 -20
+curve 330 -15
+curve 300 -17.5
+straight 145
+vbranch curve 200 12
+curve 300 -2.5
+straight 90
+vbranch curve 390 -10 0 backward
+curve 150 1
+straight 200
+curve 330 .5
+straight 100
+curve 400 -3.3
+straight 150
+curve 1500 -3.2
+curve 1000 -3
+straight 44
+straight 180
+curve 2000 2
+curve 700 8
+curve 330 6.4
+straight 100
+straight 156
+curve 260 -15
+curve 600 -3
+curve 400 -5.1
+straight 60
+straight 60
+straight 100
+straight 100
+curve 750 -3
+curve 1000 2.3
+straight 150
+curve 2000 2
+curve 1000 2
+straight 20
+curve 2000 -2
+straight 100
+curve 1000 -5
+curve 500 3.4
+straight 200
+vbranch curve 160 15
+
+straight 50
+curve 1000 3
+curve 1000 -2.8
+straight 180
+vbranch curve 90 -16 0 backward
+
+straight 90
+curve 220 -13
+straight 10
+curve 430 -7
+curve 300 -7
+curve 400 -7
+curve 380 -7
+curve 300 -5
+straight 95
+straight 80
+curve 400 -3.3
+straight 50
+curve 820 3
+straight 180
+
+##############################
+#石牌口袋軌
+start 476.8 6.3 5655 58
+straight 0
+vbranch curve 80 -12 0 backward
+vbranch curve 80 12 0 backward
+straight 230
+vbranch curve 80 -14
+vbranch curve 80 12
+######

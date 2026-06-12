@@ -262,6 +262,8 @@ def create_shader_program_from_sources(vertex_source, fragment_source): # 這個
 
 _hill_shader_program_id = None # 全局變量
 _building_shader_program_id = None # <--- 新增全局變量
+_tree_shader_program_id = None
+_cylinder_shader_program_id = None
 frustum_culler = Frustum() # 初始化視錐體剔除器
 
 # uniform location 在 shader link 後即固定，快取避免每幀每物件重複查詢
@@ -300,7 +302,31 @@ def init_building_shader():
             print("致命錯誤: 無法從源碼初始化 Building 著色器程序！")
         else:
             print(f"Building 著色器程序已從源碼成功初始化: ID={_building_shader_program_id}")
-            
+
+def init_tree_shader():
+    global _tree_shader_program_id
+    if _tree_shader_program_id is None:
+        _tree_shader_program_id = create_shader_program_from_sources(
+            shaders_inline.TREE_VERTEX_SHADER_SOURCE,
+            shaders_inline.TREE_FRAGMENT_SHADER_SOURCE
+        )
+        if _tree_shader_program_id is None:
+            print("致命錯誤: 無法從源碼初始化樹木著色器程序！")
+        else:
+            print(f"樹木著色器程序已從源碼成功初始化: ID={_tree_shader_program_id}")
+
+def init_cylinder_shader():
+    global _cylinder_shader_program_id
+    if _cylinder_shader_program_id is None:
+        _cylinder_shader_program_id = create_shader_program_from_sources(
+            shaders_inline.CYLINDER_VERTEX_SHADER_SOURCE,
+            shaders_inline.CYLINDER_FRAGMENT_SHADER_SOURCE
+        )
+        if _cylinder_shader_program_id is None:
+            print("致命錯誤: 無法從源碼初始化圓柱著色器程序！")
+        else:
+            print(f"圓柱著色器程序已從源碼成功初始化: ID={_cylinder_shader_program_id}")
+
 # --- init_renderer (Update) ---
 def init_renderer():
     """Initializes the renderer, loads common textures."""
@@ -333,6 +359,8 @@ def init_renderer():
 
     init_hill_shader() # 初始化山丘著色器
     init_building_shader() # <--- 新增: 初始化 Building 著色器
+    init_tree_shader() # 樹木 VBO 著色器
+    init_cylinder_shader() # 圓柱 VBO 著色器
 
 # --- draw_ground (unchanged) ---
 def draw_ground(show_ground):
@@ -1786,6 +1814,159 @@ def cleanup_all_hill_buffers(scene_hills_list):
         # cleanup_hill_buffers_for_entry returns the modified entry
         scene_hills_list[i] = cleanup_hill_buffers_for_entry(scene_hills_list[i])
 
+# --- 樹木 VBO（兩個交叉面片，幾何在載入時建立一次） ---
+def generate_tree_mesh_data(height):
+    width = height * 0.6
+    hw = width / 2.0
+    vertices = [
+        # Quad 1 (along X axis)
+        -hw, 0.0,    0.0, 0.0, 0.0,
+         hw, 0.0,    0.0, 1.0, 0.0,
+         hw, height, 0.0, 1.0, 1.0,
+        -hw, height, 0.0, 0.0, 1.0,
+        # Quad 2 (along Z axis)
+        0.0, 0.0,    -hw, 0.0, 0.0,
+        0.0, 0.0,     hw, 1.0, 0.0,
+        0.0, height,  hw, 1.0, 1.0,
+        0.0, height, -hw, 0.0, 1.0,
+    ]
+    indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]
+    tri_vertices = []
+    for i in indices:
+        idx = i * 5
+        tri_vertices.extend(vertices[idx:idx+5])
+    return np.array(tri_vertices, dtype=np.float32), len(tri_vertices) // 5
+
+def create_tree_buffers(tree_entry):
+    line_id, tree_data = tree_entry
+    height = tree_data[4]
+
+    vertex_data, vertex_count = generate_tree_mesh_data(height)
+
+    if vertex_count == 0:
+        new_tree_data = list(tree_data)
+        if len(new_tree_data) > 8 and new_tree_data[8] is not None: cleanup_tree_buffers_for_entry(tree_entry)
+        while len(new_tree_data) < 11: new_tree_data.append(None)
+        new_tree_data[8], new_tree_data[9], new_tree_data[10] = None, None, 0
+        return tuple(new_tree_data), False
+
+    vbo_id = glGenBuffers(1)
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_id)
+    glBufferData(GL_ARRAY_BUFFER, vertex_data.nbytes, vertex_data, GL_STATIC_DRAW)
+
+    vao_id = glGenVertexArrays(1)
+    glBindVertexArray(vao_id)
+
+    stride = 5 * sizeof(GLfloat)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+    glEnableVertexAttribArray(0)
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(3 * sizeof(GLfloat)))
+    glEnableVertexAttribArray(1)
+
+    glBindVertexArray(0)
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+    new_tree_data = list(tree_data)
+    while len(new_tree_data) < 11: new_tree_data.append(None)
+    new_tree_data[8], new_tree_data[9], new_tree_data[10] = vao_id, vbo_id, vertex_count
+
+    return tuple(new_tree_data), True
+
+def cleanup_tree_buffers_for_entry(tree_entry):
+    _line_id, tree_data = tree_entry
+    if len(tree_data) < 11: return tree_entry
+    vao_id, vbo_id = tree_data[8], tree_data[9]
+    if vao_id is not None:
+        try: glDeleteVertexArrays(1, [vao_id])
+        except Exception: pass
+    if vbo_id is not None:
+        try: glDeleteBuffers(1, [vbo_id])
+        except Exception: pass
+    new_tree_data = list(tree_data)
+    new_tree_data[8], new_tree_data[9], new_tree_data[10] = None, None, 0
+    return (_line_id, tuple(new_tree_data))
+
+def cleanup_all_tree_buffers(scene_trees_list):
+    for i in range(len(scene_trees_list)):
+        scene_trees_list[i] = cleanup_tree_buffers_for_entry(scene_trees_list[i])
+
+# --- 圓柱 VBO（側面三角形網格，幾何在載入時建立一次） ---
+def generate_cylinder_mesh_data(radius, height, slices=20):
+    vertices = []
+    for i in range(slices):
+        angle1 = float(i) / slices * 2.0 * math.pi
+        angle2 = float(i+1) / slices * 2.0 * math.pi
+
+        x1, z1 = math.cos(angle1) * radius, math.sin(angle1) * radius
+        x2, z2 = math.cos(angle2) * radius, math.sin(angle2) * radius
+        nx1, nz1 = math.cos(angle1), math.sin(angle1)
+        nx2, nz2 = math.cos(angle2), math.sin(angle2)
+        u1, u2 = float(i) / slices, float(i+1) / slices
+
+        vertices.extend([x1, 0.0, z1, nx1, 0.0, nz1, u1, 1.0])
+        vertices.extend([x2, 0.0, z2, nx2, 0.0, nz2, u2, 1.0])
+        vertices.extend([x2, height, z2, nx2, 0.0, nz2, u2, 0.0])
+
+        vertices.extend([x1, 0.0, z1, nx1, 0.0, nz1, u1, 1.0])
+        vertices.extend([x2, height, z2, nx2, 0.0, nz2, u2, 0.0])
+        vertices.extend([x1, height, z1, nx1, 0.0, nz1, u1, 0.0])
+
+    return np.array(vertices, dtype=np.float32), len(vertices) // 8
+
+def create_cylinder_buffers(cyl_entry):
+    line_id, cyl_data = cyl_entry
+    radius, height = cyl_data[7], cyl_data[8]
+
+    vertex_data, vertex_count = generate_cylinder_mesh_data(radius, height)
+
+    if vertex_count == 0:
+        new_cyl_data = list(cyl_data)
+        while len(new_cyl_data) < 23: new_cyl_data.append(None)
+        new_cyl_data[20], new_cyl_data[21], new_cyl_data[22] = None, None, 0
+        return tuple(new_cyl_data), False
+
+    vbo_id = glGenBuffers(1)
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_id)
+    glBufferData(GL_ARRAY_BUFFER, vertex_data.nbytes, vertex_data, GL_STATIC_DRAW)
+
+    vao_id = glGenVertexArrays(1)
+    glBindVertexArray(vao_id)
+
+    stride = 8 * sizeof(GLfloat)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+    glEnableVertexAttribArray(0)
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(3 * sizeof(GLfloat)))
+    glEnableVertexAttribArray(1)
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(6 * sizeof(GLfloat)))
+    glEnableVertexAttribArray(2)
+
+    glBindVertexArray(0)
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+    new_cyl_data = list(cyl_data)
+    while len(new_cyl_data) < 23: new_cyl_data.append(None)
+    new_cyl_data[20], new_cyl_data[21], new_cyl_data[22] = vao_id, vbo_id, vertex_count
+
+    return tuple(new_cyl_data), True
+
+def cleanup_cylinder_buffers_for_entry(cyl_entry):
+    _line_id, cyl_data = cyl_entry
+    if len(cyl_data) < 23: return cyl_entry
+    vao_id, vbo_id = cyl_data[20], cyl_data[21]
+    if vao_id is not None:
+        try: glDeleteVertexArrays(1, [vao_id])
+        except Exception: pass
+    if vbo_id is not None:
+        try: glDeleteBuffers(1, [vbo_id])
+        except Exception: pass
+    new_cyl_data = list(cyl_data)
+    new_cyl_data[20], new_cyl_data[21], new_cyl_data[22] = None, None, 0
+    return (_line_id, tuple(new_cyl_data))
+
+def cleanup_all_cylinder_buffers(scene_cyls_list):
+    for i in range(len(scene_cyls_list)):
+        scene_cyls_list[i] = cleanup_cylinder_buffers_for_entry(scene_cyls_list[i])
+
 def draw_hill(center_x, base_y, center_z,
               base_radius, peak_height_offset,
               resolution=20,
@@ -2185,65 +2366,135 @@ def draw_scene_objects(scene):
 #                   )
 #         glPopMatrix()
         
-    # Cylinders
-    for item in scene.cylinders:
-        line_num, obj_data = item # 先解包出 行號 和 原始數據元組
-        # 再從原始數據元組解包出繪製所需變數
-        (obj_type, x, y, z, rx, abs_ry, rz, radius, h,
-#          tex_id,
-         u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale, tex_file,
-         gl_tex_id_val, tex_has_alpha_val, parent_origin_ry_deg
-         ) = obj_data
-        
-        # --- Frustum Culling for Cylinders ---
-        # radius is 'radius', height is 'h'
-        # Pivot is usually center or bottom? draw_cylinder usually centers?
-        # Let's assume pivot is center for simplicity or check draw_cylinder.
-        # draw_cylinder in this file seems to use -h/2 to h/2.
-        # So pivot (x,y,z) is center.
-        cyl_radius_bound = math.sqrt(radius**2 + (h/2)**2)
-        if not frustum_culler.is_sphere_visible(x, y, z, cyl_radius_bound):
-            continue
-        # -------------------------------------
-        glPushMatrix();
-        glTranslatef(x, y, z);
-        glRotatef(abs_ry, 0, 1, 0);
-        glRotatef(rz, 0, 0, 1)
-        glRotatef(rx, 1, 0, 0);
-        glPushMatrix();
-        glRotatef(-90, 1, 0, 0)
-        draw_cylinder(radius, h,
-#                       tex_id,
-                  gl_tex_id_val, 
-                      u_offset, v_offset, tex_angle_deg,
-                      uv_mode, uscale, vscale,
-                  tex_has_alpha_val
-                      )
-        glPopMatrix();
-        glPopMatrix()
-    # Trees
-# 注意：我們這裡不再設置全局 glColor，因為 draw_tree 內部會處理顏色
-#     glColor3f(1.0, 1.0, 1.0)
-    for item in scene.trees:
-        line_num, tree_data = item # 先解包出 行號 和 原始數據元組
-        # 再從原始數據元組解包出繪製所需變數
-        # --- 修改：解包新的數據元組結構 ---
-        try:
-            # 結構: (world_x, world_y, world_z, height, tex_id, tex_file)
-            obj_type, x, y, z, height, tex_id, tex_file, parent_origin_ry_deg = tree_data
-        except ValueError:
-            print(f"警告: 解包 tree 數據時出錯 (來源行: {line_num})")
-            continue # 跳過這個損壞的數據
-        
-        # --- Frustum Culling for Trees ---
-        # Pivot is bottom. Height is 'height'.
-        # Bounding sphere center: (x, y + height/2, z)
-        # Radius: height/2 (plus a bit for width) -> let's use height * 0.6
-        if not frustum_culler.is_sphere_visible(x, y + height/2, z, height * 0.7):
-            continue
-        # ---------------------------------
+    # Cylinders (VBO & Shader)
+    if hasattr(scene, 'cylinders') and scene.cylinders:
+        if _cylinder_shader_program_id is not None:
+            glUseProgram(_cylinder_shader_program_id)
+            current_mv_matrix = glGetFloatv(GL_MODELVIEW_MATRIX)
+            glUniformMatrix4fv(_get_uniform_loc(_cylinder_shader_program_id, "view"), 1, GL_FALSE, current_mv_matrix)
+            glUniformMatrix4fv(_get_uniform_loc(_cylinder_shader_program_id, "projection"), 1, GL_FALSE, glGetFloatv(GL_PROJECTION_MATRIX))
+            glUniform3f(_get_uniform_loc(_cylinder_shader_program_id, "lightPos_worldspace"), 100.0, 150.0, 100.0)
+            glUniform3f(_get_uniform_loc(_cylinder_shader_program_id, "lightColor"), 0.8, 0.8, 0.8)
+            glUniform1f(_get_uniform_loc(_cylinder_shader_program_id, "u_ambient_strength"), 0.5)
+            glUniform1f(_get_uniform_loc(_cylinder_shader_program_id, "u_specular_strength"), 0.3)
+            glUniform1f(_get_uniform_loc(_cylinder_shader_program_id, "u_shininess"), 16.0)
+            view_matrix_inv = np.linalg.inv(current_mv_matrix)
+            glUniform3fv(_get_uniform_loc(_cylinder_shader_program_id, "viewPos_worldspace"), 1, view_matrix_inv[3,:3])
 
-        draw_tree(x, y, z, height, texture_id=tex_id)
+            model_loc_cyl_shader = _get_uniform_loc(_cylinder_shader_program_id, "model")
+            u_tex_offset_loc_cyl_shader = _get_uniform_loc(_cylinder_shader_program_id, "u_tex_offset")
+            u_tex_scale_loc_cyl_shader = _get_uniform_loc(_cylinder_shader_program_id, "u_tex_scale")
+            u_use_texture_loc_cyl_shader = _get_uniform_loc(_cylinder_shader_program_id, "u_use_texture")
+            texture_diffuse1_loc_cyl_shader = _get_uniform_loc(_cylinder_shader_program_id, "texture_diffuse1")
+            u_fallback_color_loc_cyl_shader = _get_uniform_loc(_cylinder_shader_program_id, "u_fallback_color")
+            u_texture_has_alpha_loc_cyl_shader = _get_uniform_loc(_cylinder_shader_program_id, "u_texture_has_alpha")
+            u_alpha_test_threshold_loc_cyl_shader = _get_uniform_loc(_cylinder_shader_program_id, "u_alpha_test_threshold")
+
+            if texture_diffuse1_loc_cyl_shader != -1: glUniform1i(texture_diffuse1_loc_cyl_shader, 0)
+            if u_alpha_test_threshold_loc_cyl_shader != -1: glUniform1f(u_alpha_test_threshold_loc_cyl_shader, ALPHA_TEST_THRESHOLD)
+
+            for item in scene.cylinders:
+                line_num, obj_data = item
+                if len(obj_data) < 23: continue
+                (obj_type, x, y, z, rx, abs_ry, rz, radius, h,
+                 u_offset, v_offset, tex_angle, uv_mode, uscale, vscale, tex_file,
+                 gl_tex_id_val, tex_has_alpha, parent_origin_ry_deg,
+                 vao_id, vbo_id, vertex_count) = obj_data[:22]
+
+                cyl_radius_bound = math.sqrt(radius**2 + (h/2)**2)
+                if not frustum_culler.is_sphere_visible(x, y, z, cyl_radius_bound):
+                    continue
+                if vao_id is None or vertex_count == 0:
+                    continue
+
+                trans_mat = np.array([[1,0,0,x], [0,1,0,y], [0,0,1,z], [0,0,0,1]], dtype=np.float32)
+                comp_rot = get_yxz_intrinsic_composite_rotation_4x4(rx, abs_ry, rz)
+                rot_x_minus90 = np.array([[1,0,0,0], [0,0,1,0], [0,-1,0,0], [0,0,0,1]], dtype=np.float32)
+                model_matrix_row_major = trans_mat @ comp_rot @ rot_x_minus90
+
+                glUniformMatrix4fv(model_loc_cyl_shader, 1, GL_TRUE, model_matrix_row_major)
+
+                glUniform2f(u_tex_offset_loc_cyl_shader, u_offset, v_offset)
+                if uv_mode == 0:
+                    safe_u = uscale if abs(uscale)>1e-6 else 1e-6
+                    safe_v = vscale if abs(vscale)>1e-6 else 1e-6
+                    glUniform2f(u_tex_scale_loc_cyl_shader, 1.0/safe_u, 1.0/safe_v)
+                else:
+                    glUniform2f(u_tex_scale_loc_cyl_shader, uscale, vscale)
+
+                if gl_tex_id_val is not None and glIsTexture(gl_tex_id_val):
+                    glUniform1i(u_use_texture_loc_cyl_shader, 1)
+                    glActiveTexture(GL_TEXTURE0)
+                    glBindTexture(GL_TEXTURE_2D, gl_tex_id_val)
+                else:
+                    glUniform1i(u_use_texture_loc_cyl_shader, 0)
+                    glUniform3f(u_fallback_color_loc_cyl_shader, 0.5, 0.5, 0.5)
+
+                glUniform1i(u_texture_has_alpha_loc_cyl_shader, 1 if tex_has_alpha else 0)
+
+                glBindVertexArray(vao_id)
+                glDrawArrays(GL_TRIANGLES, 0, vertex_count)
+
+            glBindVertexArray(0)
+            glUseProgram(0)
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, 0)
+        else:
+            print("警告: 圓柱著色器未初始化，無法渲染 Cylinders。")
+
+    # Trees (VBO & Shader)
+    if hasattr(scene, 'trees') and scene.trees:
+        if _tree_shader_program_id is not None:
+            glUseProgram(_tree_shader_program_id)
+            current_mv_matrix = glGetFloatv(GL_MODELVIEW_MATRIX)
+            glUniformMatrix4fv(_get_uniform_loc(_tree_shader_program_id, "view"), 1, GL_FALSE, current_mv_matrix)
+            glUniformMatrix4fv(_get_uniform_loc(_tree_shader_program_id, "projection"), 1, GL_FALSE, glGetFloatv(GL_PROJECTION_MATRIX))
+            glUniform3f(_get_uniform_loc(_tree_shader_program_id, "lightPos_worldspace"), 100.0, 150.0, 100.0)
+            glUniform3f(_get_uniform_loc(_tree_shader_program_id, "lightColor"), 0.8, 0.8, 0.8)
+            glUniform1f(_get_uniform_loc(_tree_shader_program_id, "u_ambient_strength"), 0.5)
+
+            model_loc_tree_shader = _get_uniform_loc(_tree_shader_program_id, "model")
+            u_use_texture_loc_tree_shader = _get_uniform_loc(_tree_shader_program_id, "u_use_texture")
+            texture_diffuse1_loc_tree_shader = _get_uniform_loc(_tree_shader_program_id, "texture_diffuse1")
+            u_fallback_color_loc_tree_shader = _get_uniform_loc(_tree_shader_program_id, "u_fallback_color")
+            u_texture_has_alpha_loc_tree_shader = _get_uniform_loc(_tree_shader_program_id, "u_texture_has_alpha")
+            u_alpha_test_threshold_loc_tree_shader = _get_uniform_loc(_tree_shader_program_id, "u_alpha_test_threshold")
+
+            if texture_diffuse1_loc_tree_shader != -1: glUniform1i(texture_diffuse1_loc_tree_shader, 0)
+            if u_alpha_test_threshold_loc_tree_shader != -1: glUniform1f(u_alpha_test_threshold_loc_tree_shader, ALPHA_TEST_THRESHOLD)
+            if u_texture_has_alpha_loc_tree_shader != -1: glUniform1i(u_texture_has_alpha_loc_tree_shader, 1)
+
+            for item in scene.trees:
+                line_num, tree_data = item
+                if len(tree_data) < 11: continue
+                obj_type, x, y, z, height, tex_id, tex_file, parent_origin_ry, vao_id, vbo_id, vertex_count = tree_data[:11]
+
+                if not frustum_culler.is_sphere_visible(x, y + height/2, z, height * 0.7):
+                    continue
+                if vao_id is None or vertex_count == 0:
+                    continue
+
+                trans_mat = np.array([[1,0,0,x], [0,1,0,y], [0,0,1,z], [0,0,0,1]], dtype=np.float32)
+                glUniformMatrix4fv(model_loc_tree_shader, 1, GL_TRUE, trans_mat)
+
+                if tex_id is not None and glIsTexture(tex_id):
+                    glUniform1i(u_use_texture_loc_tree_shader, 1)
+                    glActiveTexture(GL_TEXTURE0)
+                    glBindTexture(GL_TEXTURE_2D, tex_id)
+                else:
+                    glUniform1i(u_use_texture_loc_tree_shader, 0)
+                    r, g, b = TREE_FALLBACK_COLOR
+                    glUniform3f(u_fallback_color_loc_tree_shader, r, g, b)
+
+                glBindVertexArray(vao_id)
+                glDrawArrays(GL_TRIANGLES, 0, vertex_count)
+
+            glBindVertexArray(0)
+            glUseProgram(0)
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, 0)
+        else:
+            print("警告: 樹木著色器未初始化，無法渲染 Trees。")
 
     # Spheres
     glColor3f(1.0, 1.0, 1.0) # 設置預設顏色或從物件數據讀取

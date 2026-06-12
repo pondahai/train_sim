@@ -1,0 +1,11 @@
+#EDITOR_SCENE_SETTINGS_JSON: {"minimap": {"center_x": 0.0, "center_z": 0.0, "range": 200.0}, "preview_camera": {"position": [-0.9688699234052529, 9.026866912841797, -31.63678994096814], "yaw": 356.2000000000004, "pitch": -3.7999999999999923}}
+#護國臨濟寺
+building 0 1 0 0 0 0 20 20 2 temple_base.png 0 0 0 1 4 3
+building 0 2 0 0 0 0 16 16 6 temple.png
+flexroof 0 8 0 0 0 0 20 20 14 14 2 0 0 roof_top_002.png
+building 0 10 0 0 0 0 14 14 2 roof_middle_001.png 0 0 0 1
+flexroof 0 12 0 0 0 0 18 18 12 12 2
+flexroof 0 14 0 0 0 0 12 12 12 0 4 0 0 roof_top_001.png
+tree -8.6 0 -11.8 8
+tree 8.2 0 -12.0 8
+#building -52.2 0 0.4 0 0 0 12 12 12

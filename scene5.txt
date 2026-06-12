@@ -1,0 +1,2 @@
+straight 100
+straight 100 100 10

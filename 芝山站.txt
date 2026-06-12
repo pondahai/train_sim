@@ -1,0 +1,137 @@
+#EDITOR_SCENE_SETTINGS_JSON: {"minimap": {"center_x": 0.0, "center_z": 0.0, "range": 200.0}, "preview_camera": {"position": [-15.63943603374951, 15.999421453475952, 20.217126457886973], "yaw": 26.50000000000005, "pitch": -12.800000000000002}}
+#行人高架
+building 6 -1 9 0 0 0 4 35 1
+building 8 2.8 10 0 0 30 1 50 .2
+building 4 2.8 10 0 0 -30 1 50 .2
+building 6 3 10 0 0 0 4 50 .2
+building 6 -3 -10 30 0 0 4 9 1
+building 6 -7 -15 0 0 0 12 4 2
+building 2 -6.8 -12.5 -30 0 0 4 4 1
+building 10 -6.8 -12.5 -30 0 0 4 4 1
+building 6 -3 30 -30 0 0 4 9 1
+#下行
+BUILDING 0 -1 57 0 0 0 4 130 1 concreate_wall.jpg 0 0 0 0 4 33
+BUILDING 0 -1 189 0 0 0 4 135 1 concreate_wall.jpg 0 0 0 0 4 33
+#上行
+building 12.5 -.95 17 0 2 0 4 20 1 concreate_wall.jpg 0 0 0 0 4 9
+building 12.8 -.95 47 0 0 0 4 40 1 concreate_wall.jpg 0 0 0 0 4 22
+building 14 -.95 162 0 .0 0 4 190 1 concreate_wall.jpg 0 0 0 0 4 22
+#月台
+building 6.4 -7 99 0 0 0 9 95 7.8
+building 6.4 -1 43 0 0 0 9 17 1.8
+building 6.4 .8 104.5 0 0 0 9 140 .2 月台地板.png 0 0 0 0 1 11
+#天花板看板
+building 9 6 105 0 0 0 .3 140 .5 芝山站看板單.png 0 .3 0 0 23 2.5
+building 4 6 105 0 0 0 .3 140 .5 芝山站看板單.png 0 .3 0 0 23 2.5
+#北牆
+building 7 1 116 0 0 0 4 .3 7.5
+#電梯
+#building 7 4 105 0 0 0 5 5 2 手扶梯.png .5 0 0 0 8 8
+building 7 1 105.2 0 0 0 3.2 4.5 4 電梯門.png .2 0 0 0 4 3
+building 9 0 105 0 0 0 1 5 5 手扶梯.png .5 -.2 0 0 2 1
+building 5 0 105 0 0 0 1 5 5 手扶梯.png .5 -.2 0 0 2 1
+#告示牌
+building 6.5 2 48 0 0 0 .1 2 2 芝山站告示牌.jpg 0 0 0 0 4 3
+building 6.5 1 47.1 0 0 0 .1 .1 1
+building 6.5 1 48.9 0 0 0 .1 .1 1
+building 6.5 2 158 0 0 0 .1 2 2 芝山站告示牌.jpg 0 0 0 0 4 3
+building 6.5 1 157.1 0 0 0 .1 .1 1
+building 6.5 1 158.9 0 0 0 .1 .1 1
+#車站屋頂
+building 3.5 8.6 105 0 0 -24 6 140 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+building -.5 7 105 0 0 -12 4 140 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+building 9.5 8.6 105 0 0 24 6 140 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+building 13.2 6.9 105 0 0 12 4 140 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+cylinder 6.5 10 175 90 0 0 .8 140 圓山站屋頂中脊.png 0 0 90 0 1 .2
+building 3 11 80 0 0 -24 7 25 .3 圓山站屋頂頂面.png 0 0 90
+building 10 11 80 0 0 24 7 25 .3 圓山站屋頂頂面.png 0 0 90
+cylinder 7 10 92.6 90 0 0 .8 25 圓山站屋頂中脊.png 0 0 90 0
+building 3 11 130 0 0 -24 7 25 .3 圓山站屋頂頂面.png 0 0 90
+building 10 11 130 0 0 24 7 25 .3 圓山站屋頂頂面.png 0 0 90
+cylinder 7 10 142.5 90 0 0 .8 25 圓山站屋頂中脊.png
+
+building 3.5 7.6 190 0 0 -24 6 30 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+building -.5 6 190 0 0 -12 4 30 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+building 9.5 7.6 190 0 0 24 6 30 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+building 13.2 5.9 190 0 0 12 4 30 .3 圓山站屋頂頂面.png 0 1 90 0 7 20
+cylinder 6.5 9 205 90 0 0 .8 30 圓山站屋頂中脊.png 0 0 90 0 1 .2
+#屋頂柱樑
+cylinder 4 0 38 0 0 0 .4 7
+cylinder 9 0 38 0 0 0 .4 7
+building 6.4 6.5 38 0 0 0 9 .8 .8
+building -.2 6.5 40.5 0 0 -12 4 .4 .4
+building 3.7 8.1 40.5 0 0 -24 7 .4 .4
+building 2.5 6.8 40.5 0 0 0 4 .4 .4
+building 4.5 6.8 40.5 0 0 0 .4 .4 2
+building 15.5 6 40.5 0 0 12 5 .4 .4
+building 10.5 8 40.5 0 0 24 7 .4 .4
+building 12 6.5 40.5 0 0 0 4 .4 .4
+building 10 6.5 40.5 0 0 0 .4 .4 2
+cylinder 4 0 45.5 0 0 0 .4 7
+cylinder 9 0 45.5 0 0 0 .4 7
+building 6.4 6.5 45.5 0 0 0 9 .8 .8
+cylinder 4 0 53 0 0 0 .4 7
+cylinder 9 0 53 0 0 0 .4 7
+building 6.4 6.5 53 0 0 0 9 .8 .8
+cylinder 4 0 60.5 0 0 0 .4 7
+cylinder 9 0 60.5 0 0 0 .4 7
+building 6.4 6.5 60.5 0 0 0 9 .8 .8
+cylinder 4 0 68 0 0 0 .4 7
+cylinder 9 0 68 0 0 0 .4 7
+building 6.4 6.5 68 0 0 0 9 .8 .8
+cylinder 4 0 75.5 0 0 0 .4 7
+cylinder 9 0 75.5 0 0 0 .4 7
+building 6.4 6.5 75.5 0 0 0 9 .8 .8
+cylinder 4 0 83 0 0 0 .4 7
+cylinder 9 0 83 0 0 0 .4 7
+building 6.4 6.5 83 0 0 0 9 .8 .8
+cylinder 4 0 90.5 0 0 0 .4 7
+cylinder 9 0 90.5 0 0 0 .4 7
+building 6.4 6.5 90.5 0 0 0 9 .8 .8
+cylinder 4 0 98 0 0 0 .4 7
+cylinder 9 0 98 0 0 0 .4 7
+building 6.4 6.5 98 0 0 0 9 .8 .8
+cylinder 4 0 105.5 0 0 0 .4 7
+cylinder 9 0 105.5 0 0 0 .4 7
+building 6.4 6.5 105.5 0 0 0 9 .8 .8
+cylinder 4 0 113 0 0 0 .4 7
+cylinder 9 0 113 0 0 0 .4 7
+building 6.4 6.5 113 0 0 0 9 .8 .8
+cylinder 4 0 120.5 0 0 0 .4 7
+cylinder 9 0 120.5 0 0 0 .4 7
+building 6.4 6.5 120.5 0 0 0 9 .8 .8
+cylinder 4 0 128 0 0 0 .4 7
+cylinder 9 0 128 0 0 0 .4 7
+building 6.4 6.5 128 0 0 0 9 .8 .8
+cylinder 4 0 135.5 0 0 0 .4 7
+cylinder 9 0 135.5 0 0 0 .4 7
+building 6.4 6.5 135.5 0 0 0 9 .8 .8
+cylinder 4 0 143 0 0 0 .4 7
+cylinder 9 0 143 0 0 0 .4 7
+building 6.4 6.5 143 0 0 0 9 .8 .8
+cylinder 4 0 150.5 0 0 0 .4 7
+cylinder 9 0 150.5 0 0 0 .4 7
+building 6.4 6.5 150.5 0 0 0 9 .8 .8
+cylinder 4 0 158 0 0 0 .4 7
+cylinder 9 0 158 0 0 0 .4 7
+building 6.4 6.5 158 0 0 0 9 .8 .8
+cylinder 4 0 165.5 0 0 0 .4 7
+cylinder 9 0 165.5 0 0 0 .4 7
+building 6.4 6.5 165.5 0 0 0 9 .8 .8
+cylinder 4 0 173 0 0 0 .4 7
+cylinder 9 0 173 0 0 0 .4 7
+building 6.4 6.5 173 0 0 0 9 .8 .8
+#月台柱
+#下行
+cylinder 0 -7 37 0 0 0 1.5 6
+cylinder 0 -7 54 0 0 0 1.5 6
+cylinder 0 -7 71 0 0 0 1.5 6
+cylinder 0 -7 88 0 0 0 1.5 6
+cylinder 0 -7 105 0 0 0 1.5 6
+cylinder 0 -7 122 0 0 0 1.5 6
+cylinder 0 -7 139 0 0 0 1.5 6
+cylinder 0 -7 156 0 0 0 1.5 6
+cylinder 0 -7 173 0 0 0 1.5 6
+#出站
+building 7.5 -7 210 0 0 0 10 10 7
+building 7.5 0 210 0 0 0 7 7 5

@@ -1,0 +1,17 @@
+{
+    "default_minimap": {
+        "center_x": 0.0,
+        "center_z": 0.0,
+        "range": 200.0
+    },
+    "default_preview_camera": {
+        "position": [
+            10.0,
+            5.0,
+            10.0
+        ],
+        "yaw": -135.0,
+        "pitch": -20.0
+    },
+    "last_scene_file": "scene.txt"
+}

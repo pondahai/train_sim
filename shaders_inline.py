@@ -81,6 +81,161 @@ void main()
 # FLEXROOF_VERTEX_SHADER_SOURCE = """..."""
 # FLEXROOF_FRAGMENT_SHADER_SOURCE = """..."""
 
+TREE_VERTEX_SHADER_SOURCE = """
+#version 330 core
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec2 aTexCoords;
+
+out vec3 FragPos_world;
+out vec2 TexCoords_frag;
+
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+void main()
+{
+    FragPos_world = vec3(model * vec4(aPos, 1.0));
+    TexCoords_frag = aTexCoords;
+    gl_Position = projection * view * model * vec4(aPos, 1.0);
+}
+"""
+
+TREE_FRAGMENT_SHADER_SOURCE = """
+#version 330 core
+out vec4 FragColor;
+
+in vec3 FragPos_world;
+in vec2 TexCoords_frag;
+
+uniform sampler2D texture_diffuse1;
+uniform bool u_use_texture;
+uniform vec3 u_fallback_color;
+uniform bool u_texture_has_alpha;
+uniform float u_alpha_test_threshold;
+
+uniform vec3 lightPos_worldspace;
+uniform vec3 lightColor;
+uniform vec3 viewPos_worldspace;
+uniform float u_ambient_strength;
+uniform float u_specular_strength;
+
+void main()
+{
+    vec3 base_color_rgb;
+    float base_alpha = 1.0;
+
+    if (u_use_texture) {
+        vec4 texSample = texture(texture_diffuse1, TexCoords_frag);
+        if (u_texture_has_alpha && texSample.a < u_alpha_test_threshold) {
+            discard;
+        }
+        base_color_rgb = texSample.rgb;
+        base_alpha = texSample.a;
+    } else {
+        base_color_rgb = u_fallback_color;
+    }
+
+    // Simplified Lighting for Trees (billboards usually have simpler lighting or fake normals)
+    vec3 ambient = u_ambient_strength * lightColor;
+    vec3 norm = vec3(0.0, 1.0, 0.0); // Fake up normal
+    vec3 lightDir = normalize(lightPos_worldspace - FragPos_world);
+    float diff = max(dot(norm, lightDir), 0.0);
+    vec3 diffuse = (diff * 0.5 + 0.5) * lightColor; // Wrap lighting
+
+    vec3 lighting_effect = ambient + diffuse;
+    vec3 final_rgb = lighting_effect * base_color_rgb;
+    
+    FragColor = vec4(final_rgb, base_alpha);
+}
+"""
+
+CYLINDER_VERTEX_SHADER_SOURCE = """
+#version 330 core
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoords;
+
+out vec3 FragPos_world;
+out vec3 Normal_world;
+out vec2 TexCoords_frag;
+
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+uniform vec2 u_tex_offset;
+uniform vec2 u_tex_scale;
+
+void main()
+{
+    FragPos_world = vec3(model * vec4(aPos, 1.0));
+    Normal_world = normalize(mat3(transpose(inverse(model))) * aNormal);
+    
+    // Apply scale and offset
+    vec2 final_scale = u_tex_scale;
+    if (abs(final_scale.x) < 0.0001) final_scale.x = 0.0001;
+    if (abs(final_scale.y) < 0.0001) final_scale.y = 0.0001;
+    TexCoords_frag = (aTexCoords * final_scale) + u_tex_offset;
+
+    gl_Position = projection * view * model * vec4(aPos, 1.0);
+}
+"""
+
+CYLINDER_FRAGMENT_SHADER_SOURCE = """
+#version 330 core
+out vec4 FragColor;
+
+in vec3 FragPos_world;
+in vec3 Normal_world;
+in vec2 TexCoords_frag;
+
+uniform sampler2D texture_diffuse1;
+uniform bool u_use_texture;
+uniform vec3 u_fallback_color;
+uniform bool u_texture_has_alpha;
+uniform float u_alpha_test_threshold;
+
+uniform vec3 lightPos_worldspace;
+uniform vec3 lightColor;
+uniform vec3 viewPos_worldspace;
+uniform float u_ambient_strength;
+uniform float u_specular_strength;
+uniform float u_shininess;
+
+void main()
+{
+    vec3 base_color_rgb;
+    float base_alpha = 1.0;
+
+    if (u_use_texture) {
+        vec4 texSample = texture(texture_diffuse1, TexCoords_frag);
+        if (u_texture_has_alpha && texSample.a < u_alpha_test_threshold) {
+            discard;
+        }
+        base_color_rgb = texSample.rgb;
+        base_alpha = texSample.a;
+    } else {
+        base_color_rgb = u_fallback_color;
+    }
+
+    vec3 ambient = u_ambient_strength * lightColor;
+    vec3 norm = normalize(Normal_world);
+    vec3 lightDir = normalize(lightPos_worldspace - FragPos_world);
+    float diff = max(dot(norm, lightDir), 0.0);
+    vec3 diffuse = diff * lightColor;
+    vec3 viewDir = normalize(viewPos_worldspace - FragPos_world);
+    vec3 reflectDir = reflect(-lightDir, norm);  
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), u_shininess);
+    vec3 specular = u_specular_strength * spec * lightColor;  
+    
+    vec3 lighting_effect = ambient + diffuse + specular;
+    vec3 final_rgb = lighting_effect * base_color_rgb;
+    
+    FragColor = vec4(final_rgb, base_alpha);
+}
+"""
+
 BUILDING_VERTEX_SHADER_SOURCE = """
 #version 330 core
 layout (location = 0) in vec3 aPos;         // Model space position

@@ -1,0 +1,162 @@
+#EDITOR_SCENE_SETTINGS_JSON: {"minimap": {"center_x": 0.0, "center_z": 0.0, "range": 200.0}, "preview_camera": {"position": [2.6706760568987784, 2.2776795175169795, 5.509832316431791], "yaw": 297.90000000000015, "pitch": 8.499999999999963}}
+# 簡易電車模擬器場景描述
+sphere -3.0 23.0 0 0 0 0 10
+skydome room_round.png
+building 1.5 0 -3.5 0 0 0 .1 7 1.5 os_fence.png 0 0 0 1
+
+building -80.0 0 60.0 0 0 0 7 14 5
+gableroof -80.0 5 60.0 0 0 0 7 14 2 0 1 1
+building -87.0 0 60.2 0 90 0 7 14 5
+gableroof -87.9 5 60.0 0 90 0 7 14 2 0 1 1
+flexroof -136.0 33 -48 0 0 0 7 7 7 7 7
+flexroof -123 33 -48 0 0 0 7 7 0 0 7
+
+# 註解以 '#' 開頭
+building -100 -1 100 90 0 0 220 1 200
+hill -138.3 -9.0 34.1 35 99 山.png .94 .80 .0 .04
+building -113.9 5.2 30.7 0 33 0 8 8 7 隧道口3.png
+hill -140 -1 0 50 20
+hill -150 -12 -15 50 60
+hill -25 -1 40 30 10
+hill -22 -1 20 25 10
+hill -20 -3 0 25 15
+hill -20 -3 -10 25 15
+hill -22 -3 -15 25 15
+hill -25 -3 -25 25 25
+hill -32 -5 -31 25 35
+tree -25 6 40 15
+hill -34 -1 -80 20 22
+hill -55.3 -0.9 -73.0 20 22
+hill -11.4 -0.9 -72.0 20 22
+hill -76.3 -0.9 -73.0 20 22
+# 軌道定義 (連續定義)
+straight 50
+building 7.0 0 10.0 0 0 0 3 8 4 os_station.png 0 0 0 1
+gableroof 7 4 10 0 0 0 3 8 1 0 .5 .5 os_roof_narrow.png
+
+building 3.5 0 10.0 0 0 0 4 20 1 os_platform.png 0 0 0 0 3 3
+gableroof 3 4 10 0 0 0 3 20 1 0 .5 .5 os_roof_wide.png
+cylinder 2.0 1 19 0 0 0 .2 3 os_pole.png 0 0 0 0 3 2
+cylinder 4 1 19 0 0 0 .2 3 os_pole.png 0 0 0 0 3 2
+cylinder 2 1 1 0 0 0 .2 3 os_pole.png 0 0 0 0 3 2
+cylinder 4 1 1 0 0 0 .2 3 os_pole.png 0 0 0 0 3 2
+
+curve 20 90 0 半徑 20，左轉 90 度
+straight 30
+curve -15 120 0 半徑 15，右轉 120 度
+straight 40
+curve 25 -90 0 半徑 25，右轉 90 度 (回到接近起點方向)
+straight 20
+# curve 10 40 # 可以繼續添加軌道...
+
+# 建築物定義
+# building <x> <y> <z> <rx> <ry> <rz> <width> <depth> <height> [texture_file]
+building 15.3 0 30 0 0 0 8 6 3 building.png 0 0 0 2
+#building 10 10 25 0 0 0 10 10 3 triangle.png
+gableroof 15.3 3 30 0 0 0 9 7 3 0 .3 .3
+building -6.0 0 41.0 0 30 0 5 5 8
+building 13.1 -1.0 58.0 0 0 0 12 12 12 building.png 0 0 0 2
+flexroof 13 11 58 0 0 0 13 13 0 0 3
+
+
+# 圓柱體定義
+# cylinder <x> <y> <z> <rx> <ry> <rz> <radius> <height> [texture_file]
+cylinder -10 0 10 0 0 0 2 12
+cylinder 25 0 80 0 0 0 3 20
+
+# 樹木定義
+# tree <x> <y> <z> <height>
+tree 3.6 0 13.1 12
+tree 5 0 10 12
+tree -7.2 -0.5 30.3 11
+tree -10.0 0 35.0 10
+tree 20 0 50 13
+tree 23 0 55.0 13
+
+straight 50
+
+building 22.0 0 73.0 0 25 0 7 12 7
+#gableroof 22.0 13 73.0 0 25 0 7 12 1 0 1 1
+flexroof 22 14 73 0 25 0 9 13 0 11 2
+building 22.0 11 73.0 0 25 0 7 12 2
+#gableroof 22.0 11 73.0 0 25 0 9 15 1 0 1 1
+flexroof 22 12.0 73 0 25 0 9 15 7 12 2
+building 22 10 73.0 0 25 0 7 13 1
+cylinder 18.0 7 70.0 0 0 0 .5 3
+cylinder 21.8 7 77.7 0 0 0 .5 3
+building 23.9 7 72.2 0 25 0 3 12 3
+
+building 15.6 -0.5 70.0 0 25 0 2 1 .25
+building 16.1 -0.3 70.8 0 25 0 2 1 .25
+building 16.4 0.0 71.8 0 25 0 2 1 .25
+building 16.8 0.2 72.8 0 25 0 2 1 .25
+building 17.2 0.4 73.7 0 25 0 2 1 .25
+building 17.7 0.6 74.7 0 25 0 2 1 .25
+building 18.2 0.9 75.6 0 25 0 2 1 .25
+building 18.5 1.2 76.5 0 25 0 2 1 .25
+building 19.0 1.5 77.4 0 25 0 2 1 .25
+building 19.5 1.7 78.4 0 25 0 2 1 .25
+building 19.9 1.9 79.3 0 25 0 2 1 .25
+building 20.3 2.2 80.2 0 25 0 2 1 .25
+building 21.7 2.5 80.3 0 25 0 2 1 .25
+building 23.4 2.7 79.5 0 25 0 2 1 .25
+
+curve 50 -270 30
+building 80.0 -3.7 39.0 0 42 -1.5 20 7 7
+building 77.3 11 40.1 0 42 -1.5 20 18 3
+
+building 81.8 -7 44.8 0 42 -1.5 20 3 18
+building 73.8 -7 36.0 0 38 -1.5 20 3 18
+building 65 -4.2 48 0 18 -2 20 7 7
+building 46 -4.8 50 0 -5 -2 20 7 7
+building 34 .9 48 2 70 0 7 7 1
+building 27 .7 45 2 65 0 7 7 1
+building 21 .5 41 2 55 0 7 7 1
+building 16 .3 37 2 50 0 7 7 1
+building 11 .1 32 2 40 0 7 7 1
+building 7 -.15 26 2 34 0 7 7 1
+building 4 -.35 20 2 25 0 7 7 1
+building 1.8 -.5 14 2 18 0 7 7 1
+building .5 -.8 7 2 12 0 7 7 1
+building 0 -0.91 0 0 0 0 7 7 1
+straight 50
+
+building 80 -10.3 -39 2 -133 0 7 7 7
+building 75 -10.1 -43 2 -125 0 7 7 7
+building 69 -9.9 -46 2 -115 0 7 7 7
+building 63 -9.8 -48 2 -108 0 7 7 7
+building 57 -9.5 -50 2 -99 0 7 7 7
+building 50 -9.4 -50 2 -90 0 7 7 7
+building 43 -9.2 -49 2 -85 0 7 7 7
+building 37 -9.2 -48 2 -77 0 7 7 7
+building 31 -8.8 -46 2 -70 0 7 7 7
+building 25 -8.5 -43 2 -60 0 7 7 7
+building 19 -8.5 -39 2 -54 0 7 7 7
+building 14 -8.3 -35 2 -48 0 7 7 7
+building 9.5 -8.1 -30 2 -33 0 7 7 7
+building 6 -7.8 -24 2 -25 0 7 7 7
+building 3 -7.6 -18 2 -18 0 7 7 7
+building 1 -7.3 -11 2 -12 0 7 7 7
+building 0 -7.1 -4 2 0 0 7 7 7
+building 0.0 -7 19.0 0 0 0 7 40 7
+building 0 -7.3 50 0 -5 0 7 7 7 cube磚拱橋.png
+building -0.7 -7.7 56.8 0 -5 0 7 7 7 cube磚拱橋.png
+building 0.1 -7.3 43.1 0 -2 0 7 8 7 cube磚拱橋.png
+curve 37 148.3 -74
+building 0.1 -1 -6.2 0 0 0 7 10 1
+building -0.2 -1.4 4.7 -3 -10 0 7 10 1
+building -1.0 -8 11.0 -3.5 -11 0 7 3 7
+building -1.7 -8 13.7 -3.5 -21 0 7 5 7
+building -5.6 -8.8 19.9 -3.5 -33 0 7 12 7
+building -12 -9.5 28 -3.5 -47 0 7 10 7
+building -20 -10 33 -3.5 -60 0 7 10 7
+building -27 -10.6 35.5 -5 -75 0 7 10 7
+building -27 -10.6 35.5 -5 -75 0 7 10 7
+
+straight 14.2
+
+building -18 -2.3 -31 -4 58 0 7 12 5
+building -10 -3 -25 -4 42 0 7 10 5
+building -5 -.6 -18 -4 30 0 7 10 2
+building -1 -.2 -10 -4 15 0 7 10 1
+building 0 -.9 -1 -4 0 0 7 10 1

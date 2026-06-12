@@ -10,20 +10,16 @@ HUD 與小地圖格線標籤的文字紋理快取、`texture_loader.py` 的 PyQt
 
 ---
 
-## 高優先:圓柱 / 球 / 樹改用 VBO(工程量較大)
+## 高優先:球改用 VBO(圓柱/樹已於 2026-06-12 合流時完成)
 
-目前這三類物件仍走即時模式,每幀重新計算幾何:
+~~圓柱、樹~~ 已在本資料夾透過合流 gemini 版的 VBO+著色器實作完成
+(見 MERGE_NOTES.md)。剩餘:
 
-- `draw_cylinder`(renderer.py,`gluNewQuadric` 處)每個圓柱每幀
-  `gluNewQuadric()` → 重新鑲嵌整個網格 → `gluDeleteQuadric()`。
-- `draw_sphere`(renderer.py)同樣每幀重建 quadric。
-- `draw_tree`(renderer.py)每棵樹每幀 `glPushAttrib`/`glPopAttrib`
-  (極昂貴的狀態保存)加 `glBegin/glEnd` 即時模式。
+- `draw_sphere`(renderer.py)仍每幀 `gluNewQuadric()` 重建 quadric。
 
-做法:比照 buildings/hills 的模式,載入場景時建立 VBO/VAO
-(`create_building_buffers` 可當範本),繪製時只綁 VAO + `glDrawArrays`。
-樹只是兩個交叉面片,所有樹可合併成單一 VBO 一次 draw call 畫完,
-alpha test 等狀態整批設定一次。
+做法:比照 cylinders 的模式(`generate_cylinder_mesh_data` /
+`create_cylinder_buffers` 可當範本),載入場景時建立 VBO/VAO,
+繪製時只綁 VAO + `glDrawArrays`。
 
 ## 中優先:每幀矩陣讀回與重複求逆
 
@@ -61,10 +57,8 @@ visual branches 再各三次。段數多時可把同類幾何合併成單一大 
   (`math.radians`、`math.cos`、`arctan2`…)走 numpy 比內建 `math` 慢數倍,
   熱路徑(每幀的小地圖角度計算等)受影響。改回內建 `math` 需逐一確認
   numpy 專有函數名(如 `arctan2` → `atan2`)。
-- **小地圖軌道線每幀逐點轉換**(minimap_renderer.py
-  `draw_simulator_minimap` 的 B.1 區塊):軌道是靜態的,每幀對每個點呼叫
-  `_world_to_map_coords_adapted` + 即時模式頂點。可預先把點存成 numpy
-  陣列做整批運算,或烘進 VBO 後只更新平移/縮放。
+- ~~**小地圖軌道線每幀逐點轉換**~~ 已於 2026-06-12 合流時完成:
+  軌道改烘進靜態 FBO 紋理(畫在建築之上),模擬器小地圖不再每幀重畫。
 - **編輯器文字繪製尚未接上快取**:`minimap_renderer.py` 編輯器路徑
   (約 1556、1776、1813、1876、1974、2081、2329、2402、2478、2491 行)
   仍用舊的 `renderer._draw_text_texture`(每次重建紋理)。模擬器路徑已改用

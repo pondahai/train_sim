@@ -617,33 +617,7 @@ def _render_static_elements_to_fbo(scene: Scene):
         if current_grid_z >= world_min_z: x1, y1 = _world_to_fbo_coords(world_min_x, current_grid_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h); x2, y2 = _world_to_fbo_coords(world_max_x, current_grid_z, world_cx, world_cz, world_w, world_h, fbo_w, fbo_h); glBegin(GL_LINES); glVertex2f(x1, y1); glVertex2f(x2, y2); glEnd()
         current_grid_z += MINIMAP_GRID_SCALE
 
-    # --- START OF MODIFICATION: Add Track rendering to FBO bake ---
-    if scene and scene.track:
-        
-        glLineWidth(1.0) # Thinner lines for baked track
-
-        for segment in scene.track.segments:
-            # Draw main segment points
-            if segment.points and len(segment.points) >= 2:
-                glColor3fv(MINIMAP_TRACK_COLOR) # Use the defined track color
-                glBegin(GL_LINE_STRIP)
-                for point_world in segment.points:
-                    map_x, map_y = _world_to_fbo_coords(point_world[0], point_world[2], world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
-                    glVertex2f(map_x, map_y)
-                glEnd()
-            
-            # Draw visual branches of the segment
-            if hasattr(segment, 'visual_branches') and segment.visual_branches:
-                glColor3fv(MINIMAP_BRANCH_TRACK_COLOR) # Use the defined track color
-                for branch_def in segment.visual_branches:
-                    if branch_def.get('points') and len(branch_def['points']) >= 2:
-                        glBegin(GL_LINE_STRIP)
-                        for point_world_branch in branch_def['points']:
-                            map_x_b, map_y_b = _world_to_fbo_coords(point_world_branch[0], point_world_branch[2], world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
-                            glVertex2f(map_x_b, map_y_b)
-                        glEnd()
-    # --- END OF MODIFICATION ---
-
+    # (軌道烘焙已移到函數末尾，畫在建築之上)
 
     # Buildings (Filled Quads)
     glColor4fv(MINIMAP_BAKE_BUILDING_COLOR)
@@ -974,6 +948,31 @@ def _render_static_elements_to_fbo(scene: Scene):
                 # 的結果應該已經能較好地反映其形狀 (例如人字形的三角形投影)。
                 pass
 
+    # --- 軌道烘焙進 FBO（移到最後，畫在建築之上；模擬器小地圖不再每幀重畫軌道） ---
+    if scene and scene.track:
+
+        glLineWidth(2.0) # 烘焙時稍粗，較清楚
+
+        for segment in scene.track.segments:
+            # Draw main segment points
+            if segment.points and len(segment.points) >= 2:
+                glColor3fv(MINIMAP_TRACK_COLOR) # Use the defined track color
+                glBegin(GL_LINE_STRIP)
+                for point_world in segment.points:
+                    map_x, map_y = _world_to_fbo_coords(point_world[0], point_world[2], world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+                    glVertex2f(map_x, map_y)
+                glEnd()
+
+            # Draw visual branches of the segment
+            if hasattr(segment, 'visual_branches') and segment.visual_branches:
+                glColor3fv(MINIMAP_BRANCH_TRACK_COLOR) # Use the defined track color
+                for branch_def in segment.visual_branches:
+                    if branch_def.get('points') and len(branch_def['points']) >= 2:
+                        glBegin(GL_LINE_STRIP)
+                        for point_world_branch in branch_def['points']:
+                            map_x_b, map_y_b = _world_to_fbo_coords(point_world_branch[0], point_world_branch[2], world_cx, world_cz, world_w, world_h, fbo_w, fbo_h)
+                            glVertex2f(map_x_b, map_y_b)
+                        glEnd()
 
     print("靜態元素 FBO 繪製完成。")
 
@@ -1025,27 +1024,8 @@ def draw_simulator_minimap(scene: Scene, tram: Tram, screen_width, screen_height
     # B. Overlay Dynamic Elements
     overlay_scale = map_draw_size / view_range
     # B.1 Draw Track
-    if scene and scene.track:
-        glLineWidth(2.0); glColor3fv(MINIMAP_TRACK_COLOR)
-        for segment in scene.track.segments:
-            if not segment.points or len(segment.points)<2:
-                continue
-#             print(f"segment: {segment}")
-            # 畫出軌道端點
-            map_x, map_y = _world_to_map_coords_adapted(segment.points[0][0], segment.points[0][2],
-                                                player_x, player_z,
-                                                map_center_x_screen, map_center_y_screen, overlay_scale)
-            glPointSize(8)
-            glBegin(GL_POINTS)
-            glColor3fv(MINIMAP_TRACK_COLOR)
-            glVertex2f(map_x, map_y)  # 
-            glEnd()        
-             
-            glBegin(GL_LINE_STRIP)
-            for point_world in segment.points:
-                map_x,map_y = _world_to_map_coords_adapted(point_world[0], point_world[2], player_x, player_z, map_center_x_screen, map_center_y_screen, overlay_scale);
-                glVertex2f(map_x, map_y)
-            glEnd()
+    # 軌道已烘焙進靜態 FBO 紋理（_render_static_elements_to_fbo 末尾），
+    # 每幀逐點重畫非常慢且多餘，故此處不再動態繪製。
     # B.2 Draw Player Marker
     glColor3fv(MINIMAP_PLAYER_COLOR);
     player_screen_x=map_center_x_screen;

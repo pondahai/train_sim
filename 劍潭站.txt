@@ -1,0 +1,192 @@
+#EDITOR_SCENE_SETTINGS_JSON: {"minimap": {"center_x": 0.0, "center_z": 0.0, "range": 200.0}, "preview_camera": {"position": [-62.099414203256124, 50.08672675120791, -1.9915704174947948], "yaw": 58.000000000000036, "pitch": -26.500000000000014}}
+#劍潭站
+
+
+building .4 -1 12 0 1 0 4 20 1
+building .6 -1 30 0 1 0 4 17 1
+#####
+
+
+building 0 -1 93 0 0 0 4 200 1
+#方基
+building 0 -7.8 90 0 0 0 300 300 1 劍潭站方基.png -.02 .17 13 0 4 3
+#一樓
+building 7.5 -7 78 0 0 0 11 155 7 劍潭站一樓.png 0 0 0 0 10 3
+#月台
+building 7.5 0 78 0 0 0 11 170 1 月台地板.png 0 0 0 0 1 15
+#車站屋頂
+building 0.5 7.2 78 0 0 0 5 170 .3 月台天花板.png 0 0 0 0 1 55
+building 4.5 7.5 78 0 0 -12 3.5 170 .3 劍潭站天花板.png 0 0 0 0 1 55
+#屋脊
+building 6.5 8.0 78 0 0 0 .3 170 .4
+building 6.5 8.4 78 0 0 0 .3 172 1
+#中間
+building 7.5 7.8 78 0 0 0 3 170 .3 劍潭站天花板.png 0 0 0 0 1 55
+#屋脊
+building 8.5 8.0 78 0 0 0 .3 170 .4
+building 8.5 8.4 78 0 0 0 .3 172 1
+#
+building 10.5 7.5 78 0 0 12 3.5 170 .3 劍潭站天花板.png 0 0 0 0 1 55
+building 14.5 7.2 78 0 0 0 5 170 .3 月台天花板.png 0 0 0 0 1 55
+#天花板看板
+building 13 6.5 78 0 0 0 .3 170 .5 劍潭站看板單.png 0 .2 0 0 33 3
+building 2 6.5 78 0 180 0 .3 170 .5 劍潭站看板單.png 0 .2 0 0 33 3
+#cylinder 8.0 8.5 163 90 0 0 .8 170
+#定位柱
+#building 7 -7 2 0 0 0 1 1 37
+#cylinder 7 -7 -14 0 0 0 .1 37
+#南柱
+building 6.7 16.5 -3.8 33 0 0 .5 4 12 concreate_wall.jpg 0 0 0 0 1 1
+building 5 0 7 33 0 5 .5 4 20 concreate_wall.jpg 0 0 0 0 1 1
+building 8.3 16.5 -3.8 33 0 0 .5 4 12 concreate_wall.jpg 0 0 0 0 1 1
+building 10 0 7 33 0 -5 .5 4 20 concreate_wall.jpg 0 0 0 0 1 1
+#南柱頭
+building 8.7 24 -10 -0 0 0 .5 10 3 concreate_wall.jpg 0 0 0 0 1 1
+building 8.7 22 -9 55 0 0 .5 2 6 concreate_wall.jpg 0 0 0 0 1 1
+building 7.5 22 -10 55 0 0 2 .5 3 concreate_wall.jpg 0 0 0 0 1 1
+building 7.5 24 -6 -5 0 0 2 .5 3 concreate_wall.jpg 0 0 0 0 1 1
+building 7.5 17 -6 28 0 0 2 .5 6 concreate_wall.jpg 0 0 0 0 1 1
+building 6.2 22 -9 55 0 0 .5 2 6 concreate_wall.jpg 0 0 0 0 1 1
+building 6.2 24 -10 -0 0 0 .5 10 3 concreate_wall.jpg 0 0 0 0 1 1
+#南鋼纜
+cylinder 11 -7 -40 -45 -5.5 0 .1 50
+cylinder 11 -7 -55 -55 -4 0 .1 61
+cylinder 4 -7 -40 -45 5.5 0 .1 50
+cylinder 4 -7 -55 -55 4 0 .1 61
+building 11 -7 -40 -45 -5 0 3 3 3 concreate_wall.jpg 0 0 0 0 1 1
+building 11 -7 -55 -55 -4 0 3 3 3 concreate_wall.jpg 0 0 0 0 1 1
+building 4 -7 -40 -45 5 0 3 3 3 concreate_wall.jpg 0 0 0 0 1 1
+building 4 -7 -55 -55 4 0 3 3 3 concreate_wall.jpg 0 0 0 0 1 1
+#北柱
+building 6.5 16.5 156.5 -22 0 0 .5 4 12 concreate_wall.jpg 0 0 0 0 1 1
+building 5 0 150 -22 0 5 .5 4 20 concreate_wall.jpg 0 0 0 0 1 1
+building 8.5 16.5 156.5 -22 0 0 .5 4 12 concreate_wall.jpg 0 0 0 0 1 1
+building 10 0 150 -22 0 -5 .5 4 20 concreate_wall.jpg 0 0 0 0 1 1
+#北柱頭
+building 8.7 24 162 -0 0 0 .5 10 3 concreate_wall.jpg 0 0 0 0 1 1
+building 8.7 22 160 -55 0 0 .5 2 6 concreate_wall.jpg 0 0 0 0 1 1
+building 7.5 23 164 -55 0 0 2 .5 3 concreate_wall.jpg 0 0 0 0 1 1
+building 7.5 24 159 45 0 0 2 .5 3 concreate_wall.jpg 0 0 0 0 1 1
+building 7.5 19 159 -38 0 0 2 .5 6 concreate_wall.jpg 0 0 0 0 1 1
+building 6.2 22 160 -55 0 0 .5 2 6 concreate_wall.jpg 0 0 0 0 1 1
+building 6.2 24 162 -0 0 0 .5 10 3 concreate_wall.jpg 0 0 0 0 1 1
+#北鋼纜
+cylinder 11 -7 195 45 5.5 0 .1 50
+cylinder 11 -7 210 55 4 0 .1 61
+cylinder 4 -7 195 45 -5.5 0 .1 50
+cylinder 4 -7 210 55 -4 0 .1 61
+building 11 -7 195 45 5 0 3 3 3 concreate_wall.jpg 0 0 0 0 20 8
+building 11 -7 210 55 4 0 3 3 3 concreate_wall.jpg 0 0 0 0 20 8
+building 4 -7 195 45 -5 0 3 3 3 concreate_wall.jpg 0 0 0 0 20 8
+building 4 -7 210 55 -4 0 3 3 3 concreate_wall.jpg 0 0 0 0 20 8
+#吊橋
+#連接塊
+building 7.5 20 10 0 0 0 3 1 2
+building 7.5 18.5 15 0 0 0 3 1 2
+building 7.5 16.5 21 0 0 0 3 1 2
+building 7.5 15 26 0 0 0 3 1 2
+building 7.5 14 31 0 0 0 3 1 2
+building 7.5 13 37 0 0 0 3 1 2
+building 7.5 12 43 0 0 0 3 1 2
+building 7.5 11.5 48 0 0 0 3 1 2
+building 7.5 11 53 0 0 0 3 1 2
+building 7.5 10.5 58 0 0 0 3 1 2
+building 7.5 10 64 0 0 0 3 1 2
+building 7.5 10 69 0 0 0 3 1 2
+building 7.5 10 75 0 0 0 3 1 2
+building 7.5 10 78 0 0 0 3 1 2
+building 7.5 10 83 0 0 0 3 1 2
+building 7.5 10 88 0 0 0 3 1 2
+building 7.5 10.5 93 0 0 0 3 1 2
+building 7.5 11 99 0 0 0 3 1 2
+building 7.5 11.5 105 0 0 0 3 1 2
+building 7.5 12 110 0 0 0 3 1 2
+building 7.5 13 116 0 0 0 3 1 2
+building 7.5 14 121 0 0 0 3 1 2
+building 7.5 15 127 0 0 0 3 1 2
+building 7.5 16.5 133 0 0 0 3 1 2
+building 7.5 18.5 138 0 0 0 3 1 2
+building 7.5 20.5 144 0 0 0 3 1 2
+#南弧
+cylinder 8 26 -5 -108 0 0 .1 15
+cylinder 7 26 -5 -108 0 0 .1 15
+cylinder 8 21 10 -108 0 0 .1 5
+cylinder 7 21 10 -108 0 0 .1 5
+cylinder 8 19.5 15 -108 0 0 .1 6
+cylinder 7 19.5 15 -108 0 0 .1 6
+cylinder 8 17.5 21 -108 0 0 .1 5
+cylinder 7 17.5 21 -108 0 0 .1 5
+cylinder 8 16 26 -102 0 0 .1 5
+cylinder 7 16 26 -102 0 0 .1 5
+cylinder 8 15 31 -102 0 0 .1 6
+cylinder 7 15 31 -102 0 0 .1 6
+cylinder 8 13.8 37 -98 0 0 .1 6
+cylinder 7 13.8 37 -98 0 0 .1 6
+cylinder 8 13 43 -98 0 0 .1 5
+cylinder 7 13 43 -98 0 0 .1 5
+cylinder 8 12.2 48 -95 0 0 .1 5
+cylinder 7 12.2 48 -95 0 0 .1 5
+cylinder 8 11.5 53 -93 0 0 .1 5
+cylinder 7 11.5 53 -93 0 0 .1 5
+cylinder 8 11.2 58 -93 0 0 .1 5
+cylinder 7 11.2 58 -93 0 0 .1 5
+cylinder 8 11 63 -90 0 0 .1 6
+cylinder 7 11 63 -90 0 0 .1 6
+cylinder 8 11 69 -90 0 0 .1 6
+cylinder 7 11 69 -90 0 0 .1 6
+cylinder 8 11 75 -90 0 0 .1 3
+cylinder 7 11 75 -90 0 0 .1 3
+#北弧
+cylinder 8 26 158 108 0 0 .1 15
+cylinder 7 26 158 108 0 0 .1 15
+cylinder 8 21.5 144 108 0 0 .1 6
+cylinder 7 21.5 144 108 0 0 .1 6
+cylinder 8 19.5 138 110 0 0 .1 5
+cylinder 7 19.5 138 110 0 0 .1 5
+cylinder 8 17.5 133 105 0 0 .1 6
+cylinder 7 17.5 133 105 0 0 .1 6
+cylinder 8 16 127 102 0 0 .1 6
+cylinder 7 16 127 102 0 0 .1 6
+cylinder 8 15 121 102 0 0 .1 5
+cylinder 7 15 121 102 0 0 .1 5
+cylinder 8 13.8 116 98 0 0 .1 6
+cylinder 7 13.8 116 98 0 0 .1 6
+cylinder 8 13 110 98 0 0 .1 5
+cylinder 7 13 110 98 0 0 .1 5
+cylinder 8 12.2 105 95 0 0 .1 6
+cylinder 7 12.2 105 95 0 0 .1 6
+cylinder 8 11.5 99 93 0 0 .1 6
+cylinder 7 11.5 99 93 0 0 .1 6
+cylinder 8 11.2 93 93 0 0 .1 5
+cylinder 7 11.2 93 93 0 0 .1 5
+cylinder 8 11 88 90 0 0 .1 5
+cylinder 7 11 88 90 0 0 .1 5
+cylinder 8 11 83 90 0 0 .1 6
+cylinder 7 11 83 90 0 0 .1 6
+#垂直線
+cylinder 7.5 21 10 -180 0 0 .1 13
+cylinder 7.5 19.5 15 -180 0 0 .1 11
+cylinder 7.5 17.5 21 -180 0 0 .1 8
+cylinder 7.5 16 26 -180 0 0 .1 8
+cylinder 7.5 15 31 -180 0 0 .1 7
+cylinder 7.5 13.8 37 -180 0 0 .1 5
+cylinder 7.5 13 43 -180 0 0 .1 5
+cylinder 7.5 12.2 48 -180 0 0 .1 4
+cylinder 7.5 11.5 53 -180 0 0 .1 3.4
+cylinder 7.5 11.2 58 -180 0 0 .1 3.2
+cylinder 7.5 11 64 -180 0 0 .1 3
+cylinder 7.5 11 69 -180 0 0 .1 3
+cylinder 7.5 11 75 -180 0 0 .1 3
+cylinder 7.5 11 78 -180 0 0 .1 3
+cylinder 7.5 21.5 144 -180 0 0 .1 13
+cylinder 7.5 19.5 138 -180 0 0 .1 11
+cylinder 7.5 17.5 133 -180 0 0 .1 8.5
+cylinder 7.5 16 127 -180 0 0 .1 8
+cylinder 7.5 15 121 -180 0 0 .1 7
+cylinder 7.5 13.8 116 -180 0 0 .1 5
+cylinder 7.5 13 110 -180 0 0 .1 5
+cylinder 7.5 12.2 105 -180 0 0 .1 4
+cylinder 7.5 11.5 99 -180 0 0 .1 3.4
+cylinder 7.5 11.2 93 -180 0 0 .1 3.2
+cylinder 7.5 11 88 -180 0 0 .1 3
+cylinder 7.5 11 83 -180 0 0 .1 3

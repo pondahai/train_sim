@@ -1,0 +1,168 @@
+#EDITOR_SCENE_SETTINGS_JSON: {"minimap": {"center_x": -103.70215611371883, "center_z": 8.361204076358062, "range": 29.72872560482873}, "preview_camera": {"position": [-99.68718535053736, 1.910402743988181, -3.791252144119594], "yaw": 3.200000000000819, "pitch": 5.100000000000165}}
+#straight 10 15
+#curve 50 90 5
+#straight 0
+#curve 50 90 5
+#straight 0
+#curve 50 90 -5
+#straight 0
+#curve 50 90 -5
+curve 50 360
+hill -50 -42 0 85 100 山.png 1 4
+
+#建築物格式: building x y z width depth height
+building 0.0 5.0 17.0 0 0 0 20 5 1
+building 8.0 4 14.0 0 0 0 3 1 1
+building 8 3 13 0 0 0 3 1 1
+building 8 2 12 0 0 0 3 1 1
+building 8 1 11 0 0 0 3 1 1
+building 8 0 10 0 0 0 3 1 1
+building 8 -1 9 0 0 0 3 1 1
+building 5 -1 30 0 -110 0 20 5 8 台北市舊公寓外觀Taipei-Old-Apartment.jpg
+
+building 5 -1 -3 0 0 0 6 20 1
+building 6 0 -10 0 0 0 3 5 3
+building 6 0 -2 0 0 0 3 3 3
+building 6 3 -3 0 0 0 7 20 1
+gableroof 6 4 -3 0 0 0 7 20 1 0 .5 .5
+
+cylinder -50 -6 0 0 0 0 60 5 山.png 0 .3 0 0 1 5
+#cylinder -50 -1 0 0 0 0 47 3 wall.jpg
+
+#cylinder -50 2 0 0 0 0 45 6 mountain.jpg
+
+#樹木格式: tree x y z height
+tree -9 5 17 8 sakura.png
+tree 3 -1 7 8
+tree 3 -1 10 3
+tree 2 -1 13 3
+
+tree 2 -1 13 3
+
+tree -4 0 13 5
+tree -8 0 20 5
+
+tree 2 -1.5 22 5
+tree 1 -1.5 25 5
+tree 0 -2 27 5
+tree -1 -2 29 5
+tree -2 -2 33 5
+tree -3 -2 35 5
+tree -4 -2 37 5
+tree -10 -2 39 5
+tree -13 -2 41 5
+tree -13 -2 43 5
+tree -11 -3 47 5
+tree -23 -4 59 5
+tree -19 -4 51 5
+
+tree -24 -4 55 5
+tree -26 -4 57 5
+tree -28 -3 59 5
+tree -30 -4 61 5
+tree -32 -4 63 5
+tree -33 -4 43 5
+tree -40 -4 46 5
+tree -44 -3 46 5
+tree -48 -4 56 5
+tree -51 -4 55 5
+
+tree -33 -4 55 5
+tree -40 -4 57 5
+tree -44 -3 59 5
+tree -48 -4 61 5
+tree -51 -4 63 5
+
+tree -65 -4 55 5
+tree -65 -4 57 5
+tree -65 -3 59 5
+tree -65 -4 61 5
+tree -65 -4 63 5
+
+tree -75 -4 55 5
+tree -75 -4 57 5
+tree -75 -3 59 5
+tree -75 -4 51 5
+tree -75 -4 53 5
+
+tree -85 -4 45 5
+tree -85 -4 47 5
+tree -85 -3 49 5
+tree -85 -4 21 5
+tree -85 -4 43 5
+
+tree -60 -1 45 5
+tree -55 -1 46 5
+tree -65 -1 44 5
+tree -70 -1 21 5
+tree -68 -1 43 5
+
+building -88 -1 42 0 0 0 2 2 6 brick_wall.jpg
+building -88 -1 38 0 0 0 2 2 6 brick_wall.jpg
+building -88 5 40 0 0 0 2 7 2 brick_wall.jpg
+building -80 7 40 0 0 0 60 7 1
+tree -90 -1 35 5
+tree -92 -1 36 5
+tree -90 -1 34 5
+tree -92 -1 31 5
+tree -91 -1 33 5
+
+tree -100 -2 25 5
+tree -100 -1 26 5
+tree -100 -2 24 5
+tree -100 -1 21 5
+tree -100 -2 23 5
+
+tree -103 -2 12 5
+tree -102 -1 18 5
+tree -103 -2 12 5
+tree -104 -1 13 5
+tree -103 -2 10 5
+
+tree -95 -2 2 5
+tree -95 -1 8 5
+tree -95 -2 2 5
+tree -94 -1 3 5
+tree -95 -2 0 5
+
+building -105 -1 -10 0 0 0 2 35 6 concreate_wall.jpg
+building -96 5 -10 0 0 0 20 35 6 concreate_wall.jpg
+building -103 -1 -25 0 0 0 4 2 6 concreate_wall.jpg
+building -100 -1 -28 0 0 0 4 1 6 concreate_wall.jpg
+building -97 -1 -30 0 0 0 4 1 6 concreate_wall.jpg
+
+building -75 -1 -35 0 0 0 40 5 1
+building -92 -1 -28 0 -20 0 13 2 8 隧道口3.png .25 0 0 0 1 1
+building -100 -1 7.2 0 0 0 10 1 8 隧道口3.png .25 0 0 0 1 1
+#cylinder -73 3 -30 90 55 0 6 10 隧道口3.png -.9 -.2 0 0 32 12
+
+building -90 -1 -40 0 0 0 4 5 3
+gableroof -90 2 -40 0 0 0 4 5 1 0 .5 .5
+building -82 -1 -45 0 -44 0 4 5 3
+gableroof -82 2 -45 0 -44 0 4 5 1 0 .5 .5
+building -78 -1 -50 0 -50 0 4 5 2
+gableroof -78 1 -50 0 -50 0 4 5 1 0 .5 .5
+building -75 -1 -55 0 -44 0 4 5 4
+gableroof -75 3 -55 0 -44 0 4 5 1 0 .5 .5
+building -68 -1 -51 0 -66 0 4 5 3
+gableroof -68 2 -51 0 -66 0 4 5 1 0 .5 .5
+building -45 -1 -60 0 -11 0 20 5 8 台北市舊公寓外觀Taipei-Old-Apartment.jpg
+building -25 -1 -75 0 45 0 5 30 8 台北市舊公寓外觀Taipei-Old-Apartment.jpg
+building -5 -1 -50 0 45 0 5 30 8 台北市舊公寓外觀Taipei-Old-Apartment.jpg
+building 5 -1 -30 0 45 0 5 30 8 台北市舊公寓外觀Taipei-Old-Apartment.jpg
+building 15 -1 -10 0 0 0 5 30 8 台北市舊公寓外觀Taipei-Old-Apartment.jpg
+
+building -17 2 -8 0 0 0 20 20 8 台北市舊公寓外觀Taipei-Old-Apartment.jpg 0 0 0 0 4 3
+building -15 2 -4 0 0 0 20 20 8 台北市舊公寓外觀Taipei-Old-Apartment.jpg 0 0 0 0 4 3
+
+#building -5 -3 -50 0 0 0 100 130 1
+
+tree -85 -2 -42 5
+tree -84 -2 -40 5
+tree -72 -2 -51 5
+
+tree -50 -2 -55 6
+tree -53 -1 -54 5
+tree -56 -2 -55 7
+tree -60 -1 -53 3
+tree -62 -2 -54 5

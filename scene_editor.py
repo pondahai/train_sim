@@ -54,6 +54,28 @@ PREVIEW_MOUSE_SENSITIVITY = 0.1
 PREVIEW_ACCEL_FACTOR = 12.0 # Shift 加速倍率
 
 # --- Minimap OpenGL Widget ---
+# import cProfile
+# import pstats
+# profiler = cProfile.Profile()
+# profiler.enable()
+
+# --- Constants ---
+SCENE_FILE = "scene.txt"
+EDITOR_WINDOW_TITLE = "Tram Scene Editor"
+INITIAL_WINDOW_WIDTH = 1200
+INITIAL_WINDOW_HEIGHT = 600
+EDITOR_COORD_COLOR = (205, 205, 20, 200)
+EDITOR_COORD_FONT_SIZE = 18
+EDITOR_LABEL_OFFSET_X = 5
+EDITOR_LABEL_OFFSET_Y = 3
+
+# --- 3D 預覽視窗常數 ---
+PREVIEW_UPDATE_INTERVAL = 80 # ms 
+PREVIEW_MOVE_SPEED = 3.0 # units per second
+PREVIEW_MOUSE_SENSITIVITY = 0.1
+PREVIEW_ACCEL_FACTOR = 12.0 # Shift 加速倍率
+
+# --- Minimap OpenGL Widget ---
 class MinimapGLWidget(QGLWidget):
     """Custom OpenGL Widget for rendering the scene preview."""
     glInitialized = pyqtSignal()
@@ -428,14 +450,14 @@ class PreviewGLWidget(QGLWidget):
         glEnable(GL_NORMALIZE)
 
 
-        ### --- START OF MODIFICATION: Initialize Hill Shader for Preview ---
-        if hasattr(renderer, 'init_hill_shader'):
+        ### --- START OF MODIFICATION: Initialize Cylinder Shader for Preview ---
+        if hasattr(renderer, 'init_cylinder_shader'):
             print("編輯器預覽：正在初始化山丘著色器...")
-            renderer.init_hill_shader() # 確保在有效的GL上下文中調用
-            if renderer._hill_shader_program_id is None:
+            renderer.init_cylinder_shader() # 確保在有效的GL上下文中調用
+            if renderer._cylinder_shader_program_id is None:
                  print("警告 (編輯器預覽): 山丘著色器初始化失敗！")
         else:
-            print("警告 (編輯器預覽): renderer 模塊中未找到 init_hill_shader 函數。")
+            print("警告 (編輯器預覽): renderer 模塊中未找到 init_cylinder_shader 函數。")
         ### --- END OF MODIFICATION ---
 
         if renderer._building_shader_program_id is None: # <--- 檢查 building shader
@@ -2265,9 +2287,9 @@ class SceneEditorWindow(QMainWindow):
             if self.preview_widget._scene_data:
                 # ... (清理軌道、山丘、建築物等 VBO/VAO 的程式碼) ...
                 old_scene_to_cleanup = self.preview_widget._scene_data
-                if hasattr(old_scene_to_cleanup, 'hills') and old_scene_to_cleanup.hills:
-                    if hasattr(renderer, 'cleanup_all_hill_buffers'):
-                        renderer.cleanup_all_hill_buffers(old_scene_to_cleanup.hills)
+                if hasattr(old_scene_to_cleanup, 'cylinders') and old_scene_to_cleanup.cylinders:
+                    if hasattr(renderer, 'cleanup_all_cylinder_buffers'):
+                        renderer.cleanup_all_cylinder_buffers(old_scene_to_cleanup.cylinders)
                 if hasattr(old_scene_to_cleanup, 'track') and old_scene_to_cleanup.track:
                     old_scene_to_cleanup.track.clear()
                 if hasattr(old_scene_to_cleanup, 'buildings') and old_scene_to_cleanup.buildings and hasattr(renderer, 'cleanup_all_building_buffers'):
@@ -2281,14 +2303,14 @@ class SceneEditorWindow(QMainWindow):
                         parsed_scene.track.create_all_segment_buffers()
                     except Exception as e_track_buf:
                         print(f"  Error creating track buffers for preview in _perform_preview_update_logic: {e_track_buf}")
-                if hasattr(parsed_scene, 'hills') and parsed_scene.hills and renderer._hill_shader_program_id:
-                    new_hills_list_editor = [] 
-                    for i, hill_entry_editor in enumerate(parsed_scene.hills):
-                        original_line_id_editor, _ = hill_entry_editor
-                        modified_hill_data_editor, success_editor = renderer.create_hill_buffers(hill_entry_editor)
-                        if success_editor: new_hills_list_editor.append((original_line_id_editor, modified_hill_data_editor))
-                        else: new_hills_list_editor.append(hill_entry_editor)
-                    parsed_scene.hills = new_hills_list_editor
+                if hasattr(parsed_scene, 'cylinders') and parsed_scene.cylinders and renderer._cylinder_shader_program_id:
+                    new_cylinders_list_editor = [] 
+                    for i, cylinder_entry_editor in enumerate(parsed_scene.cylinders):
+                        original_line_id_editor, _ = cylinder_entry_editor
+                        modified_cylinder_data_editor, success_editor = renderer.create_cylinder_buffers(cylinder_entry_editor)
+                        if success_editor: new_cylinders_list_editor.append((original_line_id_editor, modified_cylinder_data_editor))
+                        else: new_cylinders_list_editor.append(cylinder_entry_editor)
+                    parsed_scene.cylinders = new_cylinders_list_editor
                 if hasattr(parsed_scene, 'buildings') and parsed_scene.buildings and renderer._building_shader_program_id:
                     new_buildings_list_editor = []
                     for i, bldg_entry_editor in enumerate(parsed_scene.buildings):
@@ -2446,6 +2468,12 @@ class SceneEditorWindow(QMainWindow):
                         if hasattr(renderer, 'cleanup_all_hill_buffers'):
                             print("編輯器關閉前，清理預覽場景的山丘緩衝區...")
                             renderer.cleanup_all_hill_buffers(self.preview_widget._scene_data.hills)
+                        if hasattr(renderer, 'cleanup_all_tree_buffers'):
+                            print("編輯器關閉前，清理預覽場景的山丘緩衝區...")
+                            renderer.cleanup_all_tree_buffers(self.preview_widget._scene_data.trees)
+                        if hasattr(renderer, 'cleanup_all_cylinder_buffers'):
+                            print("編輯器關閉前，清理預覽場景的山丘緩衝區...")
+                            renderer.cleanup_all_cylinder_buffers(self.preview_widget._scene_data.cylinders)
                         else:
                             print("警告 (編輯器關閉): renderer 模塊中未找到 cleanup_all_hill_buffers。")
                     ### --- END OF MODIFICATION ---

@@ -1,0 +1,45 @@
+#EDITOR_SCENE_SETTINGS_JSON: {"minimap": {"center_x": 101.85395799931703, "center_z": 58.57204429781062, "range": 20.305119598954118}, "preview_camera": {"position": [136.74353662286245, 17.69032420650044, 72.70271363072655], "yaw": 242.50000000000006, "pitch": -27.400000000000027}}
+map map海科館八斗子.png 20 0 .65
+#tree 0 0 0 15
+#building 10 10 10 0 0 0 10 10 10
+#cylinder 0 0 0 0 0 0 20 5
+start 189 0 121 -142
+skydome 八斗子dome.png
+straight 30
+curve 100 -1.5
+sphere 0 30 0 0 0 0 15 草埔.png
+straight 50
+#海科館站
+#方基
+building 0 -1 0 0 0 0 300 300 1
+#月台
+building 5 0 30 0 0 0 5 40 1 海科館站月台.png 0 0 0 0 15 10
+#右土坡
+building -10 0 20 0 0 0 10 100 5
+straight 35
+#隧道前檔土牆
+building 4 0 10 0 0 8 1 23 4
+building -4 0 10 0 0 -8 1 23 4
+#土坡
+building 7 0 -2 -5 0 0 5 1 4
+building 9 0 -5 0 0 5 1 5 4
+#
+building 9 0 12 8 0 0 10 25 6 草埔.png 0 0 0 0 2 2
+building 3 5 25 0 0 45 3 10 3 草埔.png
+building -2 5 25 0 0 -55 3 10 3 草埔.png 0 0 0 0 2 2
+building 0 6.5 25 0 0 0 30 10 3 草埔.png 0 0 0 0 1 1
+building -8 0 25 0 0 0 10 10 7
+curve 7 1.1
+straight 60
+#隧道
+building -3 0 15 0 0 0 1 60 4
+building -3 4 15 0 0 30 1 60 2
+building -2.5 5.5 15 0 0 60 1 60 2
+building 0 6 15 0 0 0 4 60 1
+building 3 0 15 0 0 0 1 60 4
+building 3 4 15 0 0 -30 1 60 2
+building 2.5 5.5 15 0 0 -60 1 60 2
+#
+curve 300 2.5
+straight 27
+cylinder 0 0 50 90 0 0 10 20
