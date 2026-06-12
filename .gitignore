@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 
+# setup.bat 建立的虛擬環境
+venv/
+
 # cProfile 輸出 (main.py 內的效能分析程式碼)
 profile_results.prof
 

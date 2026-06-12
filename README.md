@@ -82,8 +82,11 @@ This project doesn't have a grand vision—it's simply a result of my curiosity 
 - PyOpenGL
 - NumPy
 - Numba
+- SciPy (用於 `minimap_renderer.py`)
 - **PyQt5** (用於 `scene_editor.py`)
 - **Pillow (PIL)** (用於 `minimap_renderer.py` 載入編輯器背景圖)
+
+完整清單見 `requirements.txt`。
 
 
 ---
@@ -161,7 +164,19 @@ This project doesn't have a grand vision—it's simply a result of my curiosity 
 
 ## 安裝依賴
 
-建議在虛擬環境中安裝：
+### 方式一：初始化腳本（Windows，建議）
+
+直接執行專案根目錄的 `setup.bat`，它會自動：
+
+1. 檢查 Python 是否已安裝
+2. 建立虛擬環境 `venv`（已存在則略過）
+3. 依 `requirements.txt` 安裝所有依賴
+4. 驗證所有套件可正常匯入
+
+完成後用 `launch.bat`（模擬器）或 `launch_editor.bat`（場景編輯器）啟動，
+兩個啟動腳本會自動使用 `venv` 內的 Python（若 `venv` 不存在則退回系統 Python）。
+
+### 方式二：手動安裝
 
 ```bash
 # 建立虛擬環境 (可選)
@@ -172,7 +187,7 @@ python -m venv venv
 source venv/bin/activate
 
 # 安裝必要的函式庫
-pip install pygame PyOpenGL numpy Numba PyQt5 Pillow
+pip install -r requirements.txt
 ```
 
 ## 如何執行

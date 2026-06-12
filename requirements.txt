@@ -1,0 +1,8 @@
+# train_sim 依賴套件 (執行 setup.bat 會自動安裝)
+pygame
+PyOpenGL
+numpy
+numba
+scipy
+PyQt5
+Pillow
