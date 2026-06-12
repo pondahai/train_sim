@@ -1374,7 +1374,7 @@ def draw_editor_preview(scene: Scene, view_center_x, view_center_z, view_range, 
 
                 current_grid_z += MINIMAP_GRID_SCALE # Move to the next line
 
-    show_object_and_grid_labels = coord_label_font and grid_label_font and view_range < (DEFAULT_MINIMAP_RANGE * 3.0) 
+    show_object_and_grid_labels = coord_label_font and grid_label_font and view_range < (DEFAULT_MINIMAP_RANGE * 0.5)
 
     # 計算小地圖在世界座標系中的可視範圍 (AABB_viewport_world)
     world_half_render_width = (widget_width / scale) / 2.0
