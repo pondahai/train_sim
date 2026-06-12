@@ -452,10 +452,10 @@ class PreviewGLWidget(QGLWidget):
 
         ### --- START OF MODIFICATION: Initialize Cylinder Shader for Preview ---
         if hasattr(renderer, 'init_cylinder_shader'):
-            print("編輯器預覽：正在初始化山丘著色器...")
+            print("編輯器預覽：正在初始化圓柱著色器...")
             renderer.init_cylinder_shader() # 確保在有效的GL上下文中調用
             if renderer._cylinder_shader_program_id is None:
-                 print("警告 (編輯器預覽): 山丘著色器初始化失敗！")
+                 print("警告 (編輯器預覽): 圓柱著色器初始化失敗！")
         else:
             print("警告 (編輯器預覽): renderer 模塊中未找到 init_cylinder_shader 函數。")
         ### --- END OF MODIFICATION ---
@@ -466,6 +466,15 @@ class PreviewGLWidget(QGLWidget):
             elif hasattr(renderer, 'init_renderer'): # 如果 building shader 在 init_renderer 中初始化
                 print("PreviewGLWidget: Calling renderer.init_renderer() to ensure shaders are ready.")
                 renderer.init_renderer()
+
+        if renderer._tree_shader_program_id is None and hasattr(renderer, 'init_tree_shader'):
+            renderer.init_tree_shader()
+            if renderer._tree_shader_program_id is None:
+                print("警告 (編輯器預覽): 樹木著色器初始化失敗！")
+        if renderer._hill_shader_program_id is None and hasattr(renderer, 'init_hill_shader'):
+            renderer.init_hill_shader()
+            if renderer._hill_shader_program_id is None:
+                print("警告 (編輯器預覽): 山丘著色器初始化失敗！")
 
         self._timer.timeout.connect(self.update_preview)
         self._timer.start(PREVIEW_UPDATE_INTERVAL)
@@ -2290,6 +2299,15 @@ class SceneEditorWindow(QMainWindow):
                 if hasattr(old_scene_to_cleanup, 'cylinders') and old_scene_to_cleanup.cylinders:
                     if hasattr(renderer, 'cleanup_all_cylinder_buffers'):
                         renderer.cleanup_all_cylinder_buffers(old_scene_to_cleanup.cylinders)
+                if hasattr(old_scene_to_cleanup, 'spheres') and old_scene_to_cleanup.spheres:
+                    if hasattr(renderer, 'cleanup_all_sphere_buffers'):
+                        renderer.cleanup_all_sphere_buffers(old_scene_to_cleanup.spheres)
+                if hasattr(old_scene_to_cleanup, 'trees') and old_scene_to_cleanup.trees:
+                    if hasattr(renderer, 'cleanup_all_tree_buffers'):
+                        renderer.cleanup_all_tree_buffers(old_scene_to_cleanup.trees)
+                if hasattr(old_scene_to_cleanup, 'hills') and old_scene_to_cleanup.hills:
+                    if hasattr(renderer, 'cleanup_all_hill_buffers'):
+                        renderer.cleanup_all_hill_buffers(old_scene_to_cleanup.hills)
                 if hasattr(old_scene_to_cleanup, 'track') and old_scene_to_cleanup.track:
                     old_scene_to_cleanup.track.clear()
                 if hasattr(old_scene_to_cleanup, 'buildings') and old_scene_to_cleanup.buildings and hasattr(renderer, 'cleanup_all_building_buffers'):
@@ -2311,6 +2329,14 @@ class SceneEditorWindow(QMainWindow):
                         if success_editor: new_cylinders_list_editor.append((original_line_id_editor, modified_cylinder_data_editor))
                         else: new_cylinders_list_editor.append(cylinder_entry_editor)
                     parsed_scene.cylinders = new_cylinders_list_editor
+                if hasattr(parsed_scene, 'spheres') and parsed_scene.spheres and renderer._cylinder_shader_program_id:
+                    new_spheres_list_editor = []
+                    for i, sphere_entry_editor in enumerate(parsed_scene.spheres):
+                        original_line_id_editor, _ = sphere_entry_editor
+                        modified_sphere_data_editor, success_editor = renderer.create_sphere_buffers(sphere_entry_editor)
+                        if success_editor: new_spheres_list_editor.append((original_line_id_editor, modified_sphere_data_editor))
+                        else: new_spheres_list_editor.append(sphere_entry_editor)
+                    parsed_scene.spheres = new_spheres_list_editor
                 if hasattr(parsed_scene, 'buildings') and parsed_scene.buildings and renderer._building_shader_program_id:
                     new_buildings_list_editor = []
                     for i, bldg_entry_editor in enumerate(parsed_scene.buildings):
@@ -2319,6 +2345,22 @@ class SceneEditorWindow(QMainWindow):
                         if success_editor: new_buildings_list_editor.append((line_id_editor, modified_bldg_data_editor))
                         else: new_buildings_list_editor.append(bldg_entry_editor)
                     parsed_scene.buildings = new_buildings_list_editor
+                if hasattr(parsed_scene, 'trees') and parsed_scene.trees and renderer._tree_shader_program_id:
+                    new_trees_list_editor = []
+                    for i, tree_entry_editor in enumerate(parsed_scene.trees):
+                        original_line_id_editor, _ = tree_entry_editor
+                        modified_tree_data_editor, success_editor = renderer.create_tree_buffers(tree_entry_editor)
+                        if success_editor: new_trees_list_editor.append((original_line_id_editor, modified_tree_data_editor))
+                        else: new_trees_list_editor.append(tree_entry_editor)
+                    parsed_scene.trees = new_trees_list_editor
+                if hasattr(parsed_scene, 'hills') and parsed_scene.hills and renderer._hill_shader_program_id:
+                    new_hills_list_editor = []
+                    for i, hill_entry_editor in enumerate(parsed_scene.hills):
+                        original_line_id_editor, _ = hill_entry_editor
+                        modified_hill_data_editor, success_editor = renderer.create_hill_buffers(hill_entry_editor)
+                        if success_editor: new_hills_list_editor.append((original_line_id_editor, modified_hill_data_editor))
+                        else: new_hills_list_editor.append(hill_entry_editor)
+                    parsed_scene.hills = new_hills_list_editor
 
         finally:
             self.preview_widget.doneCurrent() # << --- 在所有GL相關操作完成後才釋放上下文
@@ -2474,6 +2516,8 @@ class SceneEditorWindow(QMainWindow):
                         if hasattr(renderer, 'cleanup_all_cylinder_buffers'):
                             print("編輯器關閉前，清理預覽場景的山丘緩衝區...")
                             renderer.cleanup_all_cylinder_buffers(self.preview_widget._scene_data.cylinders)
+                        if hasattr(renderer, 'cleanup_all_sphere_buffers'):
+                            renderer.cleanup_all_sphere_buffers(self.preview_widget._scene_data.spheres)
                         else:
                             print("警告 (編輯器關閉): renderer 模塊中未找到 cleanup_all_hill_buffers。")
                     ### --- END OF MODIFICATION ---

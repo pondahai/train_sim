@@ -4,3 +4,6 @@ __pycache__/
 
 # cProfile 輸出 (main.py 內的效能分析程式碼)
 profile_results.prof
+
+# OSM 建物腳本的 Overpass 查詢快取 (tools/osm_buildings.py)
+osm_cache/

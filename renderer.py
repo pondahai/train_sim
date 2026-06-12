@@ -553,6 +553,42 @@ def get_yxz_intrinsic_composite_rotation_4x4(rx_deg, ry_deg, rz_deg):
     composite_rotation = m_y @ m_x @ m_z
     return composite_rotation # Returns ROW-MAJOR
 
+def get_yzx_intrinsic_composite_rotation_4x4(rx_deg, ry_deg, rz_deg):
+    """
+    YZX intrinsic (Ry @ Rz @ Rx)，對應舊立即模式圓柱的旋轉順序：
+    glRotatef(ry) → glRotatef(rz) → glRotatef(rx)。
+    Returns a ROW-MAJOR NumPy array.
+    """
+    rx_rad, ry_rad, rz_rad = math.radians(rx_deg), math.radians(ry_deg), math.radians(rz_deg)
+
+    cos_rx, sin_rx = math.cos(rx_rad), math.sin(rx_rad)
+    cos_ry, sin_ry = math.cos(ry_rad), math.sin(ry_rad)
+    cos_rz, sin_rz = math.cos(rz_rad), math.sin(rz_rad)
+
+    m_y = np.array([
+        [cos_ry,  0, sin_ry, 0],
+        [0,       1,      0, 0],
+        [-sin_ry, 0, cos_ry, 0],
+        [0,       0,      0, 1]
+    ], dtype=np.float32)
+
+    m_x = np.array([
+        [1,      0,       0, 0],
+        [0, cos_rx, -sin_rx, 0],
+        [0, sin_rx,  cos_rx, 0],
+        [0,      0,       0, 1]
+    ], dtype=np.float32)
+
+    m_z = np.array([
+        [cos_rz, -sin_rz, 0, 0],
+        [sin_rz,  cos_rz, 0, 0],
+        [0,            0, 1, 0],
+        [0,            0, 0, 1]
+    ], dtype=np.float32)
+
+    composite_rotation = m_y @ m_z @ m_x
+    return composite_rotation # Returns ROW-MAJOR
+
 # --- 新增: 生成立方體網格數據 (模型空間, Atlas UV) ---
 def generate_cube_mesh_data(width, depth, height, object_uv_layout_key="cube"):
     """
@@ -1890,7 +1926,7 @@ def cleanup_all_tree_buffers(scene_trees_list):
     for i in range(len(scene_trees_list)):
         scene_trees_list[i] = cleanup_tree_buffers_for_entry(scene_trees_list[i])
 
-# --- 圓柱 VBO（側面三角形網格，幾何在載入時建立一次） ---
+# --- 圓柱 VBO（Y 軸向上、底部在原點，幾何在載入時建立一次） ---
 def generate_cylinder_mesh_data(radius, height, slices=20):
     vertices = []
     for i in range(slices):
@@ -1901,15 +1937,27 @@ def generate_cylinder_mesh_data(radius, height, slices=20):
         x2, z2 = math.cos(angle2) * radius, math.sin(angle2) * radius
         nx1, nz1 = math.cos(angle1), math.sin(angle1)
         nx2, nz2 = math.cos(angle2), math.sin(angle2)
-        u1, u2 = float(i) / slices, float(i+1) / slices
+        # u 取 1 - i/slices、v 底部為 0：對應舊 gluCylinder（繞 X 軸 -90° 後）的貼圖方向
+        u1, u2 = 1.0 - float(i) / slices, 1.0 - float(i+1) / slices
 
-        vertices.extend([x1, 0.0, z1, nx1, 0.0, nz1, u1, 1.0])
-        vertices.extend([x2, 0.0, z2, nx2, 0.0, nz2, u2, 1.0])
-        vertices.extend([x2, height, z2, nx2, 0.0, nz2, u2, 0.0])
+        # 側面
+        vertices.extend([x1, 0.0, z1, nx1, 0.0, nz1, u1, 0.0])
+        vertices.extend([x2, 0.0, z2, nx2, 0.0, nz2, u2, 0.0])
+        vertices.extend([x2, height, z2, nx2, 0.0, nz2, u2, 1.0])
 
-        vertices.extend([x1, 0.0, z1, nx1, 0.0, nz1, u1, 1.0])
-        vertices.extend([x2, height, z2, nx2, 0.0, nz2, u2, 0.0])
-        vertices.extend([x1, height, z1, nx1, 0.0, nz1, u1, 0.0])
+        vertices.extend([x1, 0.0, z1, nx1, 0.0, nz1, u1, 0.0])
+        vertices.extend([x2, height, z2, nx2, 0.0, nz2, u2, 1.0])
+        vertices.extend([x1, height, z1, nx1, 0.0, nz1, u1, 1.0])
+
+        # 上下蓋（對應舊 gluDisk）：圓盤 UV 以 (0.5, 0.5) 為中心
+        cu1, cv1 = 0.5 + 0.5 * math.cos(angle1), 0.5 + 0.5 * math.sin(angle1)
+        cu2, cv2 = 0.5 + 0.5 * math.cos(angle2), 0.5 + 0.5 * math.sin(angle2)
+        vertices.extend([0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.5, 0.5])
+        vertices.extend([x1, 0.0, z1, 0.0, -1.0, 0.0, cu1, cv1])
+        vertices.extend([x2, 0.0, z2, 0.0, -1.0, 0.0, cu2, cv2])
+        vertices.extend([0.0, height, 0.0, 0.0, 1.0, 0.0, 0.5, 0.5])
+        vertices.extend([x2, height, z2, 0.0, 1.0, 0.0, cu2, cv2])
+        vertices.extend([x1, height, z1, 0.0, 1.0, 0.0, cu1, cv1])
 
     return np.array(vertices, dtype=np.float32), len(vertices) // 8
 
@@ -1921,8 +1969,8 @@ def create_cylinder_buffers(cyl_entry):
 
     if vertex_count == 0:
         new_cyl_data = list(cyl_data)
-        while len(new_cyl_data) < 23: new_cyl_data.append(None)
-        new_cyl_data[20], new_cyl_data[21], new_cyl_data[22] = None, None, 0
+        while len(new_cyl_data) < 22: new_cyl_data.append(None)
+        new_cyl_data[19], new_cyl_data[20], new_cyl_data[21] = None, None, 0
         return tuple(new_cyl_data), False
 
     vbo_id = glGenBuffers(1)
@@ -1944,15 +1992,15 @@ def create_cylinder_buffers(cyl_entry):
     glBindBuffer(GL_ARRAY_BUFFER, 0)
 
     new_cyl_data = list(cyl_data)
-    while len(new_cyl_data) < 23: new_cyl_data.append(None)
-    new_cyl_data[20], new_cyl_data[21], new_cyl_data[22] = vao_id, vbo_id, vertex_count
+    while len(new_cyl_data) < 22: new_cyl_data.append(None)
+    new_cyl_data[19], new_cyl_data[20], new_cyl_data[21] = vao_id, vbo_id, vertex_count
 
     return tuple(new_cyl_data), True
 
 def cleanup_cylinder_buffers_for_entry(cyl_entry):
     _line_id, cyl_data = cyl_entry
-    if len(cyl_data) < 23: return cyl_entry
-    vao_id, vbo_id = cyl_data[20], cyl_data[21]
+    if len(cyl_data) < 22: return cyl_entry
+    vao_id, vbo_id = cyl_data[19], cyl_data[20]
     if vao_id is not None:
         try: glDeleteVertexArrays(1, [vao_id])
         except Exception: pass
@@ -1960,12 +2008,93 @@ def cleanup_cylinder_buffers_for_entry(cyl_entry):
         try: glDeleteBuffers(1, [vbo_id])
         except Exception: pass
     new_cyl_data = list(cyl_data)
-    new_cyl_data[20], new_cyl_data[21], new_cyl_data[22] = None, None, 0
+    new_cyl_data[19], new_cyl_data[20], new_cyl_data[21] = None, None, 0
     return (_line_id, tuple(new_cyl_data))
 
 def cleanup_all_cylinder_buffers(scene_cyls_list):
     for i in range(len(scene_cyls_list)):
         scene_cyls_list[i] = cleanup_cylinder_buffers_for_entry(scene_cyls_list[i])
+
+# --- 球體 VBO（UV 球網格，幾何在載入時建立一次，繪製時與圓柱共用著色器） ---
+def generate_sphere_mesh_data(radius, slices=16, stacks=16):
+    vertices = []
+    for i in range(stacks):
+        lat1 = -0.5 * math.pi + math.pi * float(i) / stacks
+        lat2 = -0.5 * math.pi + math.pi * float(i + 1) / stacks
+        y1, ring1 = math.sin(lat1) * radius, math.cos(lat1) * radius
+        y2, ring2 = math.sin(lat2) * radius, math.cos(lat2) * radius
+        ny1, nr1 = math.sin(lat1), math.cos(lat1)
+        ny2, nr2 = math.sin(lat2), math.cos(lat2)
+        v1, v2 = float(i) / stacks, float(i + 1) / stacks
+        for j in range(slices):
+            ang1 = float(j) / slices * 2.0 * math.pi
+            ang2 = float(j + 1) / slices * 2.0 * math.pi
+            c1, s1 = math.cos(ang1), math.sin(ang1)
+            c2, s2 = math.cos(ang2), math.sin(ang2)
+            # u 取 1 - j/slices，對應舊 gluSphere（繞 X 軸 -90° 後）的貼圖方向
+            u1, u2 = 1.0 - float(j) / slices, 1.0 - float(j + 1) / slices
+
+            p11 = [ring1 * c1, y1, ring1 * s1, nr1 * c1, ny1, nr1 * s1, u1, v1]
+            p21 = [ring1 * c2, y1, ring1 * s2, nr1 * c2, ny1, nr1 * s2, u2, v1]
+            p12 = [ring2 * c1, y2, ring2 * s1, nr2 * c1, ny2, nr2 * s1, u1, v2]
+            p22 = [ring2 * c2, y2, ring2 * s2, nr2 * c2, ny2, nr2 * s2, u2, v2]
+
+            vertices.extend(p11); vertices.extend(p21); vertices.extend(p22)
+            vertices.extend(p11); vertices.extend(p22); vertices.extend(p12)
+
+    return np.array(vertices, dtype=np.float32), len(vertices) // 8
+
+def create_sphere_buffers(sphere_entry):
+    line_id, sphere_data = sphere_entry
+    radius = sphere_data[7]
+
+    vertex_data, vertex_count = generate_sphere_mesh_data(radius)
+
+    new_sphere_data = list(sphere_data)
+    while len(new_sphere_data) < 20: new_sphere_data.append(None)
+
+    if vertex_count == 0:
+        new_sphere_data[17], new_sphere_data[18], new_sphere_data[19] = None, None, 0
+        return tuple(new_sphere_data), False
+
+    vbo_id = glGenBuffers(1)
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_id)
+    glBufferData(GL_ARRAY_BUFFER, vertex_data.nbytes, vertex_data, GL_STATIC_DRAW)
+
+    vao_id = glGenVertexArrays(1)
+    glBindVertexArray(vao_id)
+
+    stride = 8 * sizeof(GLfloat)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+    glEnableVertexAttribArray(0)
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(3 * sizeof(GLfloat)))
+    glEnableVertexAttribArray(1)
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(6 * sizeof(GLfloat)))
+    glEnableVertexAttribArray(2)
+
+    glBindVertexArray(0)
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+    new_sphere_data[17], new_sphere_data[18], new_sphere_data[19] = vao_id, vbo_id, vertex_count
+    return tuple(new_sphere_data), True
+
+def cleanup_sphere_buffers_for_entry(sphere_entry):
+    _line_id, sphere_data = sphere_entry
+    if len(sphere_data) < 20: return sphere_entry
+    vao_id, vbo_id = sphere_data[17], sphere_data[18]
+    if vao_id is not None:
+        try: glDeleteVertexArrays(1, [vao_id])
+        except Exception: pass
+    if vbo_id is not None:
+        try: glDeleteBuffers(1, [vbo_id])
+        except Exception: pass
+    new_sphere_data = list(sphere_data)
+    new_sphere_data[17], new_sphere_data[18], new_sphere_data[19] = None, None, 0
+    return (_line_id, tuple(new_sphere_data))
+
+def cleanup_all_sphere_buffers(scene_spheres_list):
+    for i in range(len(scene_spheres_list)):
+        scene_spheres_list[i] = cleanup_sphere_buffers_for_entry(scene_spheres_list[i])
 
 def draw_hill(center_x, base_y, center_z,
               base_radius, peak_height_offset,
@@ -2395,7 +2524,7 @@ def draw_scene_objects(scene):
 
             for item in scene.cylinders:
                 line_num, obj_data = item
-                if len(obj_data) < 23: continue
+                if len(obj_data) < 22: continue
                 (obj_type, x, y, z, rx, abs_ry, rz, radius, h,
                  u_offset, v_offset, tex_angle, uv_mode, uscale, vscale, tex_file,
                  gl_tex_id_val, tex_has_alpha, parent_origin_ry_deg,
@@ -2408,9 +2537,9 @@ def draw_scene_objects(scene):
                     continue
 
                 trans_mat = np.array([[1,0,0,x], [0,1,0,y], [0,0,1,z], [0,0,0,1]], dtype=np.float32)
-                comp_rot = get_yxz_intrinsic_composite_rotation_4x4(rx, abs_ry, rz)
-                rot_x_minus90 = np.array([[1,0,0,0], [0,0,1,0], [0,-1,0,0], [0,0,0,1]], dtype=np.float32)
-                model_matrix_row_major = trans_mat @ comp_rot @ rot_x_minus90
+                # 舊立即模式的順序是 Ry → Rz → Rx（網格已是 Y 軸向上，不需再補 -90° 軸向旋轉）
+                comp_rot = get_yzx_intrinsic_composite_rotation_4x4(rx, abs_ry, rz)
+                model_matrix_row_major = trans_mat @ comp_rot
 
                 glUniformMatrix4fv(model_loc_cyl_shader, 1, GL_TRUE, model_matrix_row_major)
 
@@ -2496,33 +2625,103 @@ def draw_scene_objects(scene):
         else:
             print("警告: 樹木著色器未初始化，無法渲染 Trees。")
 
-    # Spheres
-    glColor3f(1.0, 1.0, 1.0) # 設置預設顏色或從物件數據讀取
-    for item in scene.spheres:
-        line_num, obj_data_tuple = item # 解包行號和數據
-        # 從數據元組解包繪製所需變數 (確保順序與 scene_parser 中打包時一致)
-        try:
-            (obj_type, x, y, z,
-             rx, abs_ry, rz, # 使用絕對 Y 旋轉
-             radius, tex_id,
-             u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
-             tex_file, parent_origin_ry_deg) = obj_data_tuple
-        except ValueError:
-             print(f"警告: 解包 sphere 數據時出錯 (來源行: {line_num})")
-             continue # 跳過這個物件
+    # Spheres (VBO & Shader，與圓柱共用著色器；無 VBO 的條目退回立即模式)
+    spheres_fallback_items = []
+    if hasattr(scene, 'spheres') and scene.spheres:
+        if _cylinder_shader_program_id is not None:
+            glUseProgram(_cylinder_shader_program_id)
+            current_mv_matrix = glGetFloatv(GL_MODELVIEW_MATRIX)
+            glUniformMatrix4fv(_get_uniform_loc(_cylinder_shader_program_id, "view"), 1, GL_FALSE, current_mv_matrix)
+            glUniformMatrix4fv(_get_uniform_loc(_cylinder_shader_program_id, "projection"), 1, GL_FALSE, glGetFloatv(GL_PROJECTION_MATRIX))
+            glUniform3f(_get_uniform_loc(_cylinder_shader_program_id, "lightPos_worldspace"), 100.0, 150.0, 100.0)
+            glUniform3f(_get_uniform_loc(_cylinder_shader_program_id, "lightColor"), 0.8, 0.8, 0.8)
+            glUniform1f(_get_uniform_loc(_cylinder_shader_program_id, "u_ambient_strength"), 0.5)
+            glUniform1f(_get_uniform_loc(_cylinder_shader_program_id, "u_specular_strength"), 0.3)
+            glUniform1f(_get_uniform_loc(_cylinder_shader_program_id, "u_shininess"), 16.0)
+            view_matrix_inv = np.linalg.inv(current_mv_matrix)
+            glUniform3fv(_get_uniform_loc(_cylinder_shader_program_id, "viewPos_worldspace"), 1, view_matrix_inv[3,:3])
 
-        glPushMatrix()
-        glTranslatef(x, y, z)
-        # 應用旋轉 (與 building/cylinder 保持一致的順序)
-        glRotatef(abs_ry, 0, 1, 0) # 1. 繞世界 Y 軸旋轉
-        glRotatef(rx, 1, 0, 0)     # 2. 繞自身 X 軸旋轉
-        glRotatef(rz, 0, 0, 1)     # 3. 繞自身 Z 軸旋轉
+            model_loc_sph = _get_uniform_loc(_cylinder_shader_program_id, "model")
+            u_tex_offset_loc_sph = _get_uniform_loc(_cylinder_shader_program_id, "u_tex_offset")
+            u_tex_scale_loc_sph = _get_uniform_loc(_cylinder_shader_program_id, "u_tex_scale")
+            u_use_texture_loc_sph = _get_uniform_loc(_cylinder_shader_program_id, "u_use_texture")
+            texture_diffuse1_loc_sph = _get_uniform_loc(_cylinder_shader_program_id, "texture_diffuse1")
+            u_fallback_color_loc_sph = _get_uniform_loc(_cylinder_shader_program_id, "u_fallback_color")
+            u_texture_has_alpha_loc_sph = _get_uniform_loc(_cylinder_shader_program_id, "u_texture_has_alpha")
+            u_alpha_test_threshold_loc_sph = _get_uniform_loc(_cylinder_shader_program_id, "u_alpha_test_threshold")
 
-        # 調用新的繪製函數
-        draw_sphere(radius, tex_id, 16, 16, # 使用預設精度
-                    u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)
+            if texture_diffuse1_loc_sph != -1: glUniform1i(texture_diffuse1_loc_sph, 0)
+            if u_alpha_test_threshold_loc_sph != -1: glUniform1f(u_alpha_test_threshold_loc_sph, ALPHA_TEST_THRESHOLD)
+            if u_texture_has_alpha_loc_sph != -1: glUniform1i(u_texture_has_alpha_loc_sph, 0)
 
-        glPopMatrix()
+            for item in scene.spheres:
+                line_num, obj_data_tuple = item
+                if len(obj_data_tuple) < 20 or obj_data_tuple[17] is None or obj_data_tuple[19] == 0:
+                    spheres_fallback_items.append(item)
+                    continue
+                (obj_type, x, y, z, rx, abs_ry, rz, radius, tex_id,
+                 u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
+                 tex_file, parent_origin_ry_deg,
+                 vao_id, vbo_id, vertex_count) = obj_data_tuple[:20]
+
+                if not frustum_culler.is_sphere_visible(x, y, z, radius):
+                    continue
+
+                trans_mat = np.array([[1,0,0,x], [0,1,0,y], [0,0,1,z], [0,0,0,1]], dtype=np.float32)
+                comp_rot = get_yxz_intrinsic_composite_rotation_4x4(rx, abs_ry, rz)
+                model_matrix_row_major = trans_mat @ comp_rot
+
+                glUniformMatrix4fv(model_loc_sph, 1, GL_TRUE, model_matrix_row_major)
+
+                glUniform2f(u_tex_offset_loc_sph, u_offset, v_offset)
+                if uv_mode == 0:
+                    safe_u = uscale if abs(uscale)>1e-6 else 1e-6
+                    safe_v = vscale if abs(vscale)>1e-6 else 1e-6
+                    glUniform2f(u_tex_scale_loc_sph, 1.0/safe_u, 1.0/safe_v)
+                else:
+                    glUniform2f(u_tex_scale_loc_sph, 1.0, 1.0)
+
+                if tex_id is not None and glIsTexture(tex_id):
+                    glUniform1i(u_use_texture_loc_sph, 1)
+                    glActiveTexture(GL_TEXTURE0)
+                    glBindTexture(GL_TEXTURE_2D, tex_id)
+                else:
+                    glUniform1i(u_use_texture_loc_sph, 0)
+                    glUniform3f(u_fallback_color_loc_sph, 1.0, 1.0, 1.0)
+
+                glBindVertexArray(vao_id)
+                glDrawArrays(GL_TRIANGLES, 0, vertex_count)
+
+            glBindVertexArray(0)
+            glUseProgram(0)
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, 0)
+        else:
+            spheres_fallback_items = list(scene.spheres)
+
+    # 立即模式 fallback（著色器未初始化或該條目尚未建立 VBO 時）
+    if spheres_fallback_items:
+        glColor3f(1.0, 1.0, 1.0)
+        for item in spheres_fallback_items:
+            line_num, obj_data_tuple = item
+            try:
+                (obj_type, x, y, z,
+                 rx, abs_ry, rz,
+                 radius, tex_id,
+                 u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale,
+                 tex_file, parent_origin_ry_deg) = obj_data_tuple[:17]
+            except ValueError:
+                 print(f"警告: 解包 sphere 數據時出錯 (來源行: {line_num})")
+                 continue
+
+            glPushMatrix()
+            glTranslatef(x, y, z)
+            glRotatef(abs_ry, 0, 1, 0)
+            glRotatef(rx, 1, 0, 0)
+            glRotatef(rz, 0, 0, 1)
+            draw_sphere(radius, tex_id, 16, 16,
+                        u_offset, v_offset, tex_angle_deg, uv_mode, uscale, vscale)
+            glPopMatrix()
 
     # --- Draw Hills (Using VBO and Shaders) ---
     if hasattr(scene, 'hills') and scene.hills:

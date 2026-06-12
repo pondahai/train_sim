@@ -138,15 +138,17 @@ def show_context_menu(current_scene_filepath):
 
 
 # --- 場景物件渲染緩衝區管理 ---
-# 山丘/建築/樹木/圓柱都採用同一模式：載入後為每個物件建立 VAO/VBO。
+# 山丘/建築/樹木/圓柱/球體都採用同一模式：載入後為每個物件建立 VAO/VBO。
 # 集中在這兩個 helper，確保所有載入路徑（初始/R鍵重載/選單載入/自動重載）
-# 都涵蓋全部四類物件，不會漏掉某一類。
+# 都涵蓋全部五類物件，不會漏掉某一類。
 _BUFFER_SPECS = [
     # (scene 屬性, renderer 著色器 ID 屬性, 建立函數名, 清理函數名, 顯示名稱)
     ('hills',     '_hill_shader_program_id',     'create_hill_buffers',     'cleanup_all_hill_buffers',     '山丘'),
     ('buildings', '_building_shader_program_id', 'create_building_buffers', 'cleanup_all_building_buffers', 'Building'),
     ('trees',     '_tree_shader_program_id',     'create_tree_buffers',     'cleanup_all_tree_buffers',     '樹木'),
     ('cylinders', '_cylinder_shader_program_id', 'create_cylinder_buffers', 'cleanup_all_cylinder_buffers', '圓柱'),
+    # 球體共用圓柱的著色器（頂點格式相同），只是網格不同
+    ('spheres',   '_cylinder_shader_program_id', 'create_sphere_buffers',   'cleanup_all_sphere_buffers',   '球體'),
 ]
 
 def create_scene_buffers(scene):

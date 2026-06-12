@@ -730,14 +730,14 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 except ValueError: pass
 #                 tex_id = texture_loader.load_texture(tex_file) if load_textures and texture_loader else None
                 # 載入紋理並獲取 alpha 信息
-                gl_texture_id = None
+                gl_texture_id_from_loader = None
                 texture_has_alpha_flag = False
                 if load_textures and texture_loader:
                     tex_info = texture_loader.load_texture(tex_file)
                     if tex_info:
                         gl_texture_id_from_loader = tex_info.get("id")
                         texture_has_alpha_flag = tex_info.get("has_alpha", False)
-                    
+
                 origin_angle = scene_to_populate.current_relative_origin_angle_rad
                 cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a
@@ -776,14 +776,14 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 except ValueError: pass
 #                 tex_id = texture_loader.load_texture(tex_file).get("id") if load_textures and texture_loader else None
                 # 載入紋理並獲取 alpha 信息
-                gl_texture_id = None
+                gl_texture_id_from_loader = None
                 texture_has_alpha_flag = False
                 if load_textures and texture_loader:
                     tex_info = texture_loader.load_texture(tex_file)
                     if tex_info:
                         gl_texture_id_from_loader = tex_info.get("id")
                         texture_has_alpha_flag = tex_info.get("has_alpha", False)
-                    
+
                 origin_angle = scene_to_populate.current_relative_origin_angle_rad; cos_a = math.cos(origin_angle); sin_a = math.sin(origin_angle)
                 world_offset_x = rel_z * cos_a + rel_x * sin_a; world_offset_z = rel_z * sin_a - rel_x * cos_a
                 world_x = scene_to_populate.current_relative_origin_pos[0] + world_offset_x; world_y = scene_to_populate.current_relative_origin_pos[1] + rel_y; world_z = scene_to_populate.current_relative_origin_pos[2] + world_offset_z

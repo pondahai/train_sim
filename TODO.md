@@ -10,16 +10,12 @@ HUD 與小地圖格線標籤的文字紋理快取、`texture_loader.py` 的 PyQt
 
 ---
 
-## 高優先:球改用 VBO(圓柱/樹已於 2026-06-12 合流時完成)
+## ~~高優先:球改用 VBO~~(2026-06-12 完成)
 
-~~圓柱、樹~~ 已在本資料夾透過合流 gemini 版的 VBO+著色器實作完成
-(見 MERGE_NOTES.md)。剩餘:
-
-- `draw_sphere`(renderer.py)仍每幀 `gluNewQuadric()` 重建 quadric。
-
-做法:比照 cylinders 的模式(`generate_cylinder_mesh_data` /
-`create_cylinder_buffers` 可當範本),載入場景時建立 VBO/VAO,
-繪製時只綁 VAO + `glDrawArrays`。
+圓柱、樹於合流時完成;球體已比照圓柱模式改 VBO+著色器
+(`generate_sphere_mesh_data` / `create_sphere_buffers`,與圓柱共用著色器),
+無 VBO 的條目自動退回立即模式。著色器路徑不支援 sphere 的
+`tex_angle_deg` 紋理旋轉(與圓柱相同限制),需要時走 fallback。
 
 ## 中優先:每幀矩陣讀回與重複求逆
 
@@ -77,6 +73,8 @@ visual branches 再各三次。段數多時可把同類幾何合併成單一大 
 詳細研究與技術設計見 [docs/osm_buildings_research.md](docs/osm_buildings_research.md)。
 
 實作順序:
-1. 獨立驗證腳本(經緯度＋範圍 → building 行)
+1. ~~獨立驗證腳本(經緯度＋範圍 → building 行)~~
+   2026-06-12 完成:`tools/osm_buildings.py`(含 `--selftest` 離線測試、
+   Overpass 查詢快取)。士林站半徑 150m 實測 118 棟可正常解析載入。
 2. 底圖拼接＋淡化(輸出 `map` 行)
 3. 編輯器 UI(經緯度輸入、範圍選擇、生成/清除按鈕)
