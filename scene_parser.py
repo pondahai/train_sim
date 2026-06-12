@@ -34,7 +34,7 @@ COMMAND_HINTS = {
     "tree": ["    cmd    ", "rel_x", "rel_y", "rel_z", "height", "tex?"],
     "sphere": ["    cmd    ", "rel_x", "rel_y", "rel_z", "rx°", "rel_ry°", "rz°", "radius", "tex?", "uOf?", "vOf?", "tAng°?", "uvMd?", "uSc?", "vSc?"],
     "hill": ["    cmd    ", "cx", "base_y", "cz", "radius", "peak_h_off", "tex?", "uSc?", "vSc?", "uOf?", "vOf?"], # <--- 新增這一行
-    "import": ["    cmd    ", "filepath", "rel_x?", "rel_y?", "rel_z?", "rel_angle°?"], 
+    "import": ["    cmd    ", "filepath", "x?/lat°", "y?/lon°", "rel_z?", "rel_angle°?"], # 檔名後恰兩個數=經緯度形式(需母場景 latlon 錨點)
     # Add other commands if they exist
     "gableroof": [
     "    cmd    ",        # 0
@@ -115,6 +115,8 @@ class Scene:
         # (world_x, world_z, lat, lon);一個場景只取第一個錨點,可以沒有
         # (建築庫等內嵌用場景檔不需要錨點)
         self.geo_anchor = None
+        # 解析期狀態:經緯度 import 上下文中,子場景 map 行的平移量
+        self.current_map_offset = (0.0, 0.0)
 
     # 世界軸向 +X=西、+Z=北(由 scene.txt 淡水線實景校準,見 docs/osm_buildings_research.md)
     GEO_METERS_PER_DEG_LAT = 110540.0
@@ -165,6 +167,7 @@ class Scene:
         self.gableroofs = []
         self.flexroofs = [] # 清空 flexroofs
         self.geo_anchor = None
+        self.current_map_offset = (0.0, 0.0)
 
     def clear_content(self): # 用於清空場景內容，但不一定釋放 OpenGL 資源
         self.track = Track() # 創建一個新的空軌道
@@ -182,6 +185,7 @@ class Scene:
         self.background_triggers = []
         self.is_render_ready = False
         self.geo_anchor = None
+        self.current_map_offset = (0.0, 0.0)
 
     def cleanup_resources(self):
         """清理與此場景相關的 OpenGL 資源，主要是軌道緩衝區。"""
@@ -372,7 +376,25 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 ### --- START OF MODIFICATION FOR IMPORT PARAMS ---
                 import_offset_x, import_offset_y, import_offset_z = 0.0, 0.0, 0.0
                 import_offset_angle_deg = 0.0
-                
+
+                # --- 經緯度形式:import 檔名 緯度 經度(檔名後剛好兩個數) ---
+                # 用母場景的 latlon 錨點換算世界座標當子場景原點,不旋轉(北對齊)。
+                import_geo_mode = False
+                import_geo_lat, import_geo_lon = 0.0, 0.0
+                if len(parts) == 4:
+                    try:
+                        g_lat, g_lon = float(parts[2]), float(parts[3])
+                        if -90.0 <= g_lat <= 90.0 and -180.0 <= g_lon <= 180.0:
+                            import_geo_mode = True
+                            import_geo_lat, import_geo_lon = g_lat, g_lon
+                        else:
+                            print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'import' 經緯度超出範圍,改用一般導入(無偏移)。")
+                    except ValueError:
+                        print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'import' 參數無效,改用一般導入(無偏移)。")
+                if import_geo_mode and scene_to_populate.geo_anchor is None:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'import' 經緯度形式需要母場景先有 latlon 錨點;改用一般導入(無偏移)。")
+                    import_geo_mode = False
+
                 # 預設情況下，如果 import 沒有提供角度，可以考慮繼承父級的角度
                 # 或者，如果希望導入的內容總是從 "世界正前方" 開始（相對於其導入的x,y,z原點），則設為0
                 # 這裡我們暫時設為0，如果 import 未提供角度。
@@ -420,6 +442,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 old_parse_pos = np.copy(scene_to_populate.current_parse_pos)
                 old_parse_angle_rad = scene_to_populate.current_parse_angle_rad
                 old_last_background_info = scene_to_populate.last_background_info
+                old_map_offset = getattr(scene_to_populate, 'current_map_offset', (0.0, 0.0))
 
                 # --- 計算新的臨時原點 (累加方式) ---
                 # import_offset_x, y, z 被視為在 "old_relative_origin" 座標系下的局部偏移
@@ -431,22 +454,32 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 cos_parent_angle = math.cos(parent_angle_rad)
                 sin_parent_angle = math.sin(parent_angle_rad)
 
-                # 將 import 指令中的局部偏移 (import_offset_x, import_offset_z) 轉換為世界座標系下的偏移量
-                # 假設 import_offset_x 是側向偏移 (父級局部X), import_offset_z 是向前偏移 (父級局部Z)
-                # 這與 building, cylinder 等物件的 rel_x, rel_z 語義一致
-                world_dx_from_parent = import_offset_z * cos_parent_angle + import_offset_x * sin_parent_angle
-                world_dz_from_parent = import_offset_z * sin_parent_angle - import_offset_x * cos_parent_angle
-                world_dy_from_parent = import_offset_y # Y 軸偏移通常是直接疊加
+                if import_geo_mode:
+                    # 經緯度形式:子場景原點 = 錨點換算出的世界座標,
+                    # 角度固定為恆等轉換(π/2,北對齊不旋轉),y=0(貼地)。
+                    geo_wx, geo_wz = scene_to_populate.latlon_to_world(import_geo_lat, import_geo_lon)
+                    new_temp_origin_x, new_temp_origin_y, new_temp_origin_z = geo_wx, 0.0, geo_wz
+                    scene_to_populate.current_relative_origin_pos[:] = [new_temp_origin_x, new_temp_origin_y, new_temp_origin_z]
+                    scene_to_populate.current_relative_origin_angle_rad = math.pi / 2.0
+                    # 子場景內的 map 行套用同樣的平移(見 map 指令處理)
+                    scene_to_populate.current_map_offset = (geo_wx, geo_wz)
+                else:
+                    # 將 import 指令中的局部偏移 (import_offset_x, import_offset_z) 轉換為世界座標系下的偏移量
+                    # 假設 import_offset_x 是側向偏移 (父級局部X), import_offset_z 是向前偏移 (父級局部Z)
+                    # 這與 building, cylinder 等物件的 rel_x, rel_z 語義一致
+                    world_dx_from_parent = import_offset_z * cos_parent_angle + import_offset_x * sin_parent_angle
+                    world_dz_from_parent = import_offset_z * sin_parent_angle - import_offset_x * cos_parent_angle
+                    world_dy_from_parent = import_offset_y # Y 軸偏移通常是直接疊加
 
-                # 新的臨時相對原點是父級原點加上計算出的世界偏移
-                new_temp_origin_x = old_relative_origin_pos[0] + world_dx_from_parent
-                new_temp_origin_y = old_relative_origin_pos[1] + world_dy_from_parent
-                new_temp_origin_z = old_relative_origin_pos[2] + world_dz_from_parent
-                
-                scene_to_populate.current_relative_origin_pos[:] = [new_temp_origin_x, new_temp_origin_y, new_temp_origin_z]
-                
-                # 新的臨時角度是父級角度加上 import 提供的角度增量
-                scene_to_populate.current_relative_origin_angle_rad = parent_angle_rad + math.radians(import_offset_angle_deg)
+                    # 新的臨時相對原點是父級原點加上計算出的世界偏移
+                    new_temp_origin_x = old_relative_origin_pos[0] + world_dx_from_parent
+                    new_temp_origin_y = old_relative_origin_pos[1] + world_dy_from_parent
+                    new_temp_origin_z = old_relative_origin_pos[2] + world_dz_from_parent
+
+                    scene_to_populate.current_relative_origin_pos[:] = [new_temp_origin_x, new_temp_origin_y, new_temp_origin_z]
+
+                    # 新的臨時角度是父級角度加上 import 提供的角度增量
+                    scene_to_populate.current_relative_origin_angle_rad = parent_angle_rad + math.radians(import_offset_angle_deg)
                 
                 # 更新 current_parse_pos 和 angle，使得導入檔案內的軌道指令（如果有的話）
                 # 也會從這個新的臨時原點開始。
@@ -478,6 +511,7 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 scene_to_populate.current_parse_pos[:] = old_parse_pos
                 scene_to_populate.current_parse_angle_rad = old_parse_angle_rad
                 scene_to_populate.last_background_info = old_last_background_info # 恢復背景觸發器狀態
+                scene_to_populate.current_map_offset = old_map_offset
                 print(f"信息: 导入 '{import_filename_param}' 完成後，恢复原点至 ({old_relative_origin_pos[0]:.1f}, {old_relative_origin_pos[1]:.1f}, {old_relative_origin_pos[2]:.1f}) 角度 {math.degrees(old_relative_origin_angle_rad):.1f}°")
                 ### --- END OF MODIFICATION FOR IMPORT PARAMS (State Restore) ---
 
@@ -1214,9 +1248,15 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 filename = parts[1]
                 try: center_x, center_z, scale_val = map(float, parts[2:5])
                 except ValueError: print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'map' 參數無效。"); continue
+                # 第一張 map 生效,後續忽略——母場景底圖優先於 import 進來的子場景底圖
+                if scene_to_populate.map_filename is not None:
+                    print(f"資訊: ({current_filename_for_display} 行 {line_num_in_file}) 場景已有底圖 '{scene_to_populate.map_filename}',忽略此 'map' 行(第一張生效)。")
+                    continue
+                # 經緯度 import 上下文中,子場景的 map 中心套用嵌入平移
+                map_off_x, map_off_z = getattr(scene_to_populate, 'current_map_offset', (0.0, 0.0))
                 scene_to_populate.map_filename = filename
-                scene_to_populate.map_world_center_x = center_x
-                scene_to_populate.map_world_center_z = center_z
+                scene_to_populate.map_world_center_x = center_x + map_off_x
+                scene_to_populate.map_world_center_z = center_z + map_off_z
                 scene_to_populate.map_world_scale = scale_val
 
             elif command == "latlon":

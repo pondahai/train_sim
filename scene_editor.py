@@ -1779,8 +1779,14 @@ class OsmImportDialog(QtWidgets.QDialog):
         self.basemap_check.setChecked(True)
         form.addRow(self.basemap_check)
 
+        self.subscene_check = QtWidgets.QCheckBox("輸出到子場景檔（產生 import 行供母場景嵌入）")
+        self.subscene_check.setChecked(False)
+        form.addRow(self.subscene_check)
+
         note = QtWidgets.QLabel(
-            "區塊插入在檔案最前（track 指令之前），重新生成會先清掉舊區塊。\n"
+            "直接插入：區塊放檔案最前，重新生成會先清掉舊區塊。\n"
+            "子場景檔：整檔覆寫，import 行自動複製到剪貼簿，\n"
+            "貼到母場景 latlon 行之後即嵌入（母場景底圖優先）。\n"
             "資料 © OpenStreetMap contributors (ODbL)")
         note.setStyleSheet("color: gray;")
         form.addRow(note)
@@ -1812,6 +1818,7 @@ class OsmImportDialog(QtWidgets.QDialog):
             "default_levels": float(self.levels_spin.value()),
             "min_area": self.min_area_spin.value(),
             "basemap": self.basemap_check.isChecked(),
+            "subscene": self.subscene_check.isChecked(),
         }
 
 
@@ -2264,12 +2271,17 @@ class SceneEditorWindow(QMainWindow):
             return
 
         lat, lon, radius = p["lat"], p["lon"], p["radius"]
+        subscene = p.get("subscene", False)
 
-        # 場景有 latlon 錨點時,產物用錨點換算世界座標,直接對齊既有軌道;
+        # 子場景模式:查詢中心 = 子場景原點 (0,0),嵌入定位交給 import 經緯度形式。
+        # 直接插入模式:場景有 latlon 錨點時,產物用錨點換算世界座標對齊既有軌道;
         # 沒有錨點時維持舊行為(查詢中心 = 世界 (0,0))。
         scene_for_geo = getattr(self.minimap_widget, "_scene_data", None)
         anchor = getattr(scene_for_geo, "geo_anchor", None) if scene_for_geo else None
-        if anchor:
+        if subscene:
+            anchor = None
+            ax, az, origin_lat, origin_lon = 0.0, 0.0, lat, lon
+        elif anchor:
             ax, az, origin_lat, origin_lon = anchor
         else:
             ax, az, origin_lat, origin_lon = 0.0, 0.0, lat, lon
@@ -2303,13 +2315,37 @@ class SceneEditorWindow(QMainWindow):
                 img.save(os.path.join("textures", map_name))
                 lines.insert(2, f"map {map_name} {cx + ax:.2f} {cz + az:.2f} {scale:.4f}")
 
-            removed = self.table_widget.remove_auto_osm_rows()
-            self.table_widget.insert_text_lines(lines, 0)
-            msg = f"OSM 生成完成：{len(buildings)} 棟建物"
-            if p["basemap"]: msg += "＋淡化底圖"
-            if anchor: msg += "（已用 latlon 錨點對齊世界座標）"
-            if removed: msg += f"（已先移除舊區塊 {removed} 行）"
-            self.statusBar().showMessage(msg, 8000)
+            if subscene:
+                # 寫獨立子場景檔,母場景用「import 檔名 緯度 經度」嵌入
+                QApplication.restoreOverrideCursor()
+                default_path = os.path.join(os.getcwd(), f"osm_{lat:.4f}_{lon:.4f}.txt")
+                fname, _ = QFileDialog.getSaveFileName(
+                    self, "輸出 OSM 子場景檔", default_path, "Scene Files (*.txt)")
+                if not fname:
+                    self.statusBar.showMessage("已取消輸出子場景檔。", 4000)
+                    return
+                import_line = f"import {os.path.basename(fname)} {lat:.6f} {lon:.6f}"
+                header = [
+                    "# OSM 子場景(編輯器自動生成;重新生成會覆寫整個檔案)",
+                    "# 複製下行到母場景(放在母場景 latlon 行之後)以嵌入:",
+                    f"# {import_line}",
+                    f"latlon {lat:.6f} {lon:.6f}",
+                ]
+                with open(fname, "w", encoding="utf-8") as f_sub:
+                    f_sub.write("\n".join(header + lines) + "\n")
+                QApplication.clipboard().setText(import_line)
+                self.statusBar.showMessage(
+                    f"已寫入 {os.path.basename(fname)}（{len(buildings)} 棟"
+                    + ("＋底圖" if p["basemap"] else "")
+                    + "）;import 行已複製到剪貼簿", 10000)
+            else:
+                removed = self.table_widget.remove_auto_osm_rows()
+                self.table_widget.insert_text_lines(lines, 0)
+                msg = f"OSM 生成完成：{len(buildings)} 棟建物"
+                if p["basemap"]: msg += "＋淡化底圖"
+                if anchor: msg += "（已用 latlon 錨點對齊世界座標）"
+                if removed: msg += f"（已先移除舊區塊 {removed} 行）"
+                self.statusBar.showMessage(msg, 8000)
         except Exception as e:
             QMessageBox.warning(self, "OSM 生成失敗", str(e))
         finally:

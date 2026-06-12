@@ -1,5 +1,6 @@
-#EDITOR_SCENE_SETTINGS_JSON: {"minimap": {"center_x": -613.5224335804028, "center_z": 2514.536875850667, "range": 835.4496338831325}, "preview_camera": {"position": [-434.2332123954217, 5.388847846787101, 2476.9543155713704], "yaw": 15.300000000001264, "pitch": 4.200000000000024}}
+#EDITOR_SCENE_SETTINGS_JSON: {"minimap": {"center_x": -619.4230862990153, "center_z": 3409.443149195856, "range": 918.9945972714517}, "preview_camera": {"position": [-664.9635091906966, 15.269301582400347, 3207.6715969011852], "yaw": 5.80000000000127, "pitch": -6.899999999999974}}
 map map.png 1580 4328 .640
+latlon 25.063 121.5203
 #map map.png 0
 building 100 0 25 0 0 0 10 100 50 月台地板.png 0 0 0 0 1 5
 building -736.0 -100 2792 0 0 0 60 10 10
@@ -759,6 +760,9 @@ straight 180
 
 #士林站
 import 士林站.txt
+
+import osm_25.0936_121.5264.txt 25.093600 121.526400
+
 
 #TOD
 building 30 -7 90 0 0 0 19 30 80
