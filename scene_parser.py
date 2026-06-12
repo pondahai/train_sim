@@ -22,6 +22,7 @@ def set_texture_loader(loader):
 # Used by the editor to display parameter names
 COMMAND_HINTS = {
     "map": ["    cmd    ", "file", "cx", "cz", "scale"],
+    "latlon": ["    cmd    ", "lat°", "lon°"],
     "start": ["    cmd    ", "x", "y", "z", "angle°"],
     "skybox": ["    cmd    ", "base_name"], 
     "skydome": ["    cmd    ", "texture_file"], 
@@ -110,6 +111,31 @@ class Scene:
 
         self.embedded_editor_settings_str = None
 
+        # --- 經緯度錨點:latlon 指令把「指令出現當下的相對原點位置」綁定到經緯度 ---
+        # (world_x, world_z, lat, lon);一個場景只取第一個錨點,可以沒有
+        # (建築庫等內嵌用場景檔不需要錨點)
+        self.geo_anchor = None
+
+    # 世界軸向 +X=西、+Z=北(由 scene.txt 淡水線實景校準,見 docs/osm_buildings_research.md)
+    GEO_METERS_PER_DEG_LAT = 110540.0
+    GEO_METERS_PER_DEG_LON_EQUATOR = 111320.0
+
+    def world_to_latlon(self, wx, wz):
+        """世界座標 → (lat, lon);沒有錨點時回傳 None。"""
+        if self.geo_anchor is None: return None
+        ax, az, lat0, lon0 = self.geo_anchor
+        lat = lat0 + (wz - az) / self.GEO_METERS_PER_DEG_LAT
+        lon = lon0 - (wx - ax) / (self.GEO_METERS_PER_DEG_LON_EQUATOR * math.cos(math.radians(lat0)))
+        return float(lat), float(lon)
+
+    def latlon_to_world(self, lat, lon):
+        """(lat, lon) → 世界座標 (wx, wz);沒有錨點時回傳 None。"""
+        if self.geo_anchor is None: return None
+        ax, az, lat0, lon0 = self.geo_anchor
+        wz = az + (lat - lat0) * self.GEO_METERS_PER_DEG_LAT
+        wx = ax - (lon - lon0) * self.GEO_METERS_PER_DEG_LON_EQUATOR * math.cos(math.radians(lat0))
+        return float(wx), float(wz)
+
     def clear(self):
         self.track.clear()
         self.buildings = []
@@ -138,7 +164,8 @@ class Scene:
         self.embedded_editor_settings_str = None
         self.gableroofs = []
         self.flexroofs = [] # 清空 flexroofs
-        
+        self.geo_anchor = None
+
     def clear_content(self): # 用於清空場景內容，但不一定釋放 OpenGL 資源
         self.track = Track() # 創建一個新的空軌道
         self.buildings = []
@@ -154,6 +181,7 @@ class Scene:
         self.initial_background_info = None
         self.background_triggers = []
         self.is_render_ready = False
+        self.geo_anchor = None
 
     def cleanup_resources(self):
         """清理與此場景相關的 OpenGL 資源，主要是軌道緩衝區。"""
@@ -1190,6 +1218,27 @@ def _parse_scene_content(lines_list, scene_to_populate: Scene,
                 scene_to_populate.map_world_center_x = center_x
                 scene_to_populate.map_world_center_z = center_z
                 scene_to_populate.map_world_scale = scale_val
+
+            elif command == "latlon":
+                # 經緯度錨點:把「目前相對原點位置」綁定到給定經緯度。
+                # 一個場景只取第一個;建築庫等內嵌場景檔可以完全不用此指令。
+                if len(parts) < 3:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'latlon' 參數不足(需要 緯度 經度)。"); continue
+                try:
+                    lat_v, lon_v = float(parts[1]), float(parts[2])
+                except ValueError:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'latlon' 經緯度無效。"); continue
+                if not (-90.0 <= lat_v <= 90.0 and -180.0 <= lon_v <= 180.0):
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 'latlon' 經緯度超出範圍。"); continue
+                if scene_to_populate.geo_anchor is not None:
+                    print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 場景已有經緯度錨點,忽略此 'latlon'。")
+                else:
+                    # 錨定「軌道目前端點」(current_parse_pos):
+                    # 鋪軌到哪裡寫 latlon,就表示該端點對應這組經緯度
+                    anchor_wx = float(scene_to_populate.current_parse_pos[0])
+                    anchor_wz = float(scene_to_populate.current_parse_pos[2])
+                    scene_to_populate.geo_anchor = (anchor_wx, anchor_wz, lat_v, lon_v)
+                    print(f"資訊: 經緯度錨點設定: 世界 ({anchor_wx:.1f}, {anchor_wz:.1f}) ↔ ({lat_v:.6f}, {lon_v:.6f})")
 
             else:
                 print(f"警告: ({current_filename_for_display} 行 {line_num_in_file}) 未知指令 '{command}'")

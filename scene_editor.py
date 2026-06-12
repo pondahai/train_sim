@@ -111,6 +111,11 @@ class MinimapGLWidget(QGLWidget):
         self._potential_drag_start_pos = None # 新增：记录潜在拖拽的起始位置
         self.DRAG_START_THRESHOLD = 5 # 移动多少像素才算开始拖拽 (可调整)
 
+        # --- 滑鼠位置追蹤：顯示指標世界座標/經緯度，並供 OSM 生成帶入 ---
+        self.setMouseTracking(True)
+        self._mouse_world_pos = None       # 指標目前位置（離開 widget 時清空，控制顯示）
+        self._last_mouse_world_pos = None  # 最後一次指標位置（保留，供對話框帶入）
+
 #         self._current_f7_tuning_target_table_row = -1 # <--- 新增屬性，存儲0-based表格行索引
         self._f7_target_line_identifier = -1
         
@@ -269,6 +274,20 @@ class MinimapGLWidget(QGLWidget):
                 draw_y = h - text_height - EDITOR_LABEL_OFFSET_Y
                 # Use the shared renderer text drawing function
                 renderer._draw_text_texture(text_surface, draw_x, draw_y)
+
+                # 第二行：指標所在世界座標（場景有 latlon 錨點時加上經緯度）
+                if self._mouse_world_pos is not None:
+                    mx, mz = self._mouse_world_pos
+                    mouse_text = f"Mouse: ({mx:.1f}, {mz:.1f})"
+                    if self._scene_data is not None and getattr(self._scene_data, "geo_anchor", None):
+                        ll = self._scene_data.world_to_latlon(mx, mz)
+                        if ll:
+                            mouse_text += f"  {ll[0]:.6f}, {ll[1]:.6f}"
+                    mouse_surface = self._coord_font.render(mouse_text, True, EDITOR_COORD_COLOR)
+                    renderer._draw_text_texture(
+                        mouse_surface,
+                        w - mouse_surface.get_width() - EDITOR_LABEL_OFFSET_X,
+                        draw_y - mouse_surface.get_height() - 2)
             except Exception as e:
                 # print(f"渲染中心座標時出錯: {e}") # 減少訊息輸出
                 pass
@@ -337,7 +356,23 @@ class MinimapGLWidget(QGLWidget):
                 self._last_mouse_pos = event.pos()
                 if not self.zoom_end_timer.isActive(): # 避免在快速缩放时也因为微小移动而调用
                     self.update() # Trigger repaint
+
+        # --- 更新指標世界座標（顯示用 + 供 OSM 對話框帶入） ---
+        screen_y_gl = self.height() - event.pos().y()
+        self._mouse_world_pos = self._map_to_world_coords(event.pos().x(), screen_y_gl)
+        self._last_mouse_world_pos = self._mouse_world_pos
+        if not self._is_dragging and not self.zoom_end_timer.isActive():
+            self.update()
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self._mouse_world_pos = None
+        self.update()
+        super().leaveEvent(event)
+
+    def get_last_mouse_world_pos(self):
+        """最後一次指標所指的世界座標 (wx, wz)，從未進入過則為 None。"""
+        return self._last_mouse_world_pos
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1126,6 +1161,69 @@ class SceneTableWidget(QTableWidget):
             if item_to_scroll:
                 self.scrollToItem(item_to_scroll, QAbstractItemView.PositionAtCenter)
     # --------------------------
+
+    # --- OSM 自動生成輔助：插入純文字行 / 清除 auto-osm 區塊 ---
+    def get_row_text(self, row):
+        """把某一行的所有非空儲存格以空格重組成一行文字。"""
+        parts = []
+        for c in range(self.columnCount()):
+            item = self.item(row, c)
+            if item and item.text().strip():
+                parts.append(item.text().strip())
+        return " ".join(parts)
+
+    def insert_text_lines(self, text_lines, at_index=0):
+        """在 at_index 處插入多行純文字（每行依空白拆成儲存格）。"""
+        if not text_lines:
+            return 0
+        max_cols = max(len(line.split()) for line in text_lines)
+        if max_cols > self.columnCount():
+            self.setColumnCount(max_cols)
+        self.blockSignals(True)
+        try:
+            for i, line in enumerate(text_lines):
+                row = at_index + i
+                self.insertRow(row)
+                parts = line.split()
+                for col, part in enumerate(parts):
+                    self.setItem(row, col, QTableWidgetItem(part))
+                for col in range(len(parts), self.columnCount()):
+                    self.setItem(row, col, QTableWidgetItem(""))
+        finally:
+            self.blockSignals(False)
+        self.renumber_vertical_headers()
+        self._data_modified = True
+        self.sceneDataChanged.emit()
+        return len(text_lines)
+
+    def remove_auto_osm_rows(self):
+        """移除所有 '# auto-osm begin' 到 '# auto-osm end' 的區塊，回傳移除的行數。"""
+        ranges = []
+        start = None
+        for r in range(self.rowCount()):
+            text = self.get_row_text(r)
+            if start is None and text.startswith("# auto-osm begin"):
+                start = r
+            elif start is not None and text.startswith("# auto-osm end"):
+                ranges.append((start, r))
+                start = None
+        if start is not None:  # begin 沒有對應 end，整段刪到區塊起點為止只刪 begin 行
+            ranges.append((start, start))
+        removed = 0
+        self.blockSignals(True)
+        try:
+            for s, e in reversed(ranges):
+                for r in range(e, s - 1, -1):
+                    self.removeRow(r)
+                    removed += 1
+        finally:
+            self.blockSignals(False)
+        if removed:
+            self.renumber_vertical_headers()
+            self._data_modified = True
+            self.sceneDataChanged.emit()
+        return removed
+
     def _is_any_full_row_selected(self):
         """檢查是否有至少一個完整的行被選中。"""
         selected_ranges = self.selectedRanges()
@@ -1642,6 +1740,81 @@ class SceneTableWidget(QTableWidget):
         # >>> 結束新增 <<<
         
 # --- Main Editor Window ---
+class OsmImportDialog(QtWidgets.QDialog):
+    """OSM 沿線建物生成對話框（docs/osm_buildings_research.md 第 3 步）。
+
+    收集經緯度/半徑等參數;「生成」以 Accepted 關閉後由主視窗執行,
+    「清除」直接移除表格中的 auto-osm 區塊。
+    """
+    def __init__(self, editor_window):
+        super().__init__(editor_window)
+        self._editor = editor_window
+        self.setWindowTitle("OSM 沿線建物")
+        from PyQt5.QtGui import QDoubleValidator
+
+        form = QtWidgets.QFormLayout(self)
+        self.lat_edit = QtWidgets.QLineEdit("25.0936")
+        self.lat_edit.setValidator(QDoubleValidator(-90.0, 90.0, 7, self))
+        self.lon_edit = QtWidgets.QLineEdit("121.5264")
+        self.lon_edit.setValidator(QDoubleValidator(-180.0, 180.0, 7, self))
+        form.addRow("中心緯度", self.lat_edit)
+        form.addRow("中心經度", self.lon_edit)
+
+        self.radius_combo = QtWidgets.QComboBox()
+        for v in (50.0, 100.0, 150.0, 300.0, 500.0):
+            self.radius_combo.addItem(f"{v:.0f} m", v)
+        self.radius_combo.setCurrentIndex(3)
+        form.addRow("查詢半徑", self.radius_combo)
+
+        self.levels_spin = QtWidgets.QSpinBox()
+        self.levels_spin.setRange(1, 30); self.levels_spin.setValue(3)
+        form.addRow("無標籤預設層數", self.levels_spin)
+
+        self.min_area_spin = QtWidgets.QDoubleSpinBox()
+        self.min_area_spin.setRange(0.0, 1000.0); self.min_area_spin.setValue(20.0)
+        self.min_area_spin.setSuffix(" m2")
+        form.addRow("最小建物面積", self.min_area_spin)
+
+        self.basemap_check = QtWidgets.QCheckBox("同時生成淡化底圖（map 行）")
+        self.basemap_check.setChecked(True)
+        form.addRow(self.basemap_check)
+
+        note = QtWidgets.QLabel(
+            "區塊插入在檔案最前（track 指令之前），重新生成會先清掉舊區塊。\n"
+            "資料 © OpenStreetMap contributors (ODbL)")
+        note.setStyleSheet("color: gray;")
+        form.addRow(note)
+
+        btn_row = QtWidgets.QHBoxLayout()
+        self.generate_btn = QtWidgets.QPushButton("生成")
+        self.generate_btn.setDefault(True)
+        self.generate_btn.clicked.connect(self.accept)
+        clear_btn = QtWidgets.QPushButton("清除 auto-osm 區塊")
+        clear_btn.clicked.connect(self._on_clear)
+        cancel_btn = QtWidgets.QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(self.generate_btn)
+        btn_row.addWidget(clear_btn)
+        btn_row.addWidget(cancel_btn)
+        form.addRow(btn_row)
+
+    def _on_clear(self):
+        removed = self._editor.table_widget.remove_auto_osm_rows()
+        QMessageBox.information(self, "OSM 沿線建物",
+                                f"已移除 {removed} 行 auto-osm 區塊。" if removed
+                                else "表格中沒有 auto-osm 區塊。")
+
+    def params(self):
+        return {
+            "lat": float(self.lat_edit.text()),
+            "lon": float(self.lon_edit.text()),
+            "radius": self.radius_combo.currentData(),
+            "default_levels": float(self.levels_spin.value()),
+            "min_area": self.min_area_spin.value(),
+            "basemap": self.basemap_check.isChecked(),
+        }
+
+
 class SceneEditorWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -2030,11 +2203,117 @@ class SceneEditorWindow(QMainWindow):
         edit_menu.addAction(paste_action)
         # ------------------------------------
 
+        # --- 新增：Tools Menu (OSM 自動生成沿線建物) ---
+        tools_menu = menubar.addMenu('&Tools')
+        osm_action = QAction('OSM 沿線建物(&O)...', self)
+        osm_action.setStatusTip('從 OpenStreetMap 生成沿線建物與淡化底圖')
+        osm_action.triggered.connect(self.open_osm_import_dialog)
+        tools_menu.addAction(osm_action)
+        # ------------------------------------
+
         # View Menu (for toggling docks)
         view_menu = menubar.addMenu('&View')
         view_menu.addAction(self.table_dock.toggleViewAction())
         view_menu.addAction(self.minimap_dock.toggleViewAction())
         view_menu.addAction(self.preview_dock.toggleViewAction())
+
+    # --- OSM 自動生成沿線建物（Tools 選單） ---
+    def open_osm_import_dialog(self):
+        if getattr(self, "_osm_dialog", None) is None:
+            self._osm_dialog = OsmImportDialog(self)
+        # 預填優先序:1) 場景有 latlon 錨點 → 小地圖指標最後所指位置的經緯度
+        #            2) 現有 auto-osm 區塊的 origin
+        prefilled = False
+        scene_for_geo = getattr(self.minimap_widget, "_scene_data", None)
+        if scene_for_geo is not None and getattr(scene_for_geo, "geo_anchor", None):
+            pos = self.minimap_widget.get_last_mouse_world_pos()
+            if pos is None:
+                pos = (self.minimap_widget._view_center_x, self.minimap_widget._view_center_z)
+            ll = scene_for_geo.world_to_latlon(pos[0], pos[1])
+            if ll:
+                self._osm_dialog.lat_edit.setText(f"{ll[0]:.6f}")
+                self._osm_dialog.lon_edit.setText(f"{ll[1]:.6f}")
+                prefilled = True
+        if not prefilled:
+            import re
+            for r in range(self.table_widget.rowCount()):
+                text = self.table_widget.get_row_text(r)
+                if text.startswith("# auto-osm begin"):
+                    m = re.search(r"origin=\(([-0-9.]+),([-0-9.]+)\)", text)
+                    if m:
+                        self._osm_dialog.lat_edit.setText(m.group(1))
+                        self._osm_dialog.lon_edit.setText(m.group(2))
+                    break
+        if self._osm_dialog.exec_() == QtWidgets.QDialog.Accepted:
+            try:
+                params = self._osm_dialog.params()
+            except ValueError:
+                QMessageBox.warning(self, "OSM 沿線建物", "經緯度格式無效。")
+                return
+            self._run_osm_import(params)
+
+    def _run_osm_import(self, p):
+        tools_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        try:
+            import osm_buildings as osmb
+            import osm_basemap as osmm
+        except Exception as e:
+            QMessageBox.warning(self, "OSM 沿線建物", f"無法載入 tools 模組: {e}")
+            return
+
+        lat, lon, radius = p["lat"], p["lon"], p["radius"]
+
+        # 場景有 latlon 錨點時,產物用錨點換算世界座標,直接對齊既有軌道;
+        # 沒有錨點時維持舊行為(查詢中心 = 世界 (0,0))。
+        scene_for_geo = getattr(self.minimap_widget, "_scene_data", None)
+        anchor = getattr(scene_for_geo, "geo_anchor", None) if scene_for_geo else None
+        if anchor:
+            ax, az, origin_lat, origin_lon = anchor
+        else:
+            ax, az, origin_lat, origin_lon = 0.0, 0.0, lat, lon
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            dlat = radius / osmb.METERS_PER_DEG_LAT
+            dlon = radius / (osmb.METERS_PER_DEG_LON_EQUATOR * np.cos(np.radians(lat)))
+            query = osmb.build_overpass_query(lat - dlat, lon - dlon,
+                                              lat + dlat, lon + dlon, 60)
+            data = osmb.fetch_overpass(query, osmb.DEFAULT_API_URL,
+                                       osmb.DEFAULT_CACHE_DIR, True, 60)
+            buildings = osmb.buildings_from_overpass(
+                data, origin_lat, origin_lon, p["min_area"], 3.0, p["default_levels"])
+            if anchor:
+                buildings = [(bx + ax, bz + az, w, d, ry, h, src)
+                             for (bx, bz, w, d, ry, h, src) in buildings]
+            comment = f"origin=({lat:.6f},{lon:.6f}) radius={radius:.0f}m"
+            if anchor:
+                comment += " anchored"
+            lines = osmb.format_building_lines(buildings, comment)
+
+            if p["basemap"]:
+                zoom = osmm.auto_zoom(lat)
+                img, cx, cz, scale = osmm.build_basemap(
+                    lat, lon, radius * 2.0, zoom, origin_lat, origin_lon,
+                    osmm.DEFAULT_TILE_URL, osmm.DEFAULT_CACHE_DIR,
+                    0.7, 0.55, 64)
+                map_name = f"map_osm_{lat:.4f}_{lon:.4f}.png"
+                os.makedirs("textures", exist_ok=True)
+                img.save(os.path.join("textures", map_name))
+                lines.insert(2, f"map {map_name} {cx + ax:.2f} {cz + az:.2f} {scale:.4f}")
+
+            removed = self.table_widget.remove_auto_osm_rows()
+            self.table_widget.insert_text_lines(lines, 0)
+            msg = f"OSM 生成完成：{len(buildings)} 棟建物"
+            if p["basemap"]: msg += "＋淡化底圖"
+            if anchor: msg += "（已用 latlon 錨點對齊世界座標）"
+            if removed: msg += f"（已先移除舊區塊 {removed} 行）"
+            self.statusBar().showMessage(msg, 8000)
+        except Exception as e:
+            QMessageBox.warning(self, "OSM 生成失敗", str(e))
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _setup_status_bar(self):
         self.statusBar = QStatusBar()

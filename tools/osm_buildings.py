@@ -12,10 +12,13 @@ TODO.md「OSM 自動生成沿線建物」實作順序的第 1 步:
     python tools/osm_buildings.py --selftest
 
 座標慣例(輸出的 building 行):
-    rel_x = 東向公尺、rel_z = 北向公尺(相對原點,預設為查詢中心)、
-    rel_y = 0、ry = -(矩形長軸自東向逆時針角度)。
-    scene_parser 對 rel 座標做的是剛體旋轉,建物之間的相對配置不變;
-    矩形有 180° 對稱性,此 ry 慣例與位置轉換一致。
+    rel_x = 「西」向公尺、rel_z = 北向公尺(相對原點,預設為查詢中心)、
+    rel_y = 0、ry = 矩形長軸自東向逆時針角度。
+    遊戲世界座標 +X=西、+Z=北(由已校準的 scene.txt 淡水線實景驗證:
+    圓山→石牌往北 z 增加、往西 x 增加;小地圖繪製時翻轉 X 軸顯示,
+    所以 map 底圖用正常北上、西左的圖即可)。預設原點角度下
+    scene_parser 的 rel→world 是恆等轉換;矩形有 180° 對稱性,
+    此 ry 慣例與位置一致。
 
 資料授權: © OpenStreetMap contributors (ODbL)。
 """
@@ -205,8 +208,8 @@ def buildings_from_overpass(data, lat0, lon0, min_area, level_height, default_le
         cx, cy, w, d, angle = rect
         h, source = parse_building_height(el.get("tags", {}), level_height, default_levels)
         height_sources[source] += 1
-        # ry = -angle:見模組 docstring 的座標慣例
-        results.append((cx, cy, w, d, -angle, h, source))
+        # rel_x = -東 = 西、ry = +angle:見模組 docstring 的座標慣例
+        results.append((-cx, cy, w, d, angle, h, source))
     print(
         f"# 建物 {len(results)} 棟(高度來源 height:{height_sources['height']} "
         f"levels:{height_sources['levels']} 預設:{height_sources['default']});"

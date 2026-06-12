@@ -25,8 +25,22 @@ scene.txt 指令格式(`building x y z rx ry rz w d h ...`、
 ## 技術設計
 
 1. **經緯度 → 世界座標**:編輯器設原點 (lat₀, lon₀) 對應世界 (0,0),
-   等距圓柱近似:`x = (lon−lon₀)·cos(lat₀)·111320`、
-   `z = (lat−lat₀)·110540`(公尺)。10km 範圍內誤差 < 0.1%。
+   等距圓柱近似:`east = (lon−lon₀)·cos(lat₀)·111320`、
+   `north = (lat−lat₀)·110540`(公尺)。10km 範圍內誤差 < 0.1%。
+   **世界軸向(2026-06-12 由 scene.txt 淡水線實景校準驗證)**:
+   遊戲世界 **+X=西、+Z=北**(圓山→石牌往北 z 增、往西 x 增),
+   所以 `world_x = −east`、`world_z = north`;小地圖繪製時翻轉 X 顯示,
+   `map` 底圖用正常北上、西左的圖即可,不需鏡像。
+   預設原點角度(無 start 指令)下 scene_parser 的 rel→world 是恆等轉換,
+   building 的 `ry = 長軸自東向逆時針角度`(矩形 180° 對稱,符號因此一致)。
+   注意:auto-osm 區塊若放在 start/track 指令之後,rel 座標會被
+   當時的相對原點再轉一次——編輯器 UI 階段需處理,驗證腳本先假設放檔首。
+   **`latlon` 錨點指令(2026-06-12 新增)**:`latlon 緯度 經度` 把
+   「軌道目前端點」(current_parse_pos) 綁定到經緯度,存在
+   `Scene.geo_anchor`,換算函數 `Scene.world_to_latlon` /
+   `latlon_to_world`。一個場景只取第一個錨點;可省略(建築庫場景)。
+   有錨點時編輯器 OSM 生成會把產物換算到錨點對齊的世界座標
+   (auto-osm 區塊仍插在檔首,識別字 `anchored` 記在 begin 註解)。
 2. **淡化地圖背景**:抓 XYZ 圖磚(OSM tiles 或 NLSC WMTS)拼成 PNG,
    拼圖時降飽和度/加白,存到 `textures/`,輸出
    `map 圖檔.png cx cz scale` 接上現有背景機制。
